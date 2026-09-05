@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-05 T-019 — Worker pool idle path: rare Gosched, wake-ups only for parked helpers, cheaper small jobs (spec/done/T-019-worker-pool-idle-path-rare-gosched-wake-ups-only.md)
 - 2026-09-05 T-020 — Fused LayerNorm: row statistics in one pass, normalise-scale-shift in one pass, matching backward (spec/done/T-020-fused-layernorm-row-statistics-in-one-pass-norma.md)
 - 2026-09-05 T-010 — AMX SGEMM kernel for Apple Silicon via the undocumented AMX instructions (spec/done/T-010-amx-sgemm-apple-silicon.md)
 - 2026-09-05 T-018 — Vectorised tanh, sigmoid, GELU and log kernels (AVX2, NEON, Go) (spec/done/T-018-vectorised-tanh-sigmoid-gelu-and-log-kernels-avx.md)

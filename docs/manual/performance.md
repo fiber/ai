@@ -137,8 +137,8 @@ ms, MLP forward+backward 65K → 75K samples/s. On a Xeon Gold 6130 (one
 socket, 16 cores), whose allocation cost was fifteen times the M2's:
 `x + y` 1M 890 → 496 µs (28.8 µs with `Release()`, PyTorch 24), 64K 194
 → 49 µs (8.8 released, PyTorch 17.8), 16M 22.8 → 13.9 ms (PyTorch 17.5),
-layer norm 36 → 18.5 ms, MLP inference 80K → 176K samples/s. See
-BENCHMARKS.md.
+layer norm 36 → 11 ms, MLP inference 80K → 288K samples/s, training step
+14K → 64K (PyTorch 71K). See BENCHMARKS.md.
 
 What the collector cannot give back is cache residency. PyTorch's
 reference counting frees a discarded result the moment it is dropped, so

@@ -11,4 +11,3 @@ macOS is the development platform.
 - [ ] T-007 — Optional Accelerate BLAS backend behind a cgo build tag
 - [ ] T-009 — Conv1D/Conv2D via im2col, multi-head attention module
 - [ ] T-016 — AVX-512 micro-kernel under all-core load: prefetch, tile shape, C layout (spec/T-016-avx-512-micro-kernel-under-all-core-load-prefetc.md)
-- [ ] T-019 — Worker pool idle path: rare Gosched, wake-ups only for parked helpers, cheaper small jobs (spec/T-019-worker-pool-idle-path-rare-gosched-wake-ups-only.md)

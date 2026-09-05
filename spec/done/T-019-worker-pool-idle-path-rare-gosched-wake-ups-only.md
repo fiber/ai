@@ -1,7 +1,7 @@
 ---
 id: T-019
 title: Worker pool idle path: rare Gosched, wake-ups only for parked helpers, cheaper small jobs
-status: open
+status: done
 scope:
   - internal/parallel/
   - cmd/bench/
@@ -11,6 +11,7 @@ scope:
 manual:
   - docs/manual/internals.md
   - docs/manual/performance.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -91,3 +92,18 @@ retained working set down from ~200 MiB to 28 MiB; AMX unchanged at
 147K. Packing buffers in `blas` moved from a `sync.Pool` (emptied by
 every GC, then re-zeroed by Go) to a persistent free list. Xeon numbers
 pending for both.
+
+Final Xeon numbers (one socket, GOMAXPROCS 16, commit cb2a1e9): MLP
+forward 169K → 288K samples/s, forward+backward 47K → 65K, training step
+42.7K → 64K (PyTorch 361K / 124K / 71K); tensor-level SGEMM n=1024 1 208
+and n=2048 1 307 GFLOPS (the kernel's own figures), [256×768]·[768×3072]
+1 162 (PyTorch 980); `x + y` 1M released 17 µs (PyTorch 24); layer norm
+11.0 ms (PyTorch 14.1). Three x86 regressions found and fixed on the way,
+all invisible on the M2 Pro: packing buffers handed out by size instead
+of LIFO (cold buffers, 60 µs per GEMM), sixteen workers faulting fresh
+output pages concurrently once MatMul stopped clearing its output (3.6×
+the page faults), and the Go fallback of the register-transpose packing
+(30 % of a forward pass). Acceptance: forward+backward ≥ 70K not quite
+reached (65K); training step ≥ 60K met. Remaining gap to PyTorch's 124K
+forward+backward is the serial path of small GEMM shapes on 16 cores
+(T-005) and per-op overhead.

@@ -272,26 +272,27 @@ OpenBLAS 0.3.34 (Haswell kernels), PyTorch 2.14.0+cpu links MKL 2024.2
 |---|---:|---:|---:|---:|
 | SGEMM 1024², 1 thread (GFLOPS, blas bench) | **162** | – | – | 169 |
 | SGEMM 1024², 1 thread (GFLOPS, incl. output allocation) | 122 → 156 (T-015) | 74 | – | – |
-| SGEMM 1024², all cores, tensor level (result released) | 730 → 1 117 (T-015) | – | – | – |
-| SGEMM 2048², all cores, tensor level (result released) | 1 165 (T-015) | – | – | – |
+| SGEMM 1024², all cores, tensor level (result released) | 730 → 1 208 (T-015/T-016) | – | – | – |
+| SGEMM 2048², all cores, tensor level (result released) | 1 307 (T-015/T-016) | – | – | – |
 | tanh, 1M | 2.73 ms → 484 µs (T-018) | | 421 µs | **54 µs** |
 | SGEMM 512², all cores (GFLOPS) | 245 | 241 | 717 | **991** |
 | SGEMM 1024², all cores (GFLOPS) | 530 → 1 242 after T-014/T-016 (blas bench) | 439 | 1 303 | **1 434** |
 | SGEMM 2048², all cores (GFLOPS) | 732 → **1 285** after T-014/T-016 (blas bench) | – | 881 | 780 |
 | [1×4096]·[4096×4096] (GFLOPS) | **13.0** | 13.0 | 10.9 | 11.0 |
-| [256×768]·[768×3072] (GFLOPS) | 323 → 677 (T-015) | 344 | **1 088** | 980 |
+| [256×768]·[768×3072] (GFLOPS) | 323 → **1 162** (T-015/T-016) | 344 | 1 088 | 980 |
 | x + y, 64K | 194 µs → 49 µs, **8.8 µs** released (T-015/T-017) | | 16.3 µs | 17.8 µs |
-| x + y, 1M | 1.49 ms → 496 µs, 28.8 µs released (T-015/T-017) | | 506 µs | **24 µs** |
+| x + y, 1M | 1.49 ms → 650 µs, **17.4 µs** released (T-015/T-017/T-019) | | 506 µs | 24 µs |
 | x + y, 16M | 22.8 ms → **13.9 ms** released (T-015) | | 26.7 ms | 17.5 ms |
 | exp, 16M | 20.0 ms → **10.7 ms** (T-015) | | 24.6 ms | 13.8 ms |
 | sum(), 4096² | 2.40 ms | | 4.79 ms | **2.42 ms** |
 | sum(dim=0), 4096² | **2.68 ms** | | 4.80 ms | 6.29 ms |
 | max(dim=1), 4096² | **2.40 ms** | | 5.03 ms | 2.46 ms |
-| softmax(dim=1), 4096² | 20.9 ms → **10.7 ms** (T-015) | | – | 14.4 ms |
-| layernorm, 4096² | 36.1 ms → 18.5 ms (T-015) | | – | **14.1 ms** |
+| softmax(dim=1), 4096² | 20.9 ms → **11.0 ms** (T-015) | | – | 14.4 ms |
+| layernorm, 4096² | 36.1 ms → **11.0 ms** (T-015/T-020) | | – | 14.1 ms |
 | transpose + copy, 4096² | **25.5 ms** | | 819 ms | 68.5 ms |
-| MLP forward, batch 256 (samples/s) | 59 K → 176 K (T-015) | | – | **361 K** |
-| MLP train step, batch 256 (samples/s) | 14 K → 42 K (T-014/T-015) | | – | **71 K** |
+| MLP forward, batch 256 (samples/s) | 59 K → 288 K (T-015/T-019) | | – | **361 K** |
+| MLP forward + backward (samples/s) | 16 K → 65 K (T-014..T-019) | | – | **124 K** |
+| MLP train step, batch 256 (samples/s) | 14 K → 64 K (T-014..T-019) | | – | **71 K** |
 
 What this says:
 

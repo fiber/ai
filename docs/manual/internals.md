@@ -20,7 +20,7 @@ tensor  ──►  internal/blas  ──►  internal/kernel  ──►  CPU
   operations on the same tensors put the same chunk on the same
   goroutine, and the data a core wrote last time is in its own cache.
   On the Xeon Gold 6130 that took `x + y` on 1M released elements from
-  53 to 29 µs. A persistent pool of helpers picks up jobs published
+  53 to 29 µs (17 µs after the 8K chunks of T-019). A persistent pool of helpers picks up jobs published
   through an atomic generation counter, spins ~200 µs between jobs
   before parking on a condition variable, and never blocks the caller
   waiting for a helper to start (nested calls are safe). Panics stop the
