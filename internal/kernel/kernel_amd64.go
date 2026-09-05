@@ -24,6 +24,7 @@ func gemmAVX2(k int, a, b, c *float32, ldc int)
 
 // Implemented in kernel_avx512_amd64.s (AVX-512F).
 func gemmAVX512(k int, a, b, c *float32, ldc int)
+func gemmAVX512x14(k int, a, b, c *float32, ldc int)
 
 var avx2 = impl{
 	name:      "avx2",
@@ -56,9 +57,20 @@ var avx512 = func() impl {
 	return i
 }()
 
+// avx512w is the same implementation with the 14×32 micro-kernel, kept
+// selectable (FIBERAI_KERNEL=avx512w) while the two tile shapes are being
+// compared on real hardware.
+var avx512w = func() impl {
+	i := avx512
+	i.name = "avx512w"
+	i.gemm = gemmAVX512x14
+	i.mr, i.nr = 14, 32
+	return i
+}()
+
 // allImpls lists every implementation compiled for this architecture,
 // regardless of CPU support.
-func allImpls() []*impl { return []*impl{&avx512, &avx2} }
+func allImpls() []*impl { return []*impl{&avx512, &avx512w, &avx2} }
 
 func candidates() []*impl {
 	_, _, ecx1, _ := cpuid(1, 0)
@@ -78,7 +90,7 @@ func candidates() []*impl {
 
 	var out []*impl
 	if hasAVX2 && hasAVX512F {
-		out = append(out, &avx512)
+		out = append(out, &avx512, &avx512w)
 	}
 	if hasAVX2 {
 		out = append(out, &avx2)
