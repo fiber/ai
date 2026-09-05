@@ -89,7 +89,13 @@ func (j *job) runItem(i int) {
 // after finishing work, then park on cond. The caller wakes parked
 // helpers with one Broadcast per job. Polling a channel instead showed up
 // as runtime lock contention worth ~20 % of CPU on a 16-core Xeon.
-const spinRounds = 4000 // atomic loads before a helper parks; ~10–20 µs
+// spinRounds is how long a helper polls for the next job before parking.
+// Waking a parked helper costs a futex round trip, and a Broadcast wakes
+// them one after another; with a dozen rounds per matrix product that
+// idle time was ~30 % of the run on a 16-core Xeon. A few hundred µs of
+// spinning (with a Gosched every few thousand loads so the P is not held
+// hostage) bridges the gap between rounds; an idle program pays it once.
+const spinRounds = 300000
 
 var (
 	cur     atomic.Pointer[job]
@@ -129,6 +135,9 @@ func helper() {
 			if gen.Load() != seen {
 				spun = true
 				break
+			}
+			if i&4095 == 4095 {
+				runtime.Gosched()
 			}
 		}
 		if spun {
@@ -176,6 +185,14 @@ func ForWorkers(n, workers int, fn func(i int)) {
 	ensureHelpers(workers - 1)
 	publish(j)
 	j.run()
+	// The last items are usually finishing on helpers right now: poll
+	// briefly before blocking, so the caller does not pay a futex wake-up
+	// at the end of every round.
+	for i := 0; i < 20000 && j.pending.Load() > 0; i++ {
+		if i&1023 == 1023 {
+			runtime.Gosched()
+		}
+	}
 	if j.pending.Load() > 0 {
 		<-j.done
 	}

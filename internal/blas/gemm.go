@@ -265,13 +265,14 @@ func gemm(c, a, b Mat, workers int) {
 		for pc := 0; pc < k; pc += kc {
 			pb := min(kc, k-pc)
 
-			packB(bp, b, pc, jc, pb, jb, nr, workers)
 			if Strategy == StrategyRows {
+				packB(bp, b, pc, jc, pb, jb, nr, workers)
 				computeRows(c, a, bp, ic0(m, mc), jc, pc, pb, jb, mr, nr, workers)
 				continue
 			}
-			// Phase 2: pack all A panels of this K block with every worker.
-			packAAll(ap, a, pc, m, pb, mr, workers)
+			// Phase 1: pack the B panels and all A panels of this K block in
+			// one parallel round (the two packings are independent).
+			packAB(ap, bp, a, b, pc, jc, m, pb, jb, mr, nr, workers)
 
 			// Phase 3: pure compute over a grid of (row block × panel range)
 			// tasks. A few tasks per worker keep dynamic scheduling effective
@@ -318,6 +319,32 @@ func gemm(c, a, b Mat, workers int) {
 			})
 		}
 	}
+}
+
+// packAB packs the B panels of block (pc, jc) and all A panels of block
+// pc in a single parallel round: items [0, nB) are B panels, [nB, nB+nA)
+// are groups of A panels.
+func packAB(ap, bp []float32, a, b Mat, pc, jc, m, pb, jb, mr, nr, workers int) {
+	nB := (jb + nr - 1) / nr
+	aPanels := (m + mr - 1) / mr
+	const group = 4
+	nA := (aPanels + group - 1) / group
+	if workers <= 1 {
+		packB(bp, b, pc, jc, pb, jb, nr, 1)
+		packAAll(ap, a, pc, m, pb, mr, 1)
+		return
+	}
+	parallel.ForWorkers(nB+nA, workers, func(i int) {
+		if i < nB {
+			packBPanel(bp, b, pc, jc, pb, jb, nr, i)
+			return
+		}
+		p0 := (i - nB) * group
+		for p := p0; p < min(p0+group, aPanels); p++ {
+			i0 := p * mr
+			packA(ap[i0*pb:(i0+mr)*pb], a, i0, pc, min(mr, m-i0), pb, mr)
+		}
+	})
 }
 
 // ic0 returns the row block starts for m rows in blocks of mc.
@@ -431,7 +458,19 @@ func packA(dst []float32, a Mat, i0, p0, ib, pb, mr int) {
 // Columns beyond jb in the last panel are zero-filled.
 func packB(dst []float32, b Mat, p0, j0, pb, jb, nr, workers int) {
 	nPanels := (jb + nr - 1) / nr
-	packOne := func(pi int) {
+	packOne := func(pi int) { packBPanel(dst, b, p0, j0, pb, jb, nr, pi) }
+	if workers > 1 && nPanels >= 8 {
+		parallel.ForWorkers(nPanels, workers, packOne)
+		return
+	}
+	for pi := 0; pi < nPanels; pi++ {
+		packOne(pi)
+	}
+}
+
+// packBPanel packs panel pi of the B block at (p0, j0).
+func packBPanel(dst []float32, b Mat, p0, j0, pb, jb, nr, pi int) {
+	{
 		jr := pi * nr
 		cols := min(nr, jb-jr)
 		panel := dst[jr*pb : (jr+nr)*pb]
@@ -461,12 +500,5 @@ func packB(dst []float32, b Mat, p0, j0, pb, jb, nr, workers int) {
 				clear(panel[p*nr+cols : p*nr+nr])
 			}
 		}
-	}
-	if workers > 1 && nPanels >= 8 {
-		parallel.ForWorkers(nPanels, workers, packOne)
-		return
-	}
-	for pi := 0; pi < nPanels; pi++ {
-		packOne(pi)
 	}
 }
