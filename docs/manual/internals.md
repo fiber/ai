@@ -48,7 +48,10 @@ tensor  ──►  internal/blas  ──►  internal/kernel  ──►  CPU
   but the Go code between tiles is. The back-end is selected by default
   when the brand string names an M1–M4 (verified on an M2 Pro and an
   M4); `FIBERAI_AMX=0` opts out, `FIBERAI_AMX=1` forces it on a newer
-  chip. The AVX2 versions process two
+  chip. SME on the M4 was probed (`internal/kernel/smeprobe`: `smstart`,
+  `fmopa`, `mova`, `ld1w`/`st1w` as instruction words from the LLVM MC
+  tests) and found slower than AMX and unsafe under Go's preemption
+  signals without masking; no SME kernel ships. The AVX2 versions process two
   vectors per loop iteration with eight-fold replicated constants as
   memory operands; the NEON `exp` likewise, which tripled its throughput
   on Apple cores.

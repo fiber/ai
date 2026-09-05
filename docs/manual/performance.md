@@ -38,6 +38,14 @@ against PyTorch/Accelerate:
 | MLP training step, samples/s | 85 K | **146 K** | 116 K |
 | MLP inference | 221 K | **569 K** | 532 K |
 
+SME, the documented matrix extension of the M4, was measured with the
+probe under `internal/kernel/smeprobe`: 1.06 TFLOPS on one thread and
+1.4 on the cluster against 1.4 and 1.7 through the AMX instructions on
+the same chip, and Go's preemption signals cost SME its Z registers
+unless signals are masked around each kernel call. fiber/ai therefore
+stays on AMX on the M4; the probe and the findings are in spec T-006
+for the day a chip needs SME.
+
 The instructions are undocumented and an unsupported chip would fault
 with an illegal instruction that the start-up self-test cannot catch, so
 the kernel enables itself only on the generations it was verified on

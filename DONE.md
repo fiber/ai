@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-05 T-006 — SME SGEMM kernel for Apple M4-class chips (spec/done/T-006-sme-sgemm-apple-m4.md)
 - 2026-09-05 T-029 — Topology-aware defaults: worker count from the physical cores of the affinity set, one NUMA node by default on Linux (spec/done/T-029-topology-aware-defaults-worker-count-from-the-ph.md)
 - 2026-09-05 T-028 — Small GEMM shapes: B read in place for M below the tile, fewer rounds and lower fixed cost for n up to 256 (spec/done/T-028-small-gemm-shapes-b-read-in-place-for-m-below-th.md)
 - 2026-09-05 T-027 — Conv1D and Conv2D via im2col with padding and stride, nn modules, pooling (spec/done/T-027-conv1d-and-conv2d-via-im2col-with-padding-and-st.md)

@@ -1,13 +1,14 @@
 ---
 id: T-006
 title: SME SGEMM kernel for Apple M4-class chips
-status: open
+status: done
 scope:
   - internal/kernel/
   - internal/blas/
 manual:
   - docs/manual/performance.md
   - docs/manual/internals.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -94,3 +95,28 @@ imm<<5 | ZAn<<7 | Zd. The M2 Pro cannot run it (no SME); results from
 the M4 decide phase 1. Open question the probe answers first: whether
 macOS leaves streaming mode across signal delivery (Go's handler uses
 NEON), which the stress test would show as SIGILL or mismatches.
+
+Phase 0 results (M4, 8 September). Encodings and ZA layout verified:
+`fmopa ZAda, Zn, Zm` accumulates Zn[row]·Zm[col], rows are Zn lanes.
+Throughput of the 32×32 tile body (four `fmopa` per k-step): 1 031–1 062
+GFLOPS on one thread, 1 386–1 399 on six; software pipelining of the
+loads changes nothing (1 062), unlike AMX, whose in-order queue gained 3×
+from it. The same tile through the AMX instructions on the same M4:
+1 400 per thread, 1 738 on all cores. State safety: Go's asynchronous
+preemption signal landing in streaming mode costs the Z registers (the
+architecture zeroes them on the streaming-mode change into and out of
+the handler; the macOS signal frame carries only the NEON halves):
+11–14 wrong results in 640 000 outer products under a GC every 5 ms,
+none with `GODEBUG=asyncpreemptoff=1`, and none with all signals
+blocked on the thread around each kernel call (`sigprocmask`, one
+syscall per task). AMX under the same stress: 960 000 tiles, no error,
+its state is thread state the kernel saves.
+
+Decision: the kernel is not built now. AMX is the default on M1–M4,
+about 20 % faster on the M4 for this tile, and needs no signal masking.
+SME becomes worth a kernel when an Apple chip drops AMX or when SME's
+documented status matters for support; `internal/kernel/smeprobe`,
+the instruction words above and the masking recipe are the starting
+point then, and the driver hooks (`GemmBegin`/`GemmEnd` with a locked
+thread) already fit a masked SME task. Acceptance criteria for the
+kernel therefore stay unmet by choice; the phase-0 report is complete.
