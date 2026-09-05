@@ -14,6 +14,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 func outer(x, y, z *float32)
@@ -83,40 +84,77 @@ func main() {
 	}
 
 	// 3. state under GC and preemption: outer products in many goroutines
-	// while the heap churns; every result must still be exact
-	var wg sync.WaitGroup
-	errs := make(chan int, 64)
-	for g := 0; g < 32; g++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			zz := make([]float32, 256)
-			mism := 0
-			for i := 0; i < 20000; i++ {
-				outer(&x[0], &y[0], &zz[0])
-				for j := 0; j < 256; j += 17 {
-					if zz[j] != y[j/16]*x[j%16] {
-						mism++
+	// while the heap churns; every result must still be exact. Once as is
+	// (Go's preemption signal lands in streaming mode and the Z registers
+	// are zeroed on the way into the handler), once with signals blocked
+	// on the thread around every kernel call.
+	for _, masked := range []bool{false, true} {
+		var wg sync.WaitGroup
+		errs := make(chan int, 64)
+		for g := 0; g < 32; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				zz := make([]float32, 256)
+				mism := 0
+				if masked {
+					runtime.LockOSThread()
+					defer runtime.UnlockOSThread()
+				}
+				for i := 0; i < 20000; i++ {
+					var old uint32
+					if masked {
+						old = blockSignals()
+					}
+					outer(&x[0], &y[0], &zz[0])
+					if masked {
+						restoreSignals(old)
+					}
+					for j := 0; j < 256; j += 17 {
+						if zz[j] != y[j/16]*x[j%16] {
+							mism++
+						}
+					}
+					if i%100 == 0 {
+						_ = make([]byte, 1<<20) // garbage for the collector
 					}
 				}
-				if i%100 == 0 {
-					_ = make([]byte, 1<<20) // garbage for the collector
+				errs <- mism
+			}()
+		}
+		stop := make(chan struct{})
+		go func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					runtime.GC()
+					time.Sleep(5 * time.Millisecond)
 				}
 			}
-			errs <- mism
 		}()
-	}
-	go func() {
-		for i := 0; i < 50; i++ {
-			runtime.GC()
-			time.Sleep(10 * time.Millisecond)
+		wg.Wait()
+		close(stop)
+		close(errs)
+		total := 0
+		for m := range errs {
+			total += m
 		}
-	}()
-	wg.Wait()
-	close(errs)
-	total := 0
-	for m := range errs {
-		total += m
+		fmt.Printf("stress (signals blocked around the kernel: %v): %d mismatches over 640 000 outer products under GC\n", masked, total)
 	}
-	fmt.Printf("stress: %d mismatches over 640 000 outer products under GC\n", total)
+}
+
+// blockSignals masks every signal on the calling thread (sigprocmask via
+// the libSystem syscall trampoline) and returns the previous mask;
+// SIGKILL and SIGSTOP cannot be blocked and stay delivered.
+func blockSignals() uint32 {
+	var old uint32
+	all := ^uint32(0)
+	syscall.Syscall(syscall.SYS_SIGPROCMASK, 1 /* SIG_BLOCK */, uintptr(unsafe.Pointer(&all)), uintptr(unsafe.Pointer(&old)))
+	return old
+}
+
+func restoreSignals(old uint32) {
+	syscall.Syscall(syscall.SYS_SIGPROCMASK, 3 /* SIG_SETMASK */, uintptr(unsafe.Pointer(&old)), 0)
 }
