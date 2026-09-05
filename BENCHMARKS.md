@@ -296,14 +296,48 @@ as a record of the problem, not as a result.
 
 ## x86: KVM guest at Broadwell feature level (AVX2 only)
 
-A 6-vCPU cloud VM without AVX-512. AVX2 kernel selected by detection,
-all tests pass. SGEMM 36–40 GFLOPS single-thread (~55 % of the nominal
-2.2 GHz peak; the guest cannot see its real clock), 191 GFLOPS on 6
-vCPUs. Memory-bound operations run at 8 GB/s against 32 GB/s for `sum()`:
-page faults on fresh allocations cost 2–3× more under virtualisation,
-which makes the allocation issue above even more pressing on VMs. Raw:
-[results/x86_64-avx2-kvm/](benchmarks/results/x86_64-avx2-kvm/) (Python
-comparison pending on that machine).
+A 6-vCPU cloud VM without AVX-512. AVX2 kernel selected by detection, all
+tests pass. NumPy 2.5.2 (OpenBLAS), PyTorch 2.14.0+cpu (MKL, 6 threads).
+Raw: [results/x86_64-avx2-kvm/](benchmarks/results/x86_64-avx2-kvm/).
+
+| Workload | fiber/ai AVX2 | NumPy / OpenBLAS | PyTorch / MKL |
+|---|---:|---:|---:|
+| SGEMM 1024², 1 thread (GFLOPS) | 37 | – | 54 |
+| SGEMM 512², all vCPUs (GFLOPS) | 105 | 179 | **183** |
+| SGEMM 1024², all vCPUs (GFLOPS) | 141 | 146 | **170** |
+| SGEMM 2048², all vCPUs (GFLOPS) | **191** | **191** | 145 |
+| [1×4096]·[4096×4096] (GFLOPS) | 8.7 | 14.2 | **16.0** |
+| x + y, 64K | 159 µs | **40 µs** | 41 µs |
+| x + y, 1M | 1.64 ms | 852 µs | **270 µs** |
+| x + y, 16M | **24.2 ms** | 42.3 ms | 35.0 ms |
+| exp, 16M | **19.3 ms** | 68.6 ms | 35.6 ms |
+| sum(), 4096² | **2.09 ms** | 9.16 ms | 2.43 ms |
+| sum(dim=0), 4096² | **2.42 ms** | 9.71 ms | 6.51 ms |
+| max(dim=1), 4096² | **2.16 ms** | 9.50 ms | 4.41 ms |
+| softmax(dim=1), 4096² | **23.5 ms** | – | 45.9 ms |
+| layernorm, 4096² | 38.7 ms | – | **30.1 ms** |
+| transpose + copy, 4096² | **86 ms** | 188 ms | 134 ms |
+| MLP forward, batch 256 (samples/s) | 42 K | – | **116 K** |
+| MLP train step, batch 256 (samples/s) | 13 K | – | **31 K** |
+
+On the VM the picture is friendlier than on the bare-metal Xeon: page
+faults on fresh allocations cost everyone, so on the large memory-bound
+workloads fiber/ai is ahead of both, and the largest GEMM is level with
+OpenBLAS and ahead of MKL. Single-threaded, MKL's AVX2 kernel is 1.45×
+faster than ours on this (virtual) Broadwell — the AVX2 micro-kernel
+deserves the same tuning attention as the AVX-512 one once real AVX2
+hardware with a visible clock is available. Small arrays (64K) and the
+MLP step stay 2–4× behind for the allocation reasons described above.
+
+### Thread placement on the Xeon (follow-up)
+
+Pinning the 16 workers to 16 physical cores (`numactl --physcpubind`)
+gives the same result as letting them float over the socket's 32
+hardware threads (793 vs 758 GFLOPS at n=1024, 1 007 vs 1 018 at
+n=2048), and 32 physical cores across both sockets with interleaved
+memory reach 1 036 — no more than 16. Hyperthreading and NUMA are not
+what limits scaling; the blocked driver is. The MC/KC sweep on this
+machine is the next measurement.
 
 ## What the numbers say
 
