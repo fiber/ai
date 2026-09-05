@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuse commits that violate PROCESS.md (specs, lists, coverage).
+exec go run ./cmd/gate check -staged

@@ -16,9 +16,14 @@ github.com/fiber/ai
 ├── internal/blas/     cache-blocked, packed, multi-threaded SGEMM
 ├── internal/parallel/ goroutine work distribution
 ├── cmd/bench/         throughput benchmarks (Markdown output)
+├── cmd/gate/          development-process gate (specs, lists, manual)
+├── docs/manual/       the user manual
 ├── benchmarks/        results and the NumPy/PyTorch comparison script
 └── examples/          tensor basics, autograd, MLP regression, spiral classification
 ```
+
+The [manual](docs/manual/README.md) covers the API in depth;
+[PROCESS.md](PROCESS.md) describes how changes are made.
 
 ## Quick start
 
