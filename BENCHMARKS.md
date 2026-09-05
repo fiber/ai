@@ -243,8 +243,8 @@ OpenBLAS 0.3.34 (Haswell kernels), PyTorch 2.14.0+cpu links MKL 2024.2
 | SGEMM 1024², 1 thread (GFLOPS, blas bench) | **162** | – | – | 169 |
 | SGEMM 1024², 1 thread (GFLOPS, incl. output allocation) | 122 | 74 | – | – |
 | SGEMM 512², all cores (GFLOPS) | 245 | 241 | 717 | **991** |
-| SGEMM 1024², all cores (GFLOPS) | 530 → 1 147 after T-014 (blas bench) | 439 | 1 303 | **1 434** |
-| SGEMM 2048², all cores (GFLOPS) | 732 → **1 139** after T-014 (blas bench) | – | 881 | 780 |
+| SGEMM 1024², all cores (GFLOPS) | 530 → 1 242 after T-014/T-016 (blas bench) | 439 | 1 303 | **1 434** |
+| SGEMM 2048², all cores (GFLOPS) | 732 → **1 285** after T-014/T-016 (blas bench) | – | 881 | 780 |
 | [1×4096]·[4096×4096] (GFLOPS) | **13.0** | 13.0 | 10.9 | 11.0 |
 | [256×768]·[768×3072] (GFLOPS) | 323 | 344 | **1 088** | 980 |
 | x + y, 1M | 1.49 ms | | 506 µs | **24 µs** |
@@ -277,10 +277,12 @@ What this says:
   runtime locks), spin through the rounds instead of parking (perf showed
   the cores only 70 % busy), and a finer task grid (the last round of a
   K block left most cores waiting). Blocking, hyperthreading and NUMA
-  placement were measured and ruled out along the way. At n=2048 (1 139)
-  fiber/ai is now ahead of both MKL (780) and OpenBLAS (881); at n=1024
-  MKL's 1 434 (72 % of peak) is still 20 % ahead — that remainder is
-  inside the micro-kernel under all-core load (spec T-016).
+  placement were measured and ruled out along the way. Spec T-016 then
+  widened the AVX-512 tile from 12×32 to 14×32 (28 accumulators, MC=112)
+  for **1 242** at n=1024 and **1 285** at n=2048 (62–64 % of peak);
+  software prefetch in the kernel changed nothing. At n=2048 fiber/ai is
+  ahead of both MKL (780) and OpenBLAS (881); at n=1024 MKL's 1 434 (72 %
+  of peak) is still 15 % ahead.
 - **Two sockets are slower than one** (n=1024: 162 vs 530 GFLOPS with 64
   vs 16 threads). NUMA and hyperthreads are invisible to Go's scheduler;
   a topology-aware default thread count is TODO T-013.

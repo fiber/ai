@@ -76,7 +76,7 @@ block with private A packing) exist for experiments.
 
 The micro-kernel (`kernel.Gemm`) receives packed panels in k-major order
 and accumulates the tile in registers: 8×12 on NEON (24 accumulators),
-6×16 on AVX2, 12×32 on AVX-512. Edge tiles are computed into a scratch
+6×16 on AVX2, 14×32 on AVX-512 (12×32 selectable as `FIBERAI_KERNEL=avx512x12`). Edge tiles are computed into a scratch
 tile and added into `C`. Blocking parameters live in `params_<arch>.go`.
 Matrix–vector shapes take `dot`/`axpy` paths before packing.
 

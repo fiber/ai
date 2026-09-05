@@ -103,8 +103,8 @@ disagrees is dropped and reported in `tensor.BackendWarnings()`.
 **GEMM.** `internal/blas` is a Goto/BLIS-style blocked SGEMM: B is packed
 into NR-wide panels that stay in L2, A into MR-wide panels that stream
 through L1, and the SIMD micro-kernel accumulates an MR×NR tile of C in
-registers. Tiles are 8×12 (NEON, 24 accumulators), 6×16 (AVX2) and 12×32
-(AVX-512). Packing removes all strides from the inner loop, so transposed or
+registers. Tiles are 8×12 (NEON, 24 accumulators), 6×16 (AVX2) and 14×32
+(AVX-512, 28 accumulators). Packing removes all strides from the inner loop, so transposed or
 otherwise strided operands cost nothing extra — `x.MatMul(w.T())` never
 copies. Work is distributed over goroutines as a 2-D grid of (row block ×
 column panel range) tasks with dynamic scheduling, which keeps all cores
@@ -151,7 +151,7 @@ Rosetta 2, which hides AVX from CPUID; bypass detection with
 |---|---|---|
 | NEON (arm64) | all + exp + 8×12 GEMM | natively on Apple M2 Pro |
 | AVX2 + FMA (amd64) | all + exp + 6×16 GEMM | under Rosetta 2 (all tests pass) |
-| AVX-512F (amd64) | 12×32 GEMM (vector ops use AVX2, they are memory-bound) | assembled and vetted; **not yet run on AVX-512 hardware** — the start-up self-test falls back to AVX2 if it misbehaves |
+| AVX-512F (amd64) | 14×32 GEMM (vector ops use AVX2, they are memory-bound) | on a Xeon Gold 6130 (Skylake-SP): 1 242 GFLOPS at n=1024 on 16 cores, see BENCHMARKS.md |
 
 ## Roadmap
 
