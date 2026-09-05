@@ -1,0 +1,17 @@
+fiber/ai x86 measurement (x86_64-avx2-kvm), 2026-09-05T11:21Z
+machine info -> benchmarks/results/x86_64-avx2-kvm/machine.txt
+  avx2: yes
+  avx512f: NO
+go vet
+  ok
+go test (detected backend)
+  ok
+    kernel_test.go:43: active kernel implementation: avx2 (MR=6, NR=16), available: [avx2 generic]
+go test FIBERAI_KERNEL=avx2
+  ok
+go test FIBERAI_KERNEL=generic
+  ok
+go bench (detected backend)
+go bench FIBERAI_KERNEL=avx2 -quick
+go bench FIBERAI_KERNEL=generic -quick
+go bench, 1 thread (GEMM efficiency)

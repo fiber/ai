@@ -1,0 +1,32 @@
+== CPU ==
+ Intel Core Processor (Broadwell, no TSX, IBRS)
+cores: 6
+Model name:                              Intel Core Processor (Broadwell, no TSX, IBRS)
+Thread(s) per core:                      1
+Socket(s):                               1
+NUMA node(s):                            1
+virt: kvm
+== Flags ==
+  avx2: yes
+  fma: yes
+  avx512f: NO
+  avx512bw: NO
+  avx512vl: NO
+  avx512dq: NO
+  avx512_vnni: NO
+  avx512_bf16: NO
+  amx_tile: NO
+  amx_bf16: NO
+  amx_int8: NO
+  avx_vnni: NO
+== Caches ==
+L1d cache:                               192 KiB (6 instances)
+L2 cache:                                24 MiB (6 instances)
+L3 cache:                                16 MiB (1 instance)
+== Frequency ==
+cpu MHz		: 2199.996
+== Kernel ==
+Linux 6.8.0-117-generic x86_64
+== Toolchain ==
+go version go1.26.2 linux/amd64
+Python 3.12.3

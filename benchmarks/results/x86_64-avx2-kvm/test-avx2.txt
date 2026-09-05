@@ -1,0 +1,4 @@
+ok  	github.com/fiber/ai/internal/blas	3.869s
+ok  	github.com/fiber/ai/internal/kernel	0.009s
+ok  	github.com/fiber/ai/internal/parallel	0.010s
+ok  	github.com/fiber/ai/tensor	0.243s
