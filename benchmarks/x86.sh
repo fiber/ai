@@ -1,24 +1,46 @@
 #!/bin/sh
 # Collect the full x86 measurement set for BENCHMARKS.md (spec T-008).
 #
-#   sh benchmarks/x86.sh            # everything, results in benchmarks/results/<host>/
-#   sh benchmarks/x86.sh -nopython  # skip the NumPy/PyTorch comparison
+#   sh benchmarks/x86.sh                 # results in benchmarks/results/<arch>-<isa>-<virt>/
+#   sh benchmarks/x86.sh -name zen4-box  # choose the directory name yourself
+#   sh benchmarks/x86.sh -nopython       # skip the NumPy/PyTorch comparison
+#
+# The results are meant to be committed to a public repository, so no
+# hostname, user name or IP address is recorded; the directory is named
+# after the hardware class (e.g. x86_64-avx2-kvm) unless -name is given.
 #
 # Needs: Linux x86-64, git checkout of the repository, Go (any version with
 # GOTOOLCHAIN=auto; go.mod pins the toolchain), python3 with venv for the
-# comparison. Commit the results directory afterwards.
+# comparison.
 set -eu
 
 cd "$(dirname "$0")/.."
-host=$(hostname -s 2>/dev/null || hostname)
-out="benchmarks/results/$host"
-mkdir -p "$out"
 python=1
-[ "${1:-}" = "-nopython" ] && python=0
+name=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -nopython) python=0 ;;
+    -name) shift; name="$1" ;;
+    *) echo "usage: $0 [-name label] [-nopython]" >&2; exit 2 ;;
+  esac
+  shift
+done
+if [ -z "$name" ]; then
+  flags=$(grep -m1 flags /proc/cpuinfo)
+  case " $flags " in
+    *" avx512f "*) isa=avx512 ;;
+    *" avx2 "*) isa=avx2 ;;
+    *) isa=generic ;;
+  esac
+  virt=$(systemd-detect-virt 2>/dev/null || echo unknown)
+  name="$(uname -m)-$isa-$virt"
+fi
+out="benchmarks/results/$name"
+mkdir -p "$out"
 
 log() { printf '%s\n' "$*" | tee -a "$out/run.log"; }
 : > "$out/run.log"
-log "fiber/ai x86 measurement on $host, $(date -u +%Y-%m-%dT%H:%MZ)"
+log "fiber/ai x86 measurement ($name), $(date -u +%Y-%m-%dT%H:%MZ)"
 
 # --- machine ---------------------------------------------------------------
 {
@@ -38,7 +60,7 @@ log "fiber/ai x86 measurement on $host, $(date -u +%Y-%m-%dT%H:%MZ)"
   lscpu | grep -E "MHz" || true
   grep -m1 "cpu MHz" /proc/cpuinfo || true
   echo "== Kernel =="
-  uname -srm
+  uname -srm | sed 's/^Linux [^ ]* //'   # release and arch only, no host name
   echo "== Toolchain =="
   go version
   python3 --version 2>&1 || true
