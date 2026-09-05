@@ -1,0 +1,13 @@
+?   	github.com/fiber/ai/cmd/bench	[no test files]
+ok  	github.com/fiber/ai/cmd/gate	0.121s
+?   	github.com/fiber/ai/examples/nn/sine	[no test files]
+?   	github.com/fiber/ai/examples/nn/spiral	[no test files]
+?   	github.com/fiber/ai/examples/tensor/autograd	[no test files]
+?   	github.com/fiber/ai/examples/tensor/basics	[no test files]
+ok  	github.com/fiber/ai/internal/blas	1.038s
+ok  	github.com/fiber/ai/internal/kernel	0.012s
+ok  	github.com/fiber/ai/internal/parallel	0.008s
+ok  	github.com/fiber/ai/nn	0.004s
+ok  	github.com/fiber/ai/optim	0.029s
+ok  	github.com/fiber/ai/tensor	0.223s
+    kernel_test.go:43: active kernel implementation: avx512 (MR=12, NR=32), available: [avx512 avx2 generic]

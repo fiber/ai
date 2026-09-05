@@ -1,0 +1,20 @@
+fiber/ai x86 measurement (skylake-sp-6130-2socket), 2026-09-05T11:58Z
+machine info -> benchmarks/results/skylake-sp-6130-2socket/machine.txt
+  avx2: yes
+  avx512f: yes
+go vet
+  ok
+go test (detected backend)
+  ok
+    kernel_test.go:43: active kernel implementation: avx512 (MR=12, NR=32), available: [avx512 avx2 generic]
+go test FIBERAI_KERNEL=avx2
+  ok
+go test FIBERAI_KERNEL=generic
+  ok
+go test FIBERAI_KERNEL=avx512
+  ok
+go bench (detected backend)
+go bench FIBERAI_KERNEL=avx2 -quick
+go bench FIBERAI_KERNEL=generic -quick
+go bench, 1 thread (GEMM efficiency)
+done: gemm-bench.txt go-avx2.md go-generic.md go.md machine.txt run.log test-avx2.txt test-avx512.txt test-generic.txt test.txt vet.txt 
