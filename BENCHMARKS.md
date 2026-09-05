@@ -205,6 +205,30 @@ Observations:
   exp, softmax, column reductions and max; behind on layernorm (five
   passes per row instead of one fused pass) and on tanh.
 
+## Allocation cost (why the element-wise numbers are what they are)
+
+Every element-wise operation allocates its result; Go zero-fills it and,
+once the GC has released earlier results to the OS, the pages fault back
+in on the next write. On the M2 Pro, raising `GOGC` from 100 to 800 —
+which keeps freed memory resident instead of returning it — changes
+nothing in the kernels and this much in the timings:
+
+| op | n | GOGC=100 | GOGC=800 |
+|---|---:|---:|---:|
+| x + y | 64K | 26.3 µs | **11.5 µs** |
+| relu(x) | 64K | 24.4 µs | **9.1 µs** |
+| x + y | 1M | 153 µs | **113 µs** |
+| exp(x) | 1M | 221 µs | **180 µs** |
+| x + y | 16M | 2.05 ms | 2.69 ms |
+
+So below a few MB the cost is the allocator, not the arithmetic; above
+that the 64 MB results are fresh pages either way. On the x86 KVM guest
+the same effect is much larger, because page faults are 2–3× more
+expensive under virtualisation: `x + y` on 16M elements ran at 8 GB/s
+while `sum()` over the same data ran at 32 GB/s. Writing results into
+caller-provided or pooled buffers (TODO T-003) is the fix; it is the
+single most valuable change for x86 deployments.
+
 ## Production platform
 
 Production runs on Intel/AMD Linux. There NumPy and PyTorch use OpenBLAS

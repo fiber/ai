@@ -103,9 +103,16 @@ if [ $python -eq 1 ]; then
       log "  details in $out/venv.err"
       exit 1
     fi
-    "$venv/bin/pip" install -q --upgrade pip
-    "$venv/bin/pip" install -q numpy torch --index-url https://download.pytorch.org/whl/cpu \
-      || "$venv/bin/pip" install -q numpy torch
+    "$venv/bin/pip" install -q --upgrade pip > "$out/pip.log" 2>&1 || true
+    if ! "$venv/bin/pip" install -q numpy torch --index-url https://download.pytorch.org/whl/cpu >> "$out/pip.log" 2>&1 \
+       && ! "$venv/bin/pip" install -q numpy torch >> "$out/pip.log" 2>&1; then
+      log "  pip install numpy torch failed; see $out/pip.log (network? disk?) — rerun, or use -nopython"
+      exit 1
+    fi
+  fi
+  if ! "$venv/bin/python" -c "import numpy, torch" 2> "$out/pip.log"; then
+    log "  numpy/torch not importable from $venv; see $out/pip.log"
+    exit 1
   fi
   {
     echo "== numpy build =="
@@ -114,7 +121,7 @@ if [ $python -eq 1 ]; then
     "$venv/bin/python" -c "import torch; print(torch.__version__); print(torch.__config__.parallel_info())" 2>&1
   } > "$out/python-build.txt" 2>&1
   log "python bench"
-  "$venv/bin/python" benchmarks/python/bench.py > "$out/python.md" 2>&1
+  "$venv/bin/python" benchmarks/python/bench.py > "$out/python.md" 2>&1 || log "  python bench FAILED (see python.md)"
 fi
 
 log "done: $(ls "$out" | tr '\n' ' ')"
