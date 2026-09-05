@@ -60,7 +60,7 @@ log "fiber/ai x86 measurement ($name), $(date -u +%Y-%m-%dT%H:%MZ)"
   lscpu | grep -E "MHz" || true
   grep -m1 "cpu MHz" /proc/cpuinfo || true
   echo "== Kernel =="
-  uname -srm | sed 's/^Linux [^ ]* //'   # release and arch only, no host name
+  uname -srm   # kernel release and arch; -n (host name) is deliberately not used
   echo "== Toolchain =="
   go version
   python3 --version 2>&1 || true
