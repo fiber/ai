@@ -33,7 +33,9 @@ for epoch := 1; epoch <= epochs; epoch++ {
 ```
 
 An *epoch* is one pass over all the training data. With 200 examples
-and batches of 32 that is 7 steps per epoch.
+and batches of 32 that is 7 steps per epoch. The `data` package has the
+same loop as one line, `for idx := range data.Batches(n, 32, r)`, once
+you have seen it written out.
 
 ## The validation set
 

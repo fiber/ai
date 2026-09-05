@@ -369,3 +369,43 @@ func TestLayerNormNumericGradient(t *testing.T) {
 	check("gamma", gamma)
 	check("beta", beta)
 }
+
+func TestCrossEntropyWeighted(t *testing.T) {
+	rng := rand.New(rand.NewPCG(31, 32))
+	logits := RandFrom(rng, 6, 3).MulScalar(3).SetRequiresGrad(true)
+	targets := []int{0, 1, 2, 2, 2, 1}
+	plain := CrossEntropy(logits, targets).Item()
+	unit := CrossEntropyWeighted(logits, targets, []float32{1, 1, 1}).Item()
+	if !approx(plain, unit, 1e-6) {
+		t.Fatalf("unit weights differ: %v vs %v", plain, unit)
+	}
+	// hand computation: per-row loss weighted, divided by the total weight
+	w := []float32{3, 1, 0.5}
+	var want, norm float64
+	lp := logits.LogSoftmax(1)
+	for r, tg := range targets {
+		want -= float64(lp.At(r, tg)) * float64(w[tg])
+		norm += float64(w[tg])
+	}
+	got := CrossEntropyWeighted(logits, targets, w)
+	if !approx(got.Item(), float32(want/norm), 1e-5) {
+		t.Fatalf("weighted loss %v, want %v", got.Item(), want/norm)
+	}
+	// numeric gradient
+	got.Backward()
+	grad := logits.Grad().Float32s()
+	d := logits.Data()
+	for _, i := range []int{0, 4, 7, 11, 17} {
+		const h = 1e-2
+		orig := d[i]
+		var lp, lm float32
+		d[i] = orig + h
+		NoGrad(func() { lp = CrossEntropyWeighted(logits, targets, w).Item() })
+		d[i] = orig - h
+		NoGrad(func() { lm = CrossEntropyWeighted(logits, targets, w).Item() })
+		d[i] = orig
+		if num := (lp - lm) / (2 * h); !approx(grad[i], num, 1e-2) {
+			t.Fatalf("grad[%d] = %v, numeric %v", i, grad[i], num)
+		}
+	}
+}

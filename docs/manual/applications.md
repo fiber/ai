@@ -65,3 +65,47 @@ centres take about 10 ms on the M2 Pro.
 `examples/syslog` puts both together on a generated day of logs and
 prints the dashboard: clusters with their line counts and most frequent
 template, and new lines judged against the day's clusters.
+
+## data: from measurements to examples
+
+The steps every project in the workbook takes before a model sees a
+number, once per data set:
+
+```go
+rates := data.Rates(counter, time.Minute, 125e6)  // bytes/s from cumulative bytes, resets handled, gaps as NaN
+x, y, pos := data.Windows(rates, 24, 15, func(t int) []float32 {
+    return data.TimeFeatures(start.Add(time.Duration(t) * time.Minute))
+})                                                // [n×28] inputs, [n×1] targets 15 minutes ahead
+xTrain, yTrain, xVal, yVal := data.SplitByTime(x, y, 0.8)
+s := data.Fit(xTrain)                             // keep s.Mean and s.Std with the model
+xTrain, xVal = s.Transform(xTrain), s.Transform(xVal)
+for idx := range data.Batches(xTrain.Dim(0), 256, r) {
+    xb, yb := xTrain.Rows(idx), yTrain.Rows(idx)
+    // train on the batch
+}
+```
+
+`Rates` treats a negative delta and a rate above the link speed as a
+counter reset (the new value counts from zero) and a NaN sample as a
+gap; `Windows` skips positions whose window or target touches a gap and
+returns the positions it used so results can be lined up with time
+stamps again. `SplitByTime` returns views, `Batches` yields shuffled
+index slices for `Tensor.Rows`.
+
+## metrics: judging a classifier or a forecast
+
+```go
+m := metrics.Confusion(pred, truth, 6)
+m.Labels = []string{"printer", "camera", "workstation", "server", "phone", "unknown"}
+fmt.Println(m)               // the table with per-class recall and precision
+m.Recall(1), m.Precision(1), m.F1(1)
+metrics.MAE(pred, y), metrics.RMSE(pred, y)
+```
+
+The per-class numbers are the ones that matter when classes are uneven:
+a model that always says "workstation" scores 85 % accuracy on a network
+with 40 cameras and no recall on cameras at all. Pair the table with
+`tensor.CrossEntropyWeighted(logits, targets, weights)` during training,
+which multiplies each example's loss by its class's weight (for example
+the inverse class frequency) and normalises by the batch's total weight
+as PyTorch does.

@@ -131,17 +131,32 @@ func MSELoss(pred, target *Tensor) *Tensor {
 // targets given raw logits of shape [rows, classes]. Softmax is fused in;
 // do not apply Softmax or LogSoftmax before it.
 func CrossEntropy(logits *Tensor, targets []int) *Tensor {
+	return crossEntropy("CrossEntropy", logits, targets, nil)
+}
+
+// CrossEntropyWeighted is CrossEntropy with one weight per class: the
+// loss of a row is multiplied by the weight of its target and the mean is
+// taken over the total weight of the batch's targets (as PyTorch's
+// weighted cross-entropy does), so rare classes can count for more.
+func CrossEntropyWeighted(logits *Tensor, targets []int, weights []float32) *Tensor {
+	return crossEntropy("CrossEntropyWeighted", logits, targets, weights)
+}
+
+func crossEntropy(op string, logits *Tensor, targets []int, weights []float32) *Tensor {
 	if len(logits.shape) != 2 {
-		fail("CrossEntropy", "expected logits of shape [rows classes], got %v", logits.shape)
+		fail(op, "expected logits of shape [rows classes], got %v", logits.shape)
 	}
 	x := logits.Contiguous()
 	m, c := x.shape[0], x.shape[1]
 	if len(targets) != m {
-		fail("CrossEntropy", "got %d targets for %d rows", len(targets), m)
+		fail(op, "got %d targets for %d rows", len(targets), m)
+	}
+	if weights != nil && len(weights) != c {
+		fail(op, "got %d class weights for %d classes", len(weights), c)
 	}
 	for _, t := range targets {
 		if t < 0 || t >= c {
-			fail("CrossEntropy", "target %d out of range [0, %d)", t, c)
+			fail(op, "target %d out of range [0, %d)", t, c)
 		}
 	}
 	probs := newTensorUninit(x.shape) // softmax, kept for backward
@@ -155,19 +170,37 @@ func CrossEntropy(logits *Tensor, targets []int) *Tensor {
 			losses[r] = float64(lse - row[targets[r]])
 		}
 	})
-	var total float64
-	for _, l := range losses {
-		total += l
-	}
-	out := Scalar(float32(total / float64(m)))
-	return record(out, "CrossEntropy", []*Tensor{x}, func(gy *Tensor) {
-		// dlogits = (softmax − onehot) · g/m
-		scale := gy.data[0] / float32(m)
-		g := probs.MulScalar(scale)
-		for r, t := range targets {
-			g.data[r*c+t] -= scale
+	// per-row weight and the normaliser: m for the plain loss, the sum of
+	// the targets' weights otherwise
+	rowW := make([]float32, m)
+	var norm float64
+	for r, t := range targets {
+		w := float32(1)
+		if weights != nil {
+			w = weights[t]
 		}
-		x.accumGrad(g)
+		rowW[r] = w
+		norm += float64(w)
+	}
+	if norm == 0 {
+		norm = 1
+	}
+	var total float64
+	for r, l := range losses {
+		total += l * float64(rowW[r])
+	}
+	out := Scalar(float32(total / norm))
+	return record(out, op, []*Tensor{x}, func(gy *Tensor) {
+		// dlogits[r] = (softmax[r] − onehot[r]) · w[r] · g / norm
+		g := probs.saved()
+		gd := newTensorUninit(x.shape)
+		scale := gy.data[0] / float32(norm)
+		for r, t := range targets {
+			s := scale * rowW[r]
+			kernel.Scale(g.data[r*c:(r+1)*c], s, gd.data[r*c:(r+1)*c])
+			gd.data[r*c+t] -= s
+		}
+		x.accumGrad(gd)
 	})
 }
 
