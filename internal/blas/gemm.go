@@ -287,21 +287,20 @@ var bufs struct {
 	free [][]float32
 }
 
+// getBuf hands out the most recently returned buffer that fits (LIFO):
+// the previous product's packing buffer is still warm in the cache of
+// the core that used it, which on a machine with slow memory is worth
+// more than a tighter size fit (choosing the smallest fit cost a 16-core
+// Xeon 20 % of an MLP forward pass).
 func getBuf(n int) []float32 {
 	bufs.Lock()
-	best := -1
-	for i, s := range bufs.free {
-		if cap(s) >= n && (best < 0 || cap(s) < cap(bufs.free[best])) {
-			best = i
+	for i := len(bufs.free) - 1; i >= 0; i-- {
+		s := bufs.free[i]
+		if cap(s) >= n {
+			bufs.free = append(bufs.free[:i], bufs.free[i+1:]...)
+			bufs.Unlock()
+			return s[:n]
 		}
-	}
-	if best >= 0 {
-		s := bufs.free[best]
-		last := len(bufs.free) - 1
-		bufs.free[best] = bufs.free[last]
-		bufs.free = bufs.free[:last]
-		bufs.Unlock()
-		return s[:n]
 	}
 	bufs.Unlock()
 	return make([]float32, n)
@@ -310,20 +309,10 @@ func getBuf(n int) []float32 {
 func putBuf(s []float32) {
 	bufs.Lock()
 	defer bufs.Unlock()
-	if len(bufs.free) < bufKeep {
-		bufs.free = append(bufs.free, s[:cap(s)])
-		return
+	if len(bufs.free) >= bufKeep {
+		bufs.free = bufs.free[1:] // drop the oldest
 	}
-	// full: keep the larger of the incoming buffer and the smallest held
-	small := 0
-	for i, b := range bufs.free {
-		if cap(b) < cap(bufs.free[small]) {
-			small = i
-		}
-	}
-	if cap(bufs.free[small]) < cap(s) {
-		bufs.free[small] = s[:cap(s)]
-	}
+	bufs.free = append(bufs.free, s[:cap(s)])
 }
 
 func roundUp(x, m int) int { return (x + m - 1) / m * m }
