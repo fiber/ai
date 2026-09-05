@@ -22,7 +22,9 @@ github.com/fiber/ai
 └── examples/          tensor basics, autograd, MLP regression, spiral classification
 ```
 
-The [manual](docs/manual/README.md) covers the API in depth;
+The [tutorial](docs/tutorial/README.md) teaches the field from the code
+up in eight runnable chapters, for Go developers who never learned NumPy
+or PyTorch. The [manual](docs/manual/README.md) covers the API in depth;
 [PROCESS.md](PROCESS.md) describes how changes are made.
 
 ## Quick start

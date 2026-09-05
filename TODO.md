@@ -11,4 +11,3 @@ macOS is the development platform.
 - [ ] T-007 — Optional Accelerate BLAS backend behind a cgo build tag
 - [ ] T-009 — Conv1D/Conv2D via im2col, multi-head attention module
 - [ ] T-016 — AVX-512 micro-kernel under all-core load: prefetch, tile shape, C layout (spec/T-016-avx-512-micro-kernel-under-all-core-load-prefetc.md)
-- [ ] T-021 — Tutorial: AI for Go developers with fiber/ai, eight chapters with runnable programs (spec/T-021-tutorial-ai-for-go-developers-with-fiber-ai-eigh.md)

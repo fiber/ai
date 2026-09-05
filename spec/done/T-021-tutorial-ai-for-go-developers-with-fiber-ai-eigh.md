@@ -1,7 +1,7 @@
 ---
 id: T-021
 title: Tutorial: AI for Go developers with fiber/ai, eight chapters with runnable programs
-status: open
+status: done
 scope:
   - docs/tutorial/
   - examples/
@@ -10,6 +10,7 @@ scope:
   - optim/
 manual:
   - docs/manual/getting-started.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -65,3 +66,16 @@ start for readers new to the field.
   the chapters.
 
 ## Notes
+
+Done: eight chapters in `docs/tutorial/`, eight programs under
+`examples/tutorial/`, every quoted output taken from a run on the M2
+Pro (all under ten seconds; chapter 8 trains on 56 160 examples for 8
+epochs in about 4 s). Added on the way: `Tensor.Rows` (gather rows by
+index with a scatter-add gradient), `nn.SaveParams`/`nn.LoadParams`
+(binary parameter files, shape-checked on load) with tests. Chapter 8
+was the honest one: with perfectly weekly synthetic traffic the
+"same minute last week" baseline beat the model (24.4 against 28.5
+Mbit/s); day-to-day level variation and a trend, both present in any
+real series, turn it around (37.9 against 31.9). Chapter 6's dropout
+variant does not clearly beat the plain small model at 600 epochs; the
+text says so and uses the curves to introduce early stopping.
