@@ -57,8 +57,8 @@ func main() {
 		}
 		defer pprof.StopCPUProfile()
 	}
-	sections := map[string]func(){"gemm": benchGemm, "elementwise": benchElementwise, "reductions": benchReductions, "attention": benchAttention, "mlp": benchMLP}
-	order := []string{"gemm", "elementwise", "reductions", "attention", "mlp"}
+	sections := map[string]func(){"gemm": benchGemm, "elementwise": benchElementwise, "reductions": benchReductions, "attention": benchAttention, "conv": benchConv, "mlp": benchMLP}
+	order := []string{"gemm", "elementwise", "reductions", "attention", "conv", "mlp"}
 	if *only != "" {
 		order = strings.Split(*only, ",")
 	}
@@ -200,6 +200,25 @@ func benchAttention() {
 		fmt.Printf("| [%d×%d×%d×%d] q·kᵀ, softmax, ·v | %s | %.1f |\n", b, h, n, d, fmtDur(t), flops/t/1e9)
 		t = timeIt(func() { tensor.Attention(q, k, v, mask).Release() })
 		fmt.Printf("| same with causal mask | %s | %.1f |\n", fmtDur(t), flops/t/1e9)
+	})
+	fmt.Println()
+}
+
+// benchConv times a 3×3 convolution on a mid-network shape: 32 images,
+// 64 → 64 channels, 56×56.
+func benchConv() {
+	fmt.Println("### Convolution (all threads, NoGrad, result released)")
+	fmt.Println()
+	fmt.Println("| shape | time | GFLOPS |")
+	fmt.Println("|---|---:|---:|")
+	n, c, h, w, o, k := 32, 64, 56, 56, 64, 3
+	x := tensor.Randn(n, c, h, w)
+	wt := tensor.Randn(o, c, k, k)
+	b := tensor.Randn(o)
+	flops := 2.0 * float64(n) * float64(o) * float64(h*w) * float64(c*k*k)
+	tensor.NoGrad(func() {
+		t := timeIt(func() { tensor.Conv2D(x, wt, b, 1, 1).Release() })
+		fmt.Printf("| [%d×%d×%d×%d] · %d filters %d×%d, pad 1 | %s | %.1f |\n", n, c, h, w, o, k, k, fmtDur(t), flops/t/1e9)
 	})
 	fmt.Println()
 }

@@ -115,6 +115,15 @@ inputs needs a gradient, a fused path computes 64 query rows at a time,
 runs their softmax in cache and never materialises the [T×S] score
 matrix; results agree to float32 precision.
 
+## Convolutions
+
+`tensor.Conv2D(x, w, b, stride, pad)` convolves x [N,C,H,W] with filters
+w [O,C,kh,kw] and bias b (nil for none); `Conv1D` does the same over
+[N,C,L] with w [O,C,k]. Both go through `Im2Col`, which lays every
+receptive field out as a column so the convolution is one matrix product
+per image; its backward scatters gradients back. `MaxPool2D(x, k,
+stride)` takes window maxima and routes gradients to them.
+
 ## Views
 
 These return tensors sharing the same storage, in O(1):

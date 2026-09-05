@@ -40,6 +40,17 @@ models; `Embedding.Lookup(ids)` gathers token vectors with a scatter-add
 gradient. `examples/nn/attention` puts them together as a two-layer
 pre-norm transformer that learns to continue repeating patterns.
 
+## Convolutions
+
+`nn.NewConv2D(in, out, k)` and `nn.NewConv1D(in, out, k)` are convolution
+layers over [batch, channels, height, width] and [batch, channels,
+length]; `Stride` and `Pad` are fields (defaults 1 and k/2, which keeps
+the size for odd k). `nn.NewMaxPool2D(k)` halves the spatial size,
+`nn.Flatten{}` leads into `Linear`. Convolutions run as one matrix
+product per image over an im2col layout, so they use the GEMM path;
+`examples/nn/conv` trains a small CNN to 97 % on generated shape images
+in under a second.
+
 ## Losses and fused primitives
 
 All in package `tensor`:
