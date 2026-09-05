@@ -21,6 +21,8 @@ package blas
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 
 	"github.com/fiber/ai/internal/kernel"
@@ -83,6 +85,21 @@ var (
 	// parallel path wins from roughly 160³.
 	ParallelThreshold = 4 * 1024 * 1024
 )
+
+// The blocking parameters can be overridden for tuning runs without a
+// rebuild: FIBERAI_BLAS_KC, FIBERAI_BLAS_MC and FIBERAI_BLAS_NC (elements).
+func init() {
+	for _, v := range []struct {
+		name string
+		dst  *int
+	}{{"FIBERAI_BLAS_KC", &KC}, {"FIBERAI_BLAS_MC", &MC}, {"FIBERAI_BLAS_NC", &NC}} {
+		if s := os.Getenv(v.name); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n > 0 {
+				*v.dst = n
+			}
+		}
+	}
+}
 
 // Gemm computes C += A·B using up to parallel.Workers() goroutines.
 //

@@ -229,12 +229,81 @@ while `sum()` over the same data ran at 32 GB/s. Writing results into
 caller-provided or pooled buffers (TODO T-003) is the fix; it is the
 single most valuable change for x86 deployments.
 
-## Production platform
+## x86: Intel Xeon Gold 6130 (Skylake-SP), one socket
 
-Production runs on Intel/AMD Linux. There NumPy and PyTorch use OpenBLAS
-or MKL on the same AVX2/AVX-512 units our kernels use, so the comparison
-is like for like. Those measurements are TODO T-008 and will decide the
-priorities; the macOS numbers above are development feedback.
+The production-class comparison: bare metal, 16 cores per socket, AVX-512
+with two FMA units per core. fiber/ai pinned to socket 0 with
+`GOMAXPROCS=16 numactl --cpunodebind=0 --membind=0`; NumPy 2.5.3 links
+OpenBLAS 0.3.34 (Haswell kernels), PyTorch 2.14.0+cpu links MKL 2024.2
+(32 threads, hyperthreads included). Go 1.27.1. Raw:
+[results/skylake-sp-6130-1socket/](benchmarks/results/skylake-sp-6130-1socket/).
+
+| Workload | fiber/ai AVX-512 | fiber/ai AVX2 | NumPy / OpenBLAS | PyTorch / MKL |
+|---|---:|---:|---:|---:|
+| SGEMM 1024², 1 thread (GFLOPS, blas bench) | **162** | – | – | 169 |
+| SGEMM 1024², 1 thread (GFLOPS, incl. output allocation) | 122 | 74 | – | – |
+| SGEMM 512², all cores (GFLOPS) | 245 | 241 | 717 | **991** |
+| SGEMM 1024², all cores (GFLOPS) | 530 | 439 | 1 303 | **1 434** |
+| SGEMM 2048², all cores (GFLOPS) | 732 (blas bench: **1 018**) | – | 881 | 780 |
+| [1×4096]·[4096×4096] (GFLOPS) | **13.0** | 13.0 | 10.9 | 11.0 |
+| [256×768]·[768×3072] (GFLOPS) | 323 | 344 | **1 088** | 980 |
+| x + y, 1M | 1.49 ms | | 506 µs | **24 µs** |
+| x + y, 16M | 22.8 ms | | 26.7 ms | **17.5 ms** |
+| exp, 16M | 20.0 ms | | 24.6 ms | **13.8 ms** |
+| sum(), 4096² | 2.40 ms | | 4.79 ms | **2.42 ms** |
+| sum(dim=0), 4096² | **2.68 ms** | | 4.80 ms | 6.29 ms |
+| max(dim=1), 4096² | **2.40 ms** | | 5.03 ms | 2.46 ms |
+| softmax(dim=1), 4096² | 20.9 ms | | – | **14.4 ms** |
+| layernorm, 4096² | 36.1 ms | | – | **14.1 ms** |
+| transpose + copy, 4096² | **25.5 ms** | | 819 ms | 68.5 ms |
+| MLP forward, batch 256 (samples/s) | 59 K | | – | **361 K** |
+| MLP train step, batch 256 (samples/s) | 14 K | | – | **71 K** |
+
+What this says:
+
+- **The AVX-512 micro-kernel is right.** It passed the start-up
+  self-verification and every test on the first run on real hardware, it
+  is 1.65× faster than the AVX2 kernel on the same core, and at 162
+  GFLOPS single-threaded it sits at ~90 % of the core's AVX-512 turbo
+  peak — level with MKL's single thread. This is the like-for-like
+  comparison the Macs could not give: kernel against kernel, we are
+  there.
+- **Multi-core scaling is the problem: 6.3× on 16 cores.** MKL and
+  OpenBLAS reach 1.3–1.4 TFLOPS at n=1024, we reach 0.53 (0.73 in the
+  allocation-free blas benchmark). Two suspects, both in the driver, not
+  the kernel: the amd64 blocking (MC=96) was chosen blind and leaves a
+  1 MiB L2 mostly empty; and goroutines are not pinned, so on a
+  hyperthreaded socket two workers can share one core's FMA units while
+  another core idles. Neither exists on the Macs, which is why they did
+  not show up before. Blocking parameters can now be swept without a
+  rebuild via `FIBERAI_BLAS_KC/MC/NC`.
+- **Two sockets are slower than one** (n=1024: 162 vs 530 GFLOPS with 64
+  vs 16 threads). NUMA and hyperthreads are invisible to Go's scheduler;
+  a topology-aware default thread count is TODO T-013.
+- **Element-wise operations are dominated by allocation and GC.** `sum()`
+  (no allocation) matches PyTorch exactly; `x + y` on 1M elements, which
+  allocates 4 MB, is 60× slower than PyTorch's cache-resident, buffer-
+  reusing 24 µs. With 16 Ps every GC cycle wakes 16 threads, and it
+  happens every few iterations at this allocation rate. Writing results
+  into reusable buffers (TODO T-003) is the single most valuable change
+  for x86.
+- Where no allocation dominates we already win on this machine:
+  matrix-vector, column sums, max, transposes.
+
+The two-socket run (all 64 hardware threads, no pinning) is in
+[results/skylake-sp-6130-2socket/](benchmarks/results/skylake-sp-6130-2socket/)
+as a record of the problem, not as a result.
+
+## x86: KVM guest at Broadwell feature level (AVX2 only)
+
+A 6-vCPU cloud VM without AVX-512. AVX2 kernel selected by detection,
+all tests pass. SGEMM 36–40 GFLOPS single-thread (~55 % of the nominal
+2.2 GHz peak; the guest cannot see its real clock), 191 GFLOPS on 6
+vCPUs. Memory-bound operations run at 8 GB/s against 32 GB/s for `sum()`:
+page faults on fresh allocations cost 2–3× more under virtualisation,
+which makes the allocation issue above even more pressing on VMs. Raw:
+[results/x86_64-avx2-kvm/](benchmarks/results/x86_64-avx2-kvm/) (Python
+comparison pending on that machine).
 
 ## What the numbers say
 
