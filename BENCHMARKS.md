@@ -241,12 +241,15 @@ OpenBLAS 0.3.34 (Haswell kernels), PyTorch 2.14.0+cpu links MKL 2024.2
 | Workload | fiber/ai AVX-512 | fiber/ai AVX2 | NumPy / OpenBLAS | PyTorch / MKL |
 |---|---:|---:|---:|---:|
 | SGEMM 1024², 1 thread (GFLOPS, blas bench) | **162** | – | – | 169 |
-| SGEMM 1024², 1 thread (GFLOPS, incl. output allocation) | 122 | 74 | – | – |
+| SGEMM 1024², 1 thread (GFLOPS, incl. output allocation) | 122 → 156 (T-015) | 74 | – | – |
+| SGEMM 1024², all cores, tensor level (result released) | 730 → 1 117 (T-015) | – | – | – |
+| SGEMM 2048², all cores, tensor level (result released) | 1 165 (T-015) | – | – | – |
+| tanh, 1M | 2.73 ms → 484 µs (T-018) | | 421 µs | **54 µs** |
 | SGEMM 512², all cores (GFLOPS) | 245 | 241 | 717 | **991** |
 | SGEMM 1024², all cores (GFLOPS) | 530 → 1 242 after T-014/T-016 (blas bench) | 439 | 1 303 | **1 434** |
 | SGEMM 2048², all cores (GFLOPS) | 732 → **1 285** after T-014/T-016 (blas bench) | – | 881 | 780 |
 | [1×4096]·[4096×4096] (GFLOPS) | **13.0** | 13.0 | 10.9 | 11.0 |
-| [256×768]·[768×3072] (GFLOPS) | 323 | 344 | **1 088** | 980 |
+| [256×768]·[768×3072] (GFLOPS) | 323 → 677 (T-015) | 344 | **1 088** | 980 |
 | x + y, 64K | 194 µs → 49 µs, **8.8 µs** released (T-015/T-017) | | 16.3 µs | 17.8 µs |
 | x + y, 1M | 1.49 ms → 496 µs, 28.8 µs released (T-015/T-017) | | 506 µs | **24 µs** |
 | x + y, 16M | 22.8 ms → **13.9 ms** released (T-015) | | 26.7 ms | 17.5 ms |

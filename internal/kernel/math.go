@@ -20,11 +20,19 @@ func Sqrt(x, z []float32) {
 func Sigmoid(x, z []float32) {
 	n := checkLen2(x, z)
 	x, z = x[:n], z[:n]
-	Scale(x, 0.5, z)
-	Tanh(z, z)
-	Scale(z, 0.5, z)
-	AddScalar(z, 0.5, z)
+	for lo := 0; lo < n; lo += block {
+		hi := min(lo+block, n)
+		xb, zb := x[lo:hi], z[lo:hi]
+		Scale(xb, 0.5, zb)
+		Tanh(zb, zb)
+		Scale(zb, 0.5, zb)
+		AddScalar(zb, 0.5, zb)
+	}
 }
+
+// block is the sub-range the composed kernels work on so that their
+// several passes stay in L1 whatever the caller's slice length.
+const block = 4096
 
 // Pow computes z[i] = x[i] ** p.
 func Pow(x []float32, p float32, z []float32) {
@@ -123,11 +131,15 @@ const geluC = 0.7978845608028654 // sqrt(2/pi)
 func GELU(x, z []float32) {
 	n := checkLen2(x, z)
 	x, z = x[:n], z[:n]
-	geluInner(x, z)
-	Tanh(z, z)
-	AddScalar(z, 1, z)
-	Mul(z, x, z)
-	Scale(z, 0.5, z)
+	for lo := 0; lo < n; lo += block {
+		hi := min(lo+block, n)
+		xb, zb := x[lo:hi], z[lo:hi]
+		geluInner(xb, zb)
+		Tanh(zb, zb)
+		AddScalar(zb, 1, zb)
+		Mul(zb, xb, zb)
+		Scale(zb, 0.5, zb)
+	}
 }
 
 // geluInner writes u = c·(x + 0.044715·x³) into z.
@@ -143,17 +155,15 @@ func geluInner(x, z []float32) {
 func GELUGrad(x, z []float32) {
 	n := checkLen2(x, z)
 	x, z = x[:n], z[:n]
-	var stack [4096]float32
-	t := stack[:0]
-	if n <= len(stack) {
-		t = stack[:n]
-	} else {
-		t = make([]float32, n)
-	}
-	geluInner(x, t)
-	Tanh(t, t) // t = tanh(u)
-	for i, v := range x {
-		du := geluC * (1 + 3*0.044715*v*v)
-		z[i] = 0.5*(1+t[i]) + 0.5*v*(1-t[i]*t[i])*du
+	var t [block]float32
+	for lo := 0; lo < n; lo += block {
+		hi := min(lo+block, n)
+		xb, zb, tb := x[lo:hi], z[lo:hi], t[:hi-lo]
+		geluInner(xb, tb)
+		Tanh(tb, tb) // tanh(u)
+		for i, v := range xb {
+			du := geluC * (1 + 3*0.044715*v*v)
+			zb[i] = 0.5*(1+tb[i]) + 0.5*v*(1-tb[i]*tb[i])*du
+		}
 	}
 }

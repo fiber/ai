@@ -82,3 +82,17 @@ to 0.4 ns/element (`BenchmarkExp` 4096: 5.7 → 1.6 µs; 1M one core 792
 consecutive iterations of the single-vector loop. The AVX2 kernels are
 left single-vector until the Xeon `BenchmarkExp`/`BenchmarkTanh` figures
 say whether they need the same.
+
+Xeon (one socket, GOMAXPROCS 16) after the first version: `tanh` 1M
+2.73 ms → 484 µs, 16M 47.9 → 10.6 ms, i.e. the same memory-bound figure
+as `exp` and `relu` (PyTorch 54 µs at 1M is cache-resident, see
+T-015/T-017: with `Release()` the 1M rows sit at ~30 µs). But the AVX2
+kernels themselves ran at 1.7 ns/element (`BenchmarkExp` 4096: 7.0 µs,
+`BenchmarkTanh` 7.7 µs), the same non-overlap symptom as NEON, and
+`sigmoid`/`gelu` at 16M (16.0/23.4 ms against 10.6 for `tanh`) showed
+the composed passes running over 1 MiB chunks instead of L1. Both fixed:
+the AVX2 `exp`, `tanh` and `log` now process two vectors per iteration
+with eight-fold replicated constants as memory operands (no register
+pressure), and the composed kernels block internally at 4096 elements.
+Tensor-level GEMM with the result released: n=1024 658 → 1 117 GFLOPS,
+n=2048 1 165 (kernel alone 1 242/1 285).

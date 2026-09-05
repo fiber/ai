@@ -496,65 +496,192 @@ done:
 // ---------------------------------------------------------------------------
 // func expAVX2(x, z *float32, n int)      (n % 8 == 0)
 //
-// Vectorised exp, 8 floats per iteration; see genericExp for the algorithm.
+// Vectorised exp, see genericExp for the algorithm. Constants are stored
+// eight times over so they can be memory operands.
 // ---------------------------------------------------------------------------
-DATA ·expConsts+0(SB)/4, $0x3FB8AA3B  // log2e
-DATA ·expConsts+4(SB)/4, $0x3F318000  // ln2 hi
-DATA ·expConsts+8(SB)/4, $0xB95E8083  // ln2 lo
-DATA ·expConsts+12(SB)/4, $0x42B0C0A5 // clamp hi
-DATA ·expConsts+16(SB)/4, $0xC2AE0000 // clamp lo (-87.0)
-DATA ·expConsts+20(SB)/4, $0x39506967 // c0
-DATA ·expConsts+24(SB)/4, $0x3AB743CE // c1
-DATA ·expConsts+28(SB)/4, $0x3C088908 // c2
-DATA ·expConsts+32(SB)/4, $0x3D2AA9C1 // c3
-DATA ·expConsts+36(SB)/4, $0x3E2AAAAA // c4
-DATA ·expConsts+40(SB)/4, $0x3F000000 // c5
-DATA ·expConsts+44(SB)/4, $0x3F800000 // 1.0
-GLOBL ·expConsts(SB), RODATA|NOPTR, $48
+DATA ·expConsts+0(SB)/4, $0x3FB8AA3B // log2e
+DATA ·expConsts+4(SB)/4, $0x3FB8AA3B
+DATA ·expConsts+8(SB)/4, $0x3FB8AA3B
+DATA ·expConsts+12(SB)/4, $0x3FB8AA3B
+DATA ·expConsts+16(SB)/4, $0x3FB8AA3B
+DATA ·expConsts+20(SB)/4, $0x3FB8AA3B
+DATA ·expConsts+24(SB)/4, $0x3FB8AA3B
+DATA ·expConsts+28(SB)/4, $0x3FB8AA3B
+DATA ·expConsts+32(SB)/4, $0x3F318000 // ln2hi
+DATA ·expConsts+36(SB)/4, $0x3F318000
+DATA ·expConsts+40(SB)/4, $0x3F318000
+DATA ·expConsts+44(SB)/4, $0x3F318000
+DATA ·expConsts+48(SB)/4, $0x3F318000
+DATA ·expConsts+52(SB)/4, $0x3F318000
+DATA ·expConsts+56(SB)/4, $0x3F318000
+DATA ·expConsts+60(SB)/4, $0x3F318000
+DATA ·expConsts+64(SB)/4, $0xB95E8083 // ln2lo
+DATA ·expConsts+68(SB)/4, $0xB95E8083
+DATA ·expConsts+72(SB)/4, $0xB95E8083
+DATA ·expConsts+76(SB)/4, $0xB95E8083
+DATA ·expConsts+80(SB)/4, $0xB95E8083
+DATA ·expConsts+84(SB)/4, $0xB95E8083
+DATA ·expConsts+88(SB)/4, $0xB95E8083
+DATA ·expConsts+92(SB)/4, $0xB95E8083
+DATA ·expConsts+96(SB)/4, $0x42B0C0A5 // hi
+DATA ·expConsts+100(SB)/4, $0x42B0C0A5
+DATA ·expConsts+104(SB)/4, $0x42B0C0A5
+DATA ·expConsts+108(SB)/4, $0x42B0C0A5
+DATA ·expConsts+112(SB)/4, $0x42B0C0A5
+DATA ·expConsts+116(SB)/4, $0x42B0C0A5
+DATA ·expConsts+120(SB)/4, $0x42B0C0A5
+DATA ·expConsts+124(SB)/4, $0x42B0C0A5
+DATA ·expConsts+128(SB)/4, $0xC2AE0000 // lo
+DATA ·expConsts+132(SB)/4, $0xC2AE0000
+DATA ·expConsts+136(SB)/4, $0xC2AE0000
+DATA ·expConsts+140(SB)/4, $0xC2AE0000
+DATA ·expConsts+144(SB)/4, $0xC2AE0000
+DATA ·expConsts+148(SB)/4, $0xC2AE0000
+DATA ·expConsts+152(SB)/4, $0xC2AE0000
+DATA ·expConsts+156(SB)/4, $0xC2AE0000
+DATA ·expConsts+160(SB)/4, $0x39506967 // c0
+DATA ·expConsts+164(SB)/4, $0x39506967
+DATA ·expConsts+168(SB)/4, $0x39506967
+DATA ·expConsts+172(SB)/4, $0x39506967
+DATA ·expConsts+176(SB)/4, $0x39506967
+DATA ·expConsts+180(SB)/4, $0x39506967
+DATA ·expConsts+184(SB)/4, $0x39506967
+DATA ·expConsts+188(SB)/4, $0x39506967
+DATA ·expConsts+192(SB)/4, $0x3AB743CE // c1
+DATA ·expConsts+196(SB)/4, $0x3AB743CE
+DATA ·expConsts+200(SB)/4, $0x3AB743CE
+DATA ·expConsts+204(SB)/4, $0x3AB743CE
+DATA ·expConsts+208(SB)/4, $0x3AB743CE
+DATA ·expConsts+212(SB)/4, $0x3AB743CE
+DATA ·expConsts+216(SB)/4, $0x3AB743CE
+DATA ·expConsts+220(SB)/4, $0x3AB743CE
+DATA ·expConsts+224(SB)/4, $0x3C088908 // c2
+DATA ·expConsts+228(SB)/4, $0x3C088908
+DATA ·expConsts+232(SB)/4, $0x3C088908
+DATA ·expConsts+236(SB)/4, $0x3C088908
+DATA ·expConsts+240(SB)/4, $0x3C088908
+DATA ·expConsts+244(SB)/4, $0x3C088908
+DATA ·expConsts+248(SB)/4, $0x3C088908
+DATA ·expConsts+252(SB)/4, $0x3C088908
+DATA ·expConsts+256(SB)/4, $0x3D2AA9C1 // c3
+DATA ·expConsts+260(SB)/4, $0x3D2AA9C1
+DATA ·expConsts+264(SB)/4, $0x3D2AA9C1
+DATA ·expConsts+268(SB)/4, $0x3D2AA9C1
+DATA ·expConsts+272(SB)/4, $0x3D2AA9C1
+DATA ·expConsts+276(SB)/4, $0x3D2AA9C1
+DATA ·expConsts+280(SB)/4, $0x3D2AA9C1
+DATA ·expConsts+284(SB)/4, $0x3D2AA9C1
+DATA ·expConsts+288(SB)/4, $0x3E2AAAAA // c4
+DATA ·expConsts+292(SB)/4, $0x3E2AAAAA
+DATA ·expConsts+296(SB)/4, $0x3E2AAAAA
+DATA ·expConsts+300(SB)/4, $0x3E2AAAAA
+DATA ·expConsts+304(SB)/4, $0x3E2AAAAA
+DATA ·expConsts+308(SB)/4, $0x3E2AAAAA
+DATA ·expConsts+312(SB)/4, $0x3E2AAAAA
+DATA ·expConsts+316(SB)/4, $0x3E2AAAAA
+DATA ·expConsts+320(SB)/4, $0x3F000000 // c5
+DATA ·expConsts+324(SB)/4, $0x3F000000
+DATA ·expConsts+328(SB)/4, $0x3F000000
+DATA ·expConsts+332(SB)/4, $0x3F000000
+DATA ·expConsts+336(SB)/4, $0x3F000000
+DATA ·expConsts+340(SB)/4, $0x3F000000
+DATA ·expConsts+344(SB)/4, $0x3F000000
+DATA ·expConsts+348(SB)/4, $0x3F000000
+DATA ·expConsts+352(SB)/4, $0x3F800000 // one
+DATA ·expConsts+356(SB)/4, $0x3F800000
+DATA ·expConsts+360(SB)/4, $0x3F800000
+DATA ·expConsts+364(SB)/4, $0x3F800000
+DATA ·expConsts+368(SB)/4, $0x3F800000
+DATA ·expConsts+372(SB)/4, $0x3F800000
+DATA ·expConsts+376(SB)/4, $0x3F800000
+DATA ·expConsts+380(SB)/4, $0x3F800000
+GLOBL ·expConsts(SB), RODATA|NOPTR, $384
 
 TEXT ·expAVX2(SB), NOSPLIT, $0-24
 	MOVQ x+0(FP), SI
 	MOVQ z+8(FP), DX
 	MOVQ n+16(FP), CX
-	VBROADCASTSS ·expConsts+0(SB), Y8   // log2e
-	VBROADCASTSS ·expConsts+4(SB), Y9   // ln2 hi
-	VBROADCASTSS ·expConsts+8(SB), Y10  // ln2 lo
-	VBROADCASTSS ·expConsts+12(SB), Y11 // hi
-	VBROADCASTSS ·expConsts+16(SB), Y12 // lo
-	VBROADCASTSS ·expConsts+44(SB), Y13 // 1.0
 	SHRQ $3, CX
-	JZ   done
-loop:
+	JZ   expAVX2_done
+	// Two vectors per iteration with independent registers: consecutive
+	// iterations of the single-vector loop did not overlap (1.7 ns per
+	// element on Skylake-SP, 1.4 on Apple M2 for the NEON version).
+	MOVQ CX, BX
+	SHRQ $1, BX
+	JZ   expAVX2_tail
+expAVX2_loop2:
 	VMOVUPS (SI), Y0
-	VMAXPS  Y12, Y0, Y0                 // clamp
-	VMINPS  Y11, Y0, Y0
-	VMULPS  Y8, Y0, Y1                  // t = x·log2e
-	VROUNDPS $0, Y1, Y1                 // n = round-to-nearest-even
-	VCVTPS2DQ Y1, Y2                    // n as int32
-	VFNMADD231PS Y9, Y1, Y0             // r = x - n·ln2hi
-	VFNMADD231PS Y10, Y1, Y0            // r -= n·ln2lo
-	VBROADCASTSS ·expConsts+20(SB), Y3  // p = c0
-	VBROADCASTSS ·expConsts+24(SB), Y4
-	VFMADD213PS Y4, Y0, Y3              // p = p·r + c1
-	VBROADCASTSS ·expConsts+28(SB), Y4
-	VFMADD213PS Y4, Y0, Y3              // p = p·r + c2
-	VBROADCASTSS ·expConsts+32(SB), Y4
-	VFMADD213PS Y4, Y0, Y3              // + c3
-	VBROADCASTSS ·expConsts+36(SB), Y4
-	VFMADD213PS Y4, Y0, Y3              // + c4
-	VBROADCASTSS ·expConsts+40(SB), Y4
-	VFMADD213PS Y4, Y0, Y3              // + c5
-	VMULPS  Y0, Y0, Y4                  // r²
-	VFMADD213PS Y0, Y4, Y3              // p = p·r² + r
-	VADDPS  Y13, Y3, Y3                 // + 1
-	VPSLLD  $23, Y2, Y2                 // n << 23
-	VPADDD  Y2, Y3, Y3                  // p · 2^n
+	VMOVUPS 32(SI), Y5
+	VMAXPS ·expConsts+128(SB), Y0, Y0
+	VMAXPS ·expConsts+128(SB), Y5, Y5
+	VMINPS ·expConsts+96(SB), Y0, Y0
+	VMINPS ·expConsts+96(SB), Y5, Y5
+	VMULPS ·expConsts+0(SB), Y0, Y1
+	VMULPS ·expConsts+0(SB), Y5, Y6
+	VROUNDPS $0, Y1, Y1
+	VROUNDPS $0, Y6, Y6
+	VCVTPS2DQ Y1, Y2
+	VCVTPS2DQ Y6, Y7
+	VFNMADD231PS ·expConsts+32(SB), Y1, Y0
+	VFNMADD231PS ·expConsts+32(SB), Y6, Y5
+	VFNMADD231PS ·expConsts+64(SB), Y1, Y0
+	VFNMADD231PS ·expConsts+64(SB), Y6, Y5
+	VMOVUPS ·expConsts+160(SB), Y3
+	VMOVUPS ·expConsts+160(SB), Y8
+	VFMADD213PS ·expConsts+192(SB), Y0, Y3
+	VFMADD213PS ·expConsts+192(SB), Y5, Y8
+	VFMADD213PS ·expConsts+224(SB), Y0, Y3
+	VFMADD213PS ·expConsts+224(SB), Y5, Y8
+	VFMADD213PS ·expConsts+256(SB), Y0, Y3
+	VFMADD213PS ·expConsts+256(SB), Y5, Y8
+	VFMADD213PS ·expConsts+288(SB), Y0, Y3
+	VFMADD213PS ·expConsts+288(SB), Y5, Y8
+	VFMADD213PS ·expConsts+320(SB), Y0, Y3
+	VFMADD213PS ·expConsts+320(SB), Y5, Y8
+	VMULPS Y0, Y0, Y4
+	VMULPS Y5, Y5, Y9
+	VFMADD213PS Y0, Y4, Y3
+	VFMADD213PS Y5, Y9, Y8
+	VADDPS ·expConsts+352(SB), Y3, Y3
+	VADDPS ·expConsts+352(SB), Y8, Y8
+	VPSLLD $23, Y2, Y2
+	VPSLLD $23, Y7, Y7
+	VPADDD Y2, Y3, Y3
+	VPADDD Y7, Y8, Y8
+	VMOVUPS Y3, (DX)
+	VMOVUPS Y8, 32(DX)
+	ADDQ $64, SI
+	ADDQ $64, DX
+	DECQ BX
+	JNZ  expAVX2_loop2
+	ANDQ $1, CX
+	JZ   expAVX2_done
+expAVX2_tail:
+	VMOVUPS (SI), Y0
+	VMAXPS ·expConsts+128(SB), Y0, Y0
+	VMINPS ·expConsts+96(SB), Y0, Y0
+	VMULPS ·expConsts+0(SB), Y0, Y1
+	VROUNDPS $0, Y1, Y1
+	VCVTPS2DQ Y1, Y2
+	VFNMADD231PS ·expConsts+32(SB), Y1, Y0
+	VFNMADD231PS ·expConsts+64(SB), Y1, Y0
+	VMOVUPS ·expConsts+160(SB), Y3
+	VFMADD213PS ·expConsts+192(SB), Y0, Y3
+	VFMADD213PS ·expConsts+224(SB), Y0, Y3
+	VFMADD213PS ·expConsts+256(SB), Y0, Y3
+	VFMADD213PS ·expConsts+288(SB), Y0, Y3
+	VFMADD213PS ·expConsts+320(SB), Y0, Y3
+	VMULPS Y0, Y0, Y4
+	VFMADD213PS Y0, Y4, Y3
+	VADDPS ·expConsts+352(SB), Y3, Y3
+	VPSLLD $23, Y2, Y2
+	VPADDD Y2, Y3, Y3
 	VMOVUPS Y3, (DX)
 	ADDQ $32, SI
 	ADDQ $32, DX
 	DECQ CX
-	JNZ  loop
-done:
+	JNZ  expAVX2_tail
+expAVX2_done:
 	VZEROUPPER
 	RET
 
@@ -562,83 +689,255 @@ done:
 // func tanhAVX2(x, z *float32, n int)     (n % 8 == 0)
 //
 // Rational approximation (see genericTanh): odd degree-13 numerator over
-// even degree-6 denominator of the clamped argument, x itself below 4e-4.
+// even degree-6 denominator of the clamped argument, x itself below 4e-4,
+// exactly ±1 from |x| >= 9.
 // ---------------------------------------------------------------------------
 DATA ·tanhConsts+0(SB)/4, $0x40FFF644 // clamp
-DATA ·tanhConsts+4(SB)/4, $0xC0FFF644 // nclamp
-DATA ·tanhConsts+8(SB)/4, $0x39D1B717 // tiny
-DATA ·tanhConsts+12(SB)/4, $0x3BA059DC // a1
-DATA ·tanhConsts+16(SB)/4, $0x3A270DED // a3
-DATA ·tanhConsts+20(SB)/4, $0x3779434A // a5
-DATA ·tanhConsts+24(SB)/4, $0x335C0041 // a7
-DATA ·tanhConsts+28(SB)/4, $0xAEBD37FF // a9
-DATA ·tanhConsts+32(SB)/4, $0x2A61337E // a11
-DATA ·tanhConsts+36(SB)/4, $0xA59F25C0 // a13
-DATA ·tanhConsts+40(SB)/4, $0x3BA059DD // b0
-DATA ·tanhConsts+44(SB)/4, $0x3B14AA05 // b2
-DATA ·tanhConsts+48(SB)/4, $0x38F895D6 // b4
-DATA ·tanhConsts+52(SB)/4, $0x35A0D3D8 // b6
-DATA ·tanhConsts+56(SB)/4, $0x7FFFFFFF // abs mask
-DATA ·tanhConsts+60(SB)/4, $0x80000000 // sign mask
-DATA ·tanhConsts+64(SB)/4, $0x41100000 // 9.0: tanh is exactly ±1 in float32 beyond
-DATA ·tanhConsts+68(SB)/4, $0x3F800000 // 1.0
-GLOBL ·tanhConsts(SB), RODATA|NOPTR, $72
+DATA ·tanhConsts+4(SB)/4, $0x40FFF644
+DATA ·tanhConsts+8(SB)/4, $0x40FFF644
+DATA ·tanhConsts+12(SB)/4, $0x40FFF644
+DATA ·tanhConsts+16(SB)/4, $0x40FFF644
+DATA ·tanhConsts+20(SB)/4, $0x40FFF644
+DATA ·tanhConsts+24(SB)/4, $0x40FFF644
+DATA ·tanhConsts+28(SB)/4, $0x40FFF644
+DATA ·tanhConsts+32(SB)/4, $0xC0FFF644 // nclamp
+DATA ·tanhConsts+36(SB)/4, $0xC0FFF644
+DATA ·tanhConsts+40(SB)/4, $0xC0FFF644
+DATA ·tanhConsts+44(SB)/4, $0xC0FFF644
+DATA ·tanhConsts+48(SB)/4, $0xC0FFF644
+DATA ·tanhConsts+52(SB)/4, $0xC0FFF644
+DATA ·tanhConsts+56(SB)/4, $0xC0FFF644
+DATA ·tanhConsts+60(SB)/4, $0xC0FFF644
+DATA ·tanhConsts+64(SB)/4, $0x39D1B717 // tiny
+DATA ·tanhConsts+68(SB)/4, $0x39D1B717
+DATA ·tanhConsts+72(SB)/4, $0x39D1B717
+DATA ·tanhConsts+76(SB)/4, $0x39D1B717
+DATA ·tanhConsts+80(SB)/4, $0x39D1B717
+DATA ·tanhConsts+84(SB)/4, $0x39D1B717
+DATA ·tanhConsts+88(SB)/4, $0x39D1B717
+DATA ·tanhConsts+92(SB)/4, $0x39D1B717
+DATA ·tanhConsts+96(SB)/4, $0x3BA059DC // a1
+DATA ·tanhConsts+100(SB)/4, $0x3BA059DC
+DATA ·tanhConsts+104(SB)/4, $0x3BA059DC
+DATA ·tanhConsts+108(SB)/4, $0x3BA059DC
+DATA ·tanhConsts+112(SB)/4, $0x3BA059DC
+DATA ·tanhConsts+116(SB)/4, $0x3BA059DC
+DATA ·tanhConsts+120(SB)/4, $0x3BA059DC
+DATA ·tanhConsts+124(SB)/4, $0x3BA059DC
+DATA ·tanhConsts+128(SB)/4, $0x3A270DED // a3
+DATA ·tanhConsts+132(SB)/4, $0x3A270DED
+DATA ·tanhConsts+136(SB)/4, $0x3A270DED
+DATA ·tanhConsts+140(SB)/4, $0x3A270DED
+DATA ·tanhConsts+144(SB)/4, $0x3A270DED
+DATA ·tanhConsts+148(SB)/4, $0x3A270DED
+DATA ·tanhConsts+152(SB)/4, $0x3A270DED
+DATA ·tanhConsts+156(SB)/4, $0x3A270DED
+DATA ·tanhConsts+160(SB)/4, $0x3779434A // a5
+DATA ·tanhConsts+164(SB)/4, $0x3779434A
+DATA ·tanhConsts+168(SB)/4, $0x3779434A
+DATA ·tanhConsts+172(SB)/4, $0x3779434A
+DATA ·tanhConsts+176(SB)/4, $0x3779434A
+DATA ·tanhConsts+180(SB)/4, $0x3779434A
+DATA ·tanhConsts+184(SB)/4, $0x3779434A
+DATA ·tanhConsts+188(SB)/4, $0x3779434A
+DATA ·tanhConsts+192(SB)/4, $0x335C0041 // a7
+DATA ·tanhConsts+196(SB)/4, $0x335C0041
+DATA ·tanhConsts+200(SB)/4, $0x335C0041
+DATA ·tanhConsts+204(SB)/4, $0x335C0041
+DATA ·tanhConsts+208(SB)/4, $0x335C0041
+DATA ·tanhConsts+212(SB)/4, $0x335C0041
+DATA ·tanhConsts+216(SB)/4, $0x335C0041
+DATA ·tanhConsts+220(SB)/4, $0x335C0041
+DATA ·tanhConsts+224(SB)/4, $0xAEBD37FF // a9
+DATA ·tanhConsts+228(SB)/4, $0xAEBD37FF
+DATA ·tanhConsts+232(SB)/4, $0xAEBD37FF
+DATA ·tanhConsts+236(SB)/4, $0xAEBD37FF
+DATA ·tanhConsts+240(SB)/4, $0xAEBD37FF
+DATA ·tanhConsts+244(SB)/4, $0xAEBD37FF
+DATA ·tanhConsts+248(SB)/4, $0xAEBD37FF
+DATA ·tanhConsts+252(SB)/4, $0xAEBD37FF
+DATA ·tanhConsts+256(SB)/4, $0x2A61337E // a11
+DATA ·tanhConsts+260(SB)/4, $0x2A61337E
+DATA ·tanhConsts+264(SB)/4, $0x2A61337E
+DATA ·tanhConsts+268(SB)/4, $0x2A61337E
+DATA ·tanhConsts+272(SB)/4, $0x2A61337E
+DATA ·tanhConsts+276(SB)/4, $0x2A61337E
+DATA ·tanhConsts+280(SB)/4, $0x2A61337E
+DATA ·tanhConsts+284(SB)/4, $0x2A61337E
+DATA ·tanhConsts+288(SB)/4, $0xA59F25C0 // a13
+DATA ·tanhConsts+292(SB)/4, $0xA59F25C0
+DATA ·tanhConsts+296(SB)/4, $0xA59F25C0
+DATA ·tanhConsts+300(SB)/4, $0xA59F25C0
+DATA ·tanhConsts+304(SB)/4, $0xA59F25C0
+DATA ·tanhConsts+308(SB)/4, $0xA59F25C0
+DATA ·tanhConsts+312(SB)/4, $0xA59F25C0
+DATA ·tanhConsts+316(SB)/4, $0xA59F25C0
+DATA ·tanhConsts+320(SB)/4, $0x3BA059DD // b0
+DATA ·tanhConsts+324(SB)/4, $0x3BA059DD
+DATA ·tanhConsts+328(SB)/4, $0x3BA059DD
+DATA ·tanhConsts+332(SB)/4, $0x3BA059DD
+DATA ·tanhConsts+336(SB)/4, $0x3BA059DD
+DATA ·tanhConsts+340(SB)/4, $0x3BA059DD
+DATA ·tanhConsts+344(SB)/4, $0x3BA059DD
+DATA ·tanhConsts+348(SB)/4, $0x3BA059DD
+DATA ·tanhConsts+352(SB)/4, $0x3B14AA05 // b2
+DATA ·tanhConsts+356(SB)/4, $0x3B14AA05
+DATA ·tanhConsts+360(SB)/4, $0x3B14AA05
+DATA ·tanhConsts+364(SB)/4, $0x3B14AA05
+DATA ·tanhConsts+368(SB)/4, $0x3B14AA05
+DATA ·tanhConsts+372(SB)/4, $0x3B14AA05
+DATA ·tanhConsts+376(SB)/4, $0x3B14AA05
+DATA ·tanhConsts+380(SB)/4, $0x3B14AA05
+DATA ·tanhConsts+384(SB)/4, $0x38F895D6 // b4
+DATA ·tanhConsts+388(SB)/4, $0x38F895D6
+DATA ·tanhConsts+392(SB)/4, $0x38F895D6
+DATA ·tanhConsts+396(SB)/4, $0x38F895D6
+DATA ·tanhConsts+400(SB)/4, $0x38F895D6
+DATA ·tanhConsts+404(SB)/4, $0x38F895D6
+DATA ·tanhConsts+408(SB)/4, $0x38F895D6
+DATA ·tanhConsts+412(SB)/4, $0x38F895D6
+DATA ·tanhConsts+416(SB)/4, $0x35A0D3D8 // b6
+DATA ·tanhConsts+420(SB)/4, $0x35A0D3D8
+DATA ·tanhConsts+424(SB)/4, $0x35A0D3D8
+DATA ·tanhConsts+428(SB)/4, $0x35A0D3D8
+DATA ·tanhConsts+432(SB)/4, $0x35A0D3D8
+DATA ·tanhConsts+436(SB)/4, $0x35A0D3D8
+DATA ·tanhConsts+440(SB)/4, $0x35A0D3D8
+DATA ·tanhConsts+444(SB)/4, $0x35A0D3D8
+DATA ·tanhConsts+448(SB)/4, $0x7FFFFFFF // abs
+DATA ·tanhConsts+452(SB)/4, $0x7FFFFFFF
+DATA ·tanhConsts+456(SB)/4, $0x7FFFFFFF
+DATA ·tanhConsts+460(SB)/4, $0x7FFFFFFF
+DATA ·tanhConsts+464(SB)/4, $0x7FFFFFFF
+DATA ·tanhConsts+468(SB)/4, $0x7FFFFFFF
+DATA ·tanhConsts+472(SB)/4, $0x7FFFFFFF
+DATA ·tanhConsts+476(SB)/4, $0x7FFFFFFF
+DATA ·tanhConsts+480(SB)/4, $0x80000000 // sign
+DATA ·tanhConsts+484(SB)/4, $0x80000000
+DATA ·tanhConsts+488(SB)/4, $0x80000000
+DATA ·tanhConsts+492(SB)/4, $0x80000000
+DATA ·tanhConsts+496(SB)/4, $0x80000000
+DATA ·tanhConsts+500(SB)/4, $0x80000000
+DATA ·tanhConsts+504(SB)/4, $0x80000000
+DATA ·tanhConsts+508(SB)/4, $0x80000000
+DATA ·tanhConsts+512(SB)/4, $0x41100000 // nine
+DATA ·tanhConsts+516(SB)/4, $0x41100000
+DATA ·tanhConsts+520(SB)/4, $0x41100000
+DATA ·tanhConsts+524(SB)/4, $0x41100000
+DATA ·tanhConsts+528(SB)/4, $0x41100000
+DATA ·tanhConsts+532(SB)/4, $0x41100000
+DATA ·tanhConsts+536(SB)/4, $0x41100000
+DATA ·tanhConsts+540(SB)/4, $0x41100000
+DATA ·tanhConsts+544(SB)/4, $0x3F800000 // one
+DATA ·tanhConsts+548(SB)/4, $0x3F800000
+DATA ·tanhConsts+552(SB)/4, $0x3F800000
+DATA ·tanhConsts+556(SB)/4, $0x3F800000
+DATA ·tanhConsts+560(SB)/4, $0x3F800000
+DATA ·tanhConsts+564(SB)/4, $0x3F800000
+DATA ·tanhConsts+568(SB)/4, $0x3F800000
+DATA ·tanhConsts+572(SB)/4, $0x3F800000
+GLOBL ·tanhConsts(SB), RODATA|NOPTR, $576
 
 TEXT ·tanhAVX2(SB), NOSPLIT, $0-24
 	MOVQ x+0(FP), SI
 	MOVQ z+8(FP), DX
 	MOVQ n+16(FP), CX
-	VBROADCASTSS ·tanhConsts+0(SB), Y8   // clamp
-	VBROADCASTSS ·tanhConsts+4(SB), Y9  // -clamp
-	VBROADCASTSS ·tanhConsts+8(SB), Y10   // tiny
-	VBROADCASTSS ·tanhConsts+56(SB), Y11    // abs mask
-	VBROADCASTSS ·tanhConsts+36(SB), Y12
-	VBROADCASTSS ·tanhConsts+52(SB), Y13
 	SHRQ $3, CX
-	JZ   tdone
-tloop:
+	JZ   tanhAVX2_done
+	// Two vectors per iteration with independent registers: consecutive
+	// iterations of the single-vector loop did not overlap (1.7 ns per
+	// element on Skylake-SP, 1.4 on Apple M2 for the NEON version).
+	MOVQ CX, BX
+	SHRQ $1, BX
+	JZ   tanhAVX2_tail
+tanhAVX2_loop2:
 	VMOVUPS (SI), Y0
-	VANDPS  Y11, Y0, Y6                  // |x|
-	VBROADCASTSS ·tanhConsts+60(SB), Y14
-	VANDPS  Y14, Y0, Y14                 // sign bit
-	VBROADCASTSS ·tanhConsts+68(SB), Y15
-	VORPS   Y15, Y14, Y14                // ±1
-	VMAXPS  Y9, Y0, Y0                   // clamp
-	VMINPS  Y8, Y0, Y0
-	VMULPS  Y0, Y0, Y1                   // x²
-	VBROADCASTSS ·tanhConsts+32(SB), Y3
-	VMOVAPS Y12, Y2
-	VFMADD213PS Y3, Y1, Y2               // p = p·x² + a11
-	VBROADCASTSS ·tanhConsts+28(SB), Y3
-	VFMADD213PS Y3, Y1, Y2
-	VBROADCASTSS ·tanhConsts+24(SB), Y3
-	VFMADD213PS Y3, Y1, Y2
-	VBROADCASTSS ·tanhConsts+20(SB), Y3
-	VFMADD213PS Y3, Y1, Y2
-	VBROADCASTSS ·tanhConsts+16(SB), Y3
-	VFMADD213PS Y3, Y1, Y2
-	VBROADCASTSS ·tanhConsts+12(SB), Y3
-	VFMADD213PS Y3, Y1, Y2
-	VMULPS  Y0, Y2, Y2                   // p·x
-	VBROADCASTSS ·tanhConsts+48(SB), Y3
-	VMOVAPS Y13, Y4
-	VFMADD213PS Y3, Y1, Y4               // q = q·x² + b4
-	VBROADCASTSS ·tanhConsts+44(SB), Y3
-	VFMADD213PS Y3, Y1, Y4
-	VBROADCASTSS ·tanhConsts+40(SB), Y3
-	VFMADD213PS Y3, Y1, Y4
-	VDIVPS  Y4, Y2, Y5                   // p / q
-	VCMPPS  $1, Y10, Y6, Y7              // |x| < tiny
-	VBLENDVPS Y7, Y0, Y5, Y5             // tiny: x itself
-	VBROADCASTSS ·tanhConsts+64(SB), Y15
-	VCMPPS  $5, Y15, Y6, Y7              // |x| >= 9
-	VBLENDVPS Y7, Y14, Y5, Y5            // saturate to ±1
-	VMOVUPS Y5, (DX)
+	VMOVUPS 32(SI), Y7
+	VANDPS ·tanhConsts+448(SB), Y0, Y4
+	VANDPS ·tanhConsts+448(SB), Y7, Y11
+	VANDPS ·tanhConsts+480(SB), Y0, Y5
+	VANDPS ·tanhConsts+480(SB), Y7, Y12
+	VORPS ·tanhConsts+544(SB), Y5, Y5
+	VORPS ·tanhConsts+544(SB), Y12, Y12
+	VMAXPS ·tanhConsts+32(SB), Y0, Y0
+	VMAXPS ·tanhConsts+32(SB), Y7, Y7
+	VMINPS ·tanhConsts+0(SB), Y0, Y0
+	VMINPS ·tanhConsts+0(SB), Y7, Y7
+	VMULPS Y0, Y0, Y1
+	VMULPS Y7, Y7, Y8
+	VMOVUPS ·tanhConsts+288(SB), Y2
+	VMOVUPS ·tanhConsts+288(SB), Y9
+	VFMADD213PS ·tanhConsts+256(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+256(SB), Y8, Y9
+	VFMADD213PS ·tanhConsts+224(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+224(SB), Y8, Y9
+	VFMADD213PS ·tanhConsts+192(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+192(SB), Y8, Y9
+	VFMADD213PS ·tanhConsts+160(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+160(SB), Y8, Y9
+	VFMADD213PS ·tanhConsts+128(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+128(SB), Y8, Y9
+	VFMADD213PS ·tanhConsts+96(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+96(SB), Y8, Y9
+	VMULPS Y0, Y2, Y2
+	VMULPS Y7, Y9, Y9
+	VMOVUPS ·tanhConsts+416(SB), Y3
+	VMOVUPS ·tanhConsts+416(SB), Y10
+	VFMADD213PS ·tanhConsts+384(SB), Y1, Y3
+	VFMADD213PS ·tanhConsts+384(SB), Y8, Y10
+	VFMADD213PS ·tanhConsts+352(SB), Y1, Y3
+	VFMADD213PS ·tanhConsts+352(SB), Y8, Y10
+	VFMADD213PS ·tanhConsts+320(SB), Y1, Y3
+	VFMADD213PS ·tanhConsts+320(SB), Y8, Y10
+	VDIVPS Y3, Y2, Y2
+	VDIVPS Y10, Y9, Y9
+	VCMPPS $1, ·tanhConsts+64(SB), Y4, Y6
+	VCMPPS $1, ·tanhConsts+64(SB), Y11, Y13
+	VBLENDVPS Y6, Y0, Y2, Y2
+	VBLENDVPS Y13, Y7, Y9, Y9
+	VCMPPS $5, ·tanhConsts+512(SB), Y4, Y6
+	VCMPPS $5, ·tanhConsts+512(SB), Y11, Y13
+	VBLENDVPS Y6, Y5, Y2, Y2
+	VBLENDVPS Y13, Y12, Y9, Y9
+	VMOVUPS Y2, (DX)
+	VMOVUPS Y9, 32(DX)
+	ADDQ $64, SI
+	ADDQ $64, DX
+	DECQ BX
+	JNZ  tanhAVX2_loop2
+	ANDQ $1, CX
+	JZ   tanhAVX2_done
+tanhAVX2_tail:
+	VMOVUPS (SI), Y0
+	VANDPS ·tanhConsts+448(SB), Y0, Y4
+	VANDPS ·tanhConsts+480(SB), Y0, Y5
+	VORPS ·tanhConsts+544(SB), Y5, Y5
+	VMAXPS ·tanhConsts+32(SB), Y0, Y0
+	VMINPS ·tanhConsts+0(SB), Y0, Y0
+	VMULPS Y0, Y0, Y1
+	VMOVUPS ·tanhConsts+288(SB), Y2
+	VFMADD213PS ·tanhConsts+256(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+224(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+192(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+160(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+128(SB), Y1, Y2
+	VFMADD213PS ·tanhConsts+96(SB), Y1, Y2
+	VMULPS Y0, Y2, Y2
+	VMOVUPS ·tanhConsts+416(SB), Y3
+	VFMADD213PS ·tanhConsts+384(SB), Y1, Y3
+	VFMADD213PS ·tanhConsts+352(SB), Y1, Y3
+	VFMADD213PS ·tanhConsts+320(SB), Y1, Y3
+	VDIVPS Y3, Y2, Y2
+	VCMPPS $1, ·tanhConsts+64(SB), Y4, Y6
+	VBLENDVPS Y6, Y0, Y2, Y2
+	VCMPPS $5, ·tanhConsts+512(SB), Y4, Y6
+	VBLENDVPS Y6, Y5, Y2, Y2
+	VMOVUPS Y2, (DX)
 	ADDQ $32, SI
 	ADDQ $32, DX
 	DECQ CX
-	JNZ  tloop
-tdone:
+	JNZ  tanhAVX2_tail
+tanhAVX2_done:
 	VZEROUPPER
 	RET
 
@@ -649,94 +948,307 @@ tdone:
 // degree-9 polynomial, exponent times split ln 2.
 // ---------------------------------------------------------------------------
 DATA ·logConsts+0(SB)/4, $0x00800000 // minnorm
-DATA ·logConsts+4(SB)/4, $0x3F3504F3 // sqrthf
-DATA ·logConsts+8(SB)/4, $0x3F800000 // one
-DATA ·logConsts+12(SB)/4, $0x3F000000 // half
-DATA ·logConsts+16(SB)/4, $0x3D9021BB // p0
-DATA ·logConsts+20(SB)/4, $0xBDEBD1B8 // p1
-DATA ·logConsts+24(SB)/4, $0x3DEF251A // p2
-DATA ·logConsts+28(SB)/4, $0xBDFE5D4F // p3
-DATA ·logConsts+32(SB)/4, $0x3E11E9BF // p4
-DATA ·logConsts+36(SB)/4, $0xBE2AAE50 // p5
-DATA ·logConsts+40(SB)/4, $0x3E4CCEAC // p6
-DATA ·logConsts+44(SB)/4, $0xBE7FFFFC // p7
-DATA ·logConsts+48(SB)/4, $0x3EAAAAAA // p8
-DATA ·logConsts+52(SB)/4, $0xB95E8083 // ln2lo
-DATA ·logConsts+56(SB)/4, $0x3F318000 // ln2hi
-DATA ·logConsts+60(SB)/4, $0x007FFFFF // mant
-DATA ·logConsts+64(SB)/4, $0x0000007E // e126
-DATA ·logConsts+68(SB)/4, $0x7F800000 // inf
-DATA ·logConsts+72(SB)/4, $0xFF800000 // ninf
-DATA ·logConsts+76(SB)/4, $0x7FC00000 // nan
-GLOBL ·logConsts(SB), RODATA|NOPTR, $80
+DATA ·logConsts+4(SB)/4, $0x00800000
+DATA ·logConsts+8(SB)/4, $0x00800000
+DATA ·logConsts+12(SB)/4, $0x00800000
+DATA ·logConsts+16(SB)/4, $0x00800000
+DATA ·logConsts+20(SB)/4, $0x00800000
+DATA ·logConsts+24(SB)/4, $0x00800000
+DATA ·logConsts+28(SB)/4, $0x00800000
+DATA ·logConsts+32(SB)/4, $0x3F3504F3 // sqrthf
+DATA ·logConsts+36(SB)/4, $0x3F3504F3
+DATA ·logConsts+40(SB)/4, $0x3F3504F3
+DATA ·logConsts+44(SB)/4, $0x3F3504F3
+DATA ·logConsts+48(SB)/4, $0x3F3504F3
+DATA ·logConsts+52(SB)/4, $0x3F3504F3
+DATA ·logConsts+56(SB)/4, $0x3F3504F3
+DATA ·logConsts+60(SB)/4, $0x3F3504F3
+DATA ·logConsts+64(SB)/4, $0x3F800000 // one
+DATA ·logConsts+68(SB)/4, $0x3F800000
+DATA ·logConsts+72(SB)/4, $0x3F800000
+DATA ·logConsts+76(SB)/4, $0x3F800000
+DATA ·logConsts+80(SB)/4, $0x3F800000
+DATA ·logConsts+84(SB)/4, $0x3F800000
+DATA ·logConsts+88(SB)/4, $0x3F800000
+DATA ·logConsts+92(SB)/4, $0x3F800000
+DATA ·logConsts+96(SB)/4, $0x3F000000 // half
+DATA ·logConsts+100(SB)/4, $0x3F000000
+DATA ·logConsts+104(SB)/4, $0x3F000000
+DATA ·logConsts+108(SB)/4, $0x3F000000
+DATA ·logConsts+112(SB)/4, $0x3F000000
+DATA ·logConsts+116(SB)/4, $0x3F000000
+DATA ·logConsts+120(SB)/4, $0x3F000000
+DATA ·logConsts+124(SB)/4, $0x3F000000
+DATA ·logConsts+128(SB)/4, $0x3D9021BB // p0
+DATA ·logConsts+132(SB)/4, $0x3D9021BB
+DATA ·logConsts+136(SB)/4, $0x3D9021BB
+DATA ·logConsts+140(SB)/4, $0x3D9021BB
+DATA ·logConsts+144(SB)/4, $0x3D9021BB
+DATA ·logConsts+148(SB)/4, $0x3D9021BB
+DATA ·logConsts+152(SB)/4, $0x3D9021BB
+DATA ·logConsts+156(SB)/4, $0x3D9021BB
+DATA ·logConsts+160(SB)/4, $0xBDEBD1B8 // p1
+DATA ·logConsts+164(SB)/4, $0xBDEBD1B8
+DATA ·logConsts+168(SB)/4, $0xBDEBD1B8
+DATA ·logConsts+172(SB)/4, $0xBDEBD1B8
+DATA ·logConsts+176(SB)/4, $0xBDEBD1B8
+DATA ·logConsts+180(SB)/4, $0xBDEBD1B8
+DATA ·logConsts+184(SB)/4, $0xBDEBD1B8
+DATA ·logConsts+188(SB)/4, $0xBDEBD1B8
+DATA ·logConsts+192(SB)/4, $0x3DEF251A // p2
+DATA ·logConsts+196(SB)/4, $0x3DEF251A
+DATA ·logConsts+200(SB)/4, $0x3DEF251A
+DATA ·logConsts+204(SB)/4, $0x3DEF251A
+DATA ·logConsts+208(SB)/4, $0x3DEF251A
+DATA ·logConsts+212(SB)/4, $0x3DEF251A
+DATA ·logConsts+216(SB)/4, $0x3DEF251A
+DATA ·logConsts+220(SB)/4, $0x3DEF251A
+DATA ·logConsts+224(SB)/4, $0xBDFE5D4F // p3
+DATA ·logConsts+228(SB)/4, $0xBDFE5D4F
+DATA ·logConsts+232(SB)/4, $0xBDFE5D4F
+DATA ·logConsts+236(SB)/4, $0xBDFE5D4F
+DATA ·logConsts+240(SB)/4, $0xBDFE5D4F
+DATA ·logConsts+244(SB)/4, $0xBDFE5D4F
+DATA ·logConsts+248(SB)/4, $0xBDFE5D4F
+DATA ·logConsts+252(SB)/4, $0xBDFE5D4F
+DATA ·logConsts+256(SB)/4, $0x3E11E9BF // p4
+DATA ·logConsts+260(SB)/4, $0x3E11E9BF
+DATA ·logConsts+264(SB)/4, $0x3E11E9BF
+DATA ·logConsts+268(SB)/4, $0x3E11E9BF
+DATA ·logConsts+272(SB)/4, $0x3E11E9BF
+DATA ·logConsts+276(SB)/4, $0x3E11E9BF
+DATA ·logConsts+280(SB)/4, $0x3E11E9BF
+DATA ·logConsts+284(SB)/4, $0x3E11E9BF
+DATA ·logConsts+288(SB)/4, $0xBE2AAE50 // p5
+DATA ·logConsts+292(SB)/4, $0xBE2AAE50
+DATA ·logConsts+296(SB)/4, $0xBE2AAE50
+DATA ·logConsts+300(SB)/4, $0xBE2AAE50
+DATA ·logConsts+304(SB)/4, $0xBE2AAE50
+DATA ·logConsts+308(SB)/4, $0xBE2AAE50
+DATA ·logConsts+312(SB)/4, $0xBE2AAE50
+DATA ·logConsts+316(SB)/4, $0xBE2AAE50
+DATA ·logConsts+320(SB)/4, $0x3E4CCEAC // p6
+DATA ·logConsts+324(SB)/4, $0x3E4CCEAC
+DATA ·logConsts+328(SB)/4, $0x3E4CCEAC
+DATA ·logConsts+332(SB)/4, $0x3E4CCEAC
+DATA ·logConsts+336(SB)/4, $0x3E4CCEAC
+DATA ·logConsts+340(SB)/4, $0x3E4CCEAC
+DATA ·logConsts+344(SB)/4, $0x3E4CCEAC
+DATA ·logConsts+348(SB)/4, $0x3E4CCEAC
+DATA ·logConsts+352(SB)/4, $0xBE7FFFFC // p7
+DATA ·logConsts+356(SB)/4, $0xBE7FFFFC
+DATA ·logConsts+360(SB)/4, $0xBE7FFFFC
+DATA ·logConsts+364(SB)/4, $0xBE7FFFFC
+DATA ·logConsts+368(SB)/4, $0xBE7FFFFC
+DATA ·logConsts+372(SB)/4, $0xBE7FFFFC
+DATA ·logConsts+376(SB)/4, $0xBE7FFFFC
+DATA ·logConsts+380(SB)/4, $0xBE7FFFFC
+DATA ·logConsts+384(SB)/4, $0x3EAAAAAA // p8
+DATA ·logConsts+388(SB)/4, $0x3EAAAAAA
+DATA ·logConsts+392(SB)/4, $0x3EAAAAAA
+DATA ·logConsts+396(SB)/4, $0x3EAAAAAA
+DATA ·logConsts+400(SB)/4, $0x3EAAAAAA
+DATA ·logConsts+404(SB)/4, $0x3EAAAAAA
+DATA ·logConsts+408(SB)/4, $0x3EAAAAAA
+DATA ·logConsts+412(SB)/4, $0x3EAAAAAA
+DATA ·logConsts+416(SB)/4, $0xB95E8083 // ln2lo
+DATA ·logConsts+420(SB)/4, $0xB95E8083
+DATA ·logConsts+424(SB)/4, $0xB95E8083
+DATA ·logConsts+428(SB)/4, $0xB95E8083
+DATA ·logConsts+432(SB)/4, $0xB95E8083
+DATA ·logConsts+436(SB)/4, $0xB95E8083
+DATA ·logConsts+440(SB)/4, $0xB95E8083
+DATA ·logConsts+444(SB)/4, $0xB95E8083
+DATA ·logConsts+448(SB)/4, $0x3F318000 // ln2hi
+DATA ·logConsts+452(SB)/4, $0x3F318000
+DATA ·logConsts+456(SB)/4, $0x3F318000
+DATA ·logConsts+460(SB)/4, $0x3F318000
+DATA ·logConsts+464(SB)/4, $0x3F318000
+DATA ·logConsts+468(SB)/4, $0x3F318000
+DATA ·logConsts+472(SB)/4, $0x3F318000
+DATA ·logConsts+476(SB)/4, $0x3F318000
+DATA ·logConsts+480(SB)/4, $0x007FFFFF // mant
+DATA ·logConsts+484(SB)/4, $0x007FFFFF
+DATA ·logConsts+488(SB)/4, $0x007FFFFF
+DATA ·logConsts+492(SB)/4, $0x007FFFFF
+DATA ·logConsts+496(SB)/4, $0x007FFFFF
+DATA ·logConsts+500(SB)/4, $0x007FFFFF
+DATA ·logConsts+504(SB)/4, $0x007FFFFF
+DATA ·logConsts+508(SB)/4, $0x007FFFFF
+DATA ·logConsts+512(SB)/4, $0x0000007E // e126
+DATA ·logConsts+516(SB)/4, $0x0000007E
+DATA ·logConsts+520(SB)/4, $0x0000007E
+DATA ·logConsts+524(SB)/4, $0x0000007E
+DATA ·logConsts+528(SB)/4, $0x0000007E
+DATA ·logConsts+532(SB)/4, $0x0000007E
+DATA ·logConsts+536(SB)/4, $0x0000007E
+DATA ·logConsts+540(SB)/4, $0x0000007E
+DATA ·logConsts+544(SB)/4, $0x7F800000 // inf
+DATA ·logConsts+548(SB)/4, $0x7F800000
+DATA ·logConsts+552(SB)/4, $0x7F800000
+DATA ·logConsts+556(SB)/4, $0x7F800000
+DATA ·logConsts+560(SB)/4, $0x7F800000
+DATA ·logConsts+564(SB)/4, $0x7F800000
+DATA ·logConsts+568(SB)/4, $0x7F800000
+DATA ·logConsts+572(SB)/4, $0x7F800000
+DATA ·logConsts+576(SB)/4, $0xFF800000 // ninf
+DATA ·logConsts+580(SB)/4, $0xFF800000
+DATA ·logConsts+584(SB)/4, $0xFF800000
+DATA ·logConsts+588(SB)/4, $0xFF800000
+DATA ·logConsts+592(SB)/4, $0xFF800000
+DATA ·logConsts+596(SB)/4, $0xFF800000
+DATA ·logConsts+600(SB)/4, $0xFF800000
+DATA ·logConsts+604(SB)/4, $0xFF800000
+DATA ·logConsts+608(SB)/4, $0x7FC00000 // nan
+DATA ·logConsts+612(SB)/4, $0x7FC00000
+DATA ·logConsts+616(SB)/4, $0x7FC00000
+DATA ·logConsts+620(SB)/4, $0x7FC00000
+DATA ·logConsts+624(SB)/4, $0x7FC00000
+DATA ·logConsts+628(SB)/4, $0x7FC00000
+DATA ·logConsts+632(SB)/4, $0x7FC00000
+DATA ·logConsts+636(SB)/4, $0x7FC00000
+DATA ·logConsts+640(SB)/4, $0x00000000 // zero
+DATA ·logConsts+644(SB)/4, $0x00000000
+DATA ·logConsts+648(SB)/4, $0x00000000
+DATA ·logConsts+652(SB)/4, $0x00000000
+DATA ·logConsts+656(SB)/4, $0x00000000
+DATA ·logConsts+660(SB)/4, $0x00000000
+DATA ·logConsts+664(SB)/4, $0x00000000
+DATA ·logConsts+668(SB)/4, $0x00000000
+GLOBL ·logConsts(SB), RODATA|NOPTR, $672
 
 TEXT ·logAVX2(SB), NOSPLIT, $0-24
 	MOVQ x+0(FP), SI
 	MOVQ z+8(FP), DX
 	MOVQ n+16(FP), CX
-	VBROADCASTSS ·logConsts+0(SB), Y8
-	VBROADCASTSS ·logConsts+60(SB), Y9
-	VBROADCASTSS ·logConsts+12(SB), Y10
-	VBROADCASTSS ·logConsts+4(SB), Y11
-	VBROADCASTSS ·logConsts+8(SB), Y12
-	VBROADCASTSS ·logConsts+64(SB), Y13
-	VXORPS  Y14, Y14, Y14                // 0
 	SHRQ $3, CX
-	JZ   ldone
-lloop:
+	JZ   logAVX2_done
+	// Two vectors per iteration with independent registers: consecutive
+	// iterations of the single-vector loop did not overlap (1.7 ns per
+	// element on Skylake-SP, 1.4 on Apple M2 for the NEON version).
+	MOVQ CX, BX
+	SHRQ $1, BX
+	JZ   logAVX2_tail
+logAVX2_loop2:
 	VMOVUPS (SI), Y0
-	VMAXPS  Y8, Y0, Y1                   // xc = max(x, min normal)
-	VPSRLD  $23, Y1, Y2                  // exponent field
-	VPSUBD  Y13, Y2, Y2                  // e = field - 126
+	VMOVUPS 32(SI), Y8
+	VMAXPS ·logConsts+0(SB), Y0, Y1
+	VMAXPS ·logConsts+0(SB), Y8, Y9
+	VPSRLD $23, Y1, Y2
+	VPSRLD $23, Y9, Y10
+	VPSUBD ·logConsts+512(SB), Y2, Y2
+	VPSUBD ·logConsts+512(SB), Y10, Y10
 	VCVTDQ2PS Y2, Y2
-	VPAND   Y9, Y1, Y3                   // mantissa bits
-	VPOR    Y10, Y3, Y3                  // m in [0.5, 1)
-	VCMPPS  $1, Y11, Y3, Y4              // m < √½
-	VANDPS  Y4, Y3, Y5                   // m or 0
-	VANDPS  Y4, Y12, Y6                  // 1 or 0
-	VSUBPS  Y6, Y2, Y2                   // e -= 1 where m < √½
-	VSUBPS  Y12, Y3, Y3                  // m -= 1
-	VADDPS  Y5, Y3, Y3                   // m += m where m < √½
-	VMULPS  Y3, Y3, Y7                   // z = m²
-	VBROADCASTSS ·logConsts+16(SB), Y15
-	VBROADCASTSS ·logConsts+20(SB), Y4
-	VFMADD213PS Y4, Y3, Y15              // y = y·m + p1
-	VBROADCASTSS ·logConsts+24(SB), Y4
-	VFMADD213PS Y4, Y3, Y15
-	VBROADCASTSS ·logConsts+28(SB), Y4
-	VFMADD213PS Y4, Y3, Y15
-	VBROADCASTSS ·logConsts+32(SB), Y4
-	VFMADD213PS Y4, Y3, Y15
-	VBROADCASTSS ·logConsts+36(SB), Y4
-	VFMADD213PS Y4, Y3, Y15
-	VBROADCASTSS ·logConsts+40(SB), Y4
-	VFMADD213PS Y4, Y3, Y15
-	VBROADCASTSS ·logConsts+44(SB), Y4
-	VFMADD213PS Y4, Y3, Y15
-	VBROADCASTSS ·logConsts+48(SB), Y4
-	VFMADD213PS Y4, Y3, Y15
-	VMULPS  Y3, Y15, Y15                 // · m
-	VMULPS  Y7, Y15, Y15                 // · z
-	VBROADCASTSS ·logConsts+52(SB), Y4
-	VFMADD231PS Y4, Y2, Y15              // += e·ln2lo
-	VFNMADD231PS Y10, Y7, Y15            // -= ½z
-	VADDPS  Y3, Y15, Y15                 // + m
-	VBROADCASTSS ·logConsts+56(SB), Y4
-	VFMADD231PS Y4, Y2, Y15              // += e·ln2hi
-	VCMPPS  $0, Y14, Y0, Y4              // x == 0 → -Inf
-	VBROADCASTSS ·logConsts+72(SB), Y5
-	VBLENDVPS Y4, Y5, Y15, Y15
-	VCMPPS  $1, Y14, Y0, Y4              // x < 0 → NaN
-	VBROADCASTSS ·logConsts+76(SB), Y5
-	VBLENDVPS Y4, Y5, Y15, Y15
-	VBROADCASTSS ·logConsts+68(SB), Y5
-	VCMPPS  $0, Y5, Y0, Y4               // x == +Inf → +Inf
-	VBLENDVPS Y4, Y5, Y15, Y15
-	VMOVUPS Y15, (DX)
+	VCVTDQ2PS Y10, Y10
+	VPAND ·logConsts+480(SB), Y1, Y3
+	VPAND ·logConsts+480(SB), Y9, Y11
+	VPOR ·logConsts+96(SB), Y3, Y3
+	VPOR ·logConsts+96(SB), Y11, Y11
+	VCMPPS $1, ·logConsts+32(SB), Y3, Y4
+	VCMPPS $1, ·logConsts+32(SB), Y11, Y12
+	VANDPS Y4, Y3, Y5
+	VANDPS Y12, Y11, Y13
+	VANDPS ·logConsts+64(SB), Y4, Y4
+	VANDPS ·logConsts+64(SB), Y12, Y12
+	VSUBPS Y4, Y2, Y2
+	VSUBPS Y12, Y10, Y10
+	VSUBPS ·logConsts+64(SB), Y3, Y3
+	VSUBPS ·logConsts+64(SB), Y11, Y11
+	VADDPS Y5, Y3, Y3
+	VADDPS Y13, Y11, Y11
+	VMULPS Y3, Y3, Y7
+	VMULPS Y11, Y11, Y15
+	VMOVUPS ·logConsts+128(SB), Y6
+	VMOVUPS ·logConsts+128(SB), Y14
+	VFMADD213PS ·logConsts+160(SB), Y3, Y6
+	VFMADD213PS ·logConsts+160(SB), Y11, Y14
+	VFMADD213PS ·logConsts+192(SB), Y3, Y6
+	VFMADD213PS ·logConsts+192(SB), Y11, Y14
+	VFMADD213PS ·logConsts+224(SB), Y3, Y6
+	VFMADD213PS ·logConsts+224(SB), Y11, Y14
+	VFMADD213PS ·logConsts+256(SB), Y3, Y6
+	VFMADD213PS ·logConsts+256(SB), Y11, Y14
+	VFMADD213PS ·logConsts+288(SB), Y3, Y6
+	VFMADD213PS ·logConsts+288(SB), Y11, Y14
+	VFMADD213PS ·logConsts+320(SB), Y3, Y6
+	VFMADD213PS ·logConsts+320(SB), Y11, Y14
+	VFMADD213PS ·logConsts+352(SB), Y3, Y6
+	VFMADD213PS ·logConsts+352(SB), Y11, Y14
+	VFMADD213PS ·logConsts+384(SB), Y3, Y6
+	VFMADD213PS ·logConsts+384(SB), Y11, Y14
+	VMULPS Y3, Y6, Y6
+	VMULPS Y11, Y14, Y14
+	VMULPS Y7, Y6, Y6
+	VMULPS Y15, Y14, Y14
+	VFMADD231PS ·logConsts+416(SB), Y2, Y6
+	VFMADD231PS ·logConsts+416(SB), Y10, Y14
+	VFNMADD231PS ·logConsts+96(SB), Y7, Y6
+	VFNMADD231PS ·logConsts+96(SB), Y15, Y14
+	VADDPS Y3, Y6, Y6
+	VADDPS Y11, Y14, Y14
+	VFMADD231PS ·logConsts+448(SB), Y2, Y6
+	VFMADD231PS ·logConsts+448(SB), Y10, Y14
+	VCMPPS $0, ·logConsts+640(SB), Y0, Y4
+	VCMPPS $0, ·logConsts+640(SB), Y8, Y12
+	VBLENDVPS Y4, ·logConsts+576(SB), Y6, Y6
+	VBLENDVPS Y12, ·logConsts+576(SB), Y14, Y14
+	VCMPPS $1, ·logConsts+640(SB), Y0, Y4
+	VCMPPS $1, ·logConsts+640(SB), Y8, Y12
+	VBLENDVPS Y4, ·logConsts+608(SB), Y6, Y6
+	VBLENDVPS Y12, ·logConsts+608(SB), Y14, Y14
+	VCMPPS $0, ·logConsts+544(SB), Y0, Y4
+	VCMPPS $0, ·logConsts+544(SB), Y8, Y12
+	VBLENDVPS Y4, ·logConsts+544(SB), Y6, Y6
+	VBLENDVPS Y12, ·logConsts+544(SB), Y14, Y14
+	VMOVUPS Y6, (DX)
+	VMOVUPS Y14, 32(DX)
+	ADDQ $64, SI
+	ADDQ $64, DX
+	DECQ BX
+	JNZ  logAVX2_loop2
+	ANDQ $1, CX
+	JZ   logAVX2_done
+logAVX2_tail:
+	VMOVUPS (SI), Y0
+	VMAXPS ·logConsts+0(SB), Y0, Y1
+	VPSRLD $23, Y1, Y2
+	VPSUBD ·logConsts+512(SB), Y2, Y2
+	VCVTDQ2PS Y2, Y2
+	VPAND ·logConsts+480(SB), Y1, Y3
+	VPOR ·logConsts+96(SB), Y3, Y3
+	VCMPPS $1, ·logConsts+32(SB), Y3, Y4
+	VANDPS Y4, Y3, Y5
+	VANDPS ·logConsts+64(SB), Y4, Y4
+	VSUBPS Y4, Y2, Y2
+	VSUBPS ·logConsts+64(SB), Y3, Y3
+	VADDPS Y5, Y3, Y3
+	VMULPS Y3, Y3, Y7
+	VMOVUPS ·logConsts+128(SB), Y6
+	VFMADD213PS ·logConsts+160(SB), Y3, Y6
+	VFMADD213PS ·logConsts+192(SB), Y3, Y6
+	VFMADD213PS ·logConsts+224(SB), Y3, Y6
+	VFMADD213PS ·logConsts+256(SB), Y3, Y6
+	VFMADD213PS ·logConsts+288(SB), Y3, Y6
+	VFMADD213PS ·logConsts+320(SB), Y3, Y6
+	VFMADD213PS ·logConsts+352(SB), Y3, Y6
+	VFMADD213PS ·logConsts+384(SB), Y3, Y6
+	VMULPS Y3, Y6, Y6
+	VMULPS Y7, Y6, Y6
+	VFMADD231PS ·logConsts+416(SB), Y2, Y6
+	VFNMADD231PS ·logConsts+96(SB), Y7, Y6
+	VADDPS Y3, Y6, Y6
+	VFMADD231PS ·logConsts+448(SB), Y2, Y6
+	VCMPPS $0, ·logConsts+640(SB), Y0, Y4
+	VBLENDVPS Y4, ·logConsts+576(SB), Y6, Y6
+	VCMPPS $1, ·logConsts+640(SB), Y0, Y4
+	VBLENDVPS Y4, ·logConsts+608(SB), Y6, Y6
+	VCMPPS $0, ·logConsts+544(SB), Y0, Y4
+	VBLENDVPS Y4, ·logConsts+544(SB), Y6, Y6
+	VMOVUPS Y6, (DX)
 	ADDQ $32, SI
 	ADDQ $32, DX
 	DECQ CX
-	JNZ  lloop
-ldone:
+	JNZ  logAVX2_tail
+logAVX2_done:
 	VZEROUPPER
 	RET
