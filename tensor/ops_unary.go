@@ -52,7 +52,7 @@ func (t *Tensor) Neg() *Tensor {
 func (t *Tensor) Exp() *Tensor {
 	tc := t.Contiguous()
 	out := unaryOpMath(tc, kernel.Exp)
-	od := out.Detach()
+	od := out.saved()
 	return record(out, "Exp", []*Tensor{tc}, func(gy *Tensor) { tc.accumGrad(gy.Mul(od)) })
 }
 
@@ -60,7 +60,7 @@ func (t *Tensor) Exp() *Tensor {
 func (t *Tensor) Log() *Tensor {
 	tc := t.Contiguous()
 	out := unaryOpMath(tc, kernel.Log)
-	td := tc.Detach()
+	td := tc.saved()
 	return record(out, "Log", []*Tensor{tc}, func(gy *Tensor) { tc.accumGrad(gy.Div(td)) })
 }
 
@@ -68,7 +68,7 @@ func (t *Tensor) Log() *Tensor {
 func (t *Tensor) Sqrt() *Tensor {
 	tc := t.Contiguous()
 	out := unaryOpMath(tc, kernel.Sqrt)
-	od := out.Detach()
+	od := out.saved()
 	return record(out, "Sqrt", []*Tensor{tc}, func(gy *Tensor) {
 		tc.accumGrad(zipMap(gy, od, func(g, y, z []float32) {
 			for i := range z {
@@ -82,7 +82,7 @@ func (t *Tensor) Sqrt() *Tensor {
 func (t *Tensor) Square() *Tensor {
 	tc := t.Contiguous()
 	out := unaryOp(tc, func(x, z []float32) { kernel.Mul(x, x, z) })
-	td := tc.Detach()
+	td := tc.saved()
 	return record(out, "Square", []*Tensor{tc}, func(gy *Tensor) {
 		tc.accumGrad(zipMap(gy, td, func(g, x, z []float32) {
 			for i := range z {
@@ -96,7 +96,7 @@ func (t *Tensor) Square() *Tensor {
 func (t *Tensor) Abs() *Tensor {
 	tc := t.Contiguous()
 	out := unaryOp(tc, kernel.Abs)
-	td := tc.Detach()
+	td := tc.saved()
 	return record(out, "Abs", []*Tensor{tc}, func(gy *Tensor) {
 		tc.accumGrad(zipMap(gy, td, func(g, x, z []float32) {
 			kernel.Sign(x, z)
@@ -109,7 +109,7 @@ func (t *Tensor) Abs() *Tensor {
 func (t *Tensor) Tanh() *Tensor {
 	tc := t.Contiguous()
 	out := unaryOpMath(tc, kernel.Tanh)
-	od := out.Detach()
+	od := out.saved()
 	return record(out, "Tanh", []*Tensor{tc}, func(gy *Tensor) {
 		tc.accumGrad(zipMap(gy, od, func(g, y, z []float32) {
 			for i := range z {
@@ -123,7 +123,7 @@ func (t *Tensor) Tanh() *Tensor {
 func (t *Tensor) Sigmoid() *Tensor {
 	tc := t.Contiguous()
 	out := unaryOpMath(tc, kernel.Sigmoid)
-	od := out.Detach()
+	od := out.saved()
 	return record(out, "Sigmoid", []*Tensor{tc}, func(gy *Tensor) {
 		tc.accumGrad(zipMap(gy, od, func(g, y, z []float32) {
 			for i := range z {
@@ -137,7 +137,7 @@ func (t *Tensor) Sigmoid() *Tensor {
 func (t *Tensor) ReLU() *Tensor {
 	tc := t.Contiguous()
 	out := unaryOp(tc, func(x, z []float32) { kernel.MaxScalar(x, 0, z) })
-	td := tc.Detach()
+	td := tc.saved()
 	return record(out, "ReLU", []*Tensor{tc}, func(gy *Tensor) {
 		tc.accumGrad(zipMap(gy, td, func(g, x, z []float32) {
 			kernel.GtZeroMask(x, z)
@@ -150,7 +150,7 @@ func (t *Tensor) ReLU() *Tensor {
 func (t *Tensor) GELU() *Tensor {
 	tc := t.Contiguous()
 	out := unaryOpMath(tc, kernel.GELU)
-	td := tc.Detach()
+	td := tc.saved()
 	return record(out, "GELU", []*Tensor{tc}, func(gy *Tensor) {
 		tc.accumGrad(zipMap(gy, td, func(g, x, z []float32) {
 			kernel.GELUGrad(x, z)
@@ -164,7 +164,7 @@ func (t *Tensor) GELU() *Tensor {
 func (t *Tensor) Clamp(lo, hi float32) *Tensor {
 	tc := t.Contiguous()
 	out := unaryOp(tc, func(x, z []float32) { kernel.Clamp(x, lo, hi, z) })
-	td := tc.Detach()
+	td := tc.saved()
 	return record(out, "Clamp", []*Tensor{tc}, func(gy *Tensor) {
 		tc.accumGrad(zipMap(gy, td, func(g, x, z []float32) {
 			for i := range z {

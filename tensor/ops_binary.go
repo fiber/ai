@@ -152,7 +152,7 @@ func (t *Tensor) Sub(u *Tensor) *Tensor {
 // Mul returns the element-wise product t * u with broadcasting.
 func (t *Tensor) Mul(u *Tensor) *Tensor {
 	out := binaryOp("Mul", t, u, kernel.Mul, kernel.Scale, true, func(a, b float32) float32 { return a * b })
-	td, ud := t.Detach(), u.Detach()
+	td, ud := t.saved(), u.saved()
 	return record(out, "Mul", []*Tensor{t, u}, func(gy *Tensor) {
 		if t.requiresGrad {
 			t.accumGrad(sumTo(gy.Mul(ud), t.shape))
@@ -166,7 +166,7 @@ func (t *Tensor) Mul(u *Tensor) *Tensor {
 // Div returns the element-wise quotient t / u with broadcasting.
 func (t *Tensor) Div(u *Tensor) *Tensor {
 	out := binaryOp("Div", t, u, kernel.Div, nil, false, func(a, b float32) float32 { return a / b })
-	ud, od := u.Detach(), out.Detach()
+	ud, od := u.saved(), out.saved()
 	return record(out, "Div", []*Tensor{t, u}, func(gy *Tensor) {
 		if t.requiresGrad {
 			t.accumGrad(sumTo(gy.Div(ud), t.shape))
@@ -181,7 +181,7 @@ func (t *Tensor) Div(u *Tensor) *Tensor {
 // Where both are equal the gradient flows to t.
 func (t *Tensor) Maximum(u *Tensor) *Tensor {
 	out := binaryOp("Maximum", t, u, kernel.Maximum, kernel.MaxScalar, true, func(a, b float32) float32 { return max(a, b) })
-	td, ud := t.Detach(), u.Detach()
+	td, ud := t.saved(), u.saved()
 	return record(out, "Maximum", []*Tensor{t, u}, func(gy *Tensor) {
 		if t.requiresGrad {
 			mask := binaryOp("Maximum", td, ud, nil, nil, false, func(a, b float32) float32 {
@@ -213,7 +213,7 @@ func (t *Tensor) Minimum(u *Tensor) *Tensor {
 func (t *Tensor) Pow(p float32) *Tensor {
 	tc := t.Contiguous()
 	out := unaryOpMath(tc, func(x, z []float32) { kernel.Pow(x, p, z) })
-	td := tc.Detach()
+	td := tc.saved()
 	return record(out, "Pow", []*Tensor{tc}, func(gy *Tensor) {
 		// d/dx x^p = p·x^(p-1)
 		tc.accumGrad(zipMap(gy, td, func(g, x, z []float32) {

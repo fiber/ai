@@ -281,3 +281,60 @@ func TestTrainingLoopConverges(t *testing.T) {
 		t.Fatalf("did not converge: loss=%v w=%v b=%v", loss.Item(), w.Item(), b.Item())
 	}
 }
+
+func TestBackwardReleasesIntermediates(t *testing.T) {
+	defer SetReleaseGraph(true)
+	SetReleaseGraph(true)
+	x := Randn(64, 1<<12).SetRequiresGrad(true) // 1 MiB intermediates: off-heap
+	h := x.MulScalar(2)
+	y := h.Tanh()
+	loss := y.Sum()
+	loss.Backward()
+	if !h.released || !y.released {
+		t.Fatal("intermediates not released after Backward")
+	}
+	if x.Grad() == nil || x.released || loss.released {
+		t.Fatal("leaf gradient or root affected by release")
+	}
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("reading a released intermediate did not panic")
+		}
+	}()
+	_ = h.Float32s()
+}
+
+func TestBackwardKeepsSharedIntermediates(t *testing.T) {
+	defer SetReleaseGraph(true)
+	x := New([]float32{1, 2, 3}, 3).SetRequiresGrad(true)
+	h := x.MulScalar(3)       // consumed by two graphs
+	loss1 := h.Square().Sum() // d/dx = 2·9x = 18x
+	loss2 := h.Sum()          // d/dx = 3
+	loss1.Backward()
+	if h.released {
+		t.Fatal("intermediate released while another graph still consumes it")
+	}
+	loss2.Backward()
+	if !h.released {
+		t.Fatal("intermediate not released after its last consumer")
+	}
+	for i, v := range x.Grad().Float32s() {
+		want := 18*float32(i+1) + 3
+		if !approx(v, want, 1e-4) {
+			t.Fatalf("grad[%d] = %v, want %v", i, v, want)
+		}
+	}
+	// RetainGrad and the switch keep intermediates
+	x2 := New([]float32{1, 2, 3}, 3).SetRequiresGrad(true)
+	h2 := x2.MulScalar(3).RetainGrad()
+	h2.Sum().Backward()
+	if h2.released || h2.Grad() == nil {
+		t.Fatal("RetainGrad intermediate released")
+	}
+	SetReleaseGraph(false)
+	h3 := x2.MulScalar(3)
+	h3.Sum().Backward()
+	if h3.released || h3.Float32s()[0] != 3 {
+		t.Fatal("intermediate released although the switch is off")
+	}
+}

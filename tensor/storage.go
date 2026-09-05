@@ -52,8 +52,18 @@ func newState() *atomic.Int32 { return new(atomic.Int32) }
 // storage is handed out again by the next allocation of that size, still
 // in cache.
 func (t *Tensor) Release() {
+	if t.node != nil || t.requiresGrad {
+		return
+	}
+	t.releaseStorage()
+}
+
+// releaseStorage returns the storage unless a view, Data() or an earlier
+// release claims it. Backward uses it on graph intermediates whose
+// consumers have all run.
+func (t *Tensor) releaseStorage() {
 	st := t.store
-	if st == nil || t.node != nil || t.requiresGrad || st.shared.Load() {
+	if st == nil || st.shared.Load() {
 		return
 	}
 	if !st.state.CompareAndSwap(stateLive, stateReleased) {
@@ -61,6 +71,7 @@ func (t *Tensor) Release() {
 	}
 	buf := st.buf[:cap(st.buf)]
 	st.buf, t.data = nil, nil
+	t.released = true
 	switch {
 	case st.mapped:
 		mapPool.mu.Lock()

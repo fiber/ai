@@ -245,20 +245,56 @@ func gemvCol(c, a, b Mat, workers int) bool {
 	return false
 }
 
-// bufPool recycles packing buffers between calls.
-var bufPool sync.Pool
+// Packing buffers are recycled through a small free list rather than a
+// sync.Pool: the pool is emptied at every GC, and re-allocating a 16 MiB
+// buffer means Go zero-fills it serially (1.5 ms on the Xeon Gold 6130)
+// and the scavenger returns and re-faults its pages. The list keeps the
+// largest buffers, at most bufKeep of them.
+const bufKeep = 32
+
+var bufs struct {
+	sync.Mutex
+	free [][]float32
+}
 
 func getBuf(n int) []float32 {
-	if v := bufPool.Get(); v != nil {
-		s := *(v.(*[]float32))
-		if cap(s) >= n {
-			return s[:n]
+	bufs.Lock()
+	best := -1
+	for i, s := range bufs.free {
+		if cap(s) >= n && (best < 0 || cap(s) < cap(bufs.free[best])) {
+			best = i
 		}
 	}
+	if best >= 0 {
+		s := bufs.free[best]
+		last := len(bufs.free) - 1
+		bufs.free[best] = bufs.free[last]
+		bufs.free = bufs.free[:last]
+		bufs.Unlock()
+		return s[:n]
+	}
+	bufs.Unlock()
 	return make([]float32, n)
 }
 
-func putBuf(s []float32) { bufPool.Put(&s) }
+func putBuf(s []float32) {
+	bufs.Lock()
+	defer bufs.Unlock()
+	if len(bufs.free) < bufKeep {
+		bufs.free = append(bufs.free, s[:cap(s)])
+		return
+	}
+	// full: keep the larger of the incoming buffer and the smallest held
+	small := 0
+	for i, b := range bufs.free {
+		if cap(b) < cap(bufs.free[small]) {
+			small = i
+		}
+	}
+	if cap(bufs.free[small]) < cap(s) {
+		bufs.free[small] = s[:cap(s)]
+	}
+}
 
 func roundUp(x, m int) int { return (x + m - 1) / m * m }
 

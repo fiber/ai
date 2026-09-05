@@ -96,3 +96,17 @@ Recording a node is one small allocation per operation and happens only
 when an input requires grad and grad mode is on. Backward closures capture
 detached views of their inputs, so a forward pass under `NoGrad` — the
 inference path — has no autograd overhead at all.
+
+## What Backward leaves behind
+
+By default `Backward` releases every intermediate result as soon as all
+operations that consumed it have run their backward step: the storage
+goes back to the allocator for the next step (cache-warm, no wait for the
+garbage collector) and the graph node is dropped. Leaves, the tensor
+`Backward` was called on, tensors marked with `RetainGrad`, views, and
+tensors whose `Data()` slice was handed out are never released. Reading a
+released tensor panics with a message that says so. To look at
+intermediates after `Backward`, keep them with `RetainGrad()`, copy them
+before (`Float32s()`), or switch the behaviour off with
+`tensor.SetReleaseGraph(false)`. An intermediate consumed by two graphs
+(two losses) is released only after the second `Backward`.

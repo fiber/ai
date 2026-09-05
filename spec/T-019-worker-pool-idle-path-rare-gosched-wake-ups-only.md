@@ -79,3 +79,15 @@ rotation through cold mapped buffers between forced collections (a
 smaller budget keeps the rotation in cache at the price of more
 collections; `FIBERAI_MAP_BUDGET` added to measure), and fewer, cheaper
 synchronisation rounds per small GEMM.
+
+Graph release (tensor scope): `Backward` now counts consumers per
+tensor (incremented in `record`, decremented as each consumer's backward
+runs) and hands an intermediate's storage and gradient back once the
+count reaches zero, dropping its node; the backward closures keep
+`saved()` aliases instead of views so the storage is not marked shared.
+Default on (`SetReleaseGraph`); reads of a released tensor panic with a
+message. M2 Pro NEON training step 84.9K → 92.3K samples/s with the
+retained working set down from ~200 MiB to 28 MiB; AMX unchanged at
+147K. Packing buffers in `blas` moved from a `sync.Pool` (emptied by
+every GC, then re-zeroed by Go) to a persistent free list. Xeon numbers
+pending for both.

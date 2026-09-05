@@ -46,7 +46,8 @@ func normDims(op string, dims []int, nd int) []int {
 // reduceDims reduces t over dims (ascending, normalised). With keep the
 // reduced dimensions stay as size 1; otherwise they are removed.
 func reduceDims(t *Tensor, dims []int, keep bool, kind reduceKind) *Tensor {
-	r := t.Contiguous().Detach()
+	tc := t.Contiguous()
+	r := tc.saved() // internal alias: a view would mark tc's storage shared and block its release
 	if len(dims) == len(t.shape) && t.size > 0 {
 		r = reduceAll(r, kind)
 	} else {
@@ -59,6 +60,9 @@ func reduceDims(t *Tensor, dims []int, keep bool, kind reduceKind) *Tensor {
 		}
 	}
 	if keep {
+		if r == tc || r.store == tc.store { // nothing was reduced: hand out a proper view
+			return tc.Detach()
+		}
 		return r
 	}
 	shape := make(Shape, 0, len(t.shape))
@@ -232,7 +236,7 @@ func (t *Tensor) Max(dims ...int) *Tensor {
 	}
 	out := reduceDims(t, nd, false, reduceMax)
 	kshape := keepShape(t.shape, nd)
-	td, od := t.Detach(), out.Detach()
+	td, od := t.saved(), out.saved()
 	return record(out, "Max", []*Tensor{t}, func(gy *Tensor) {
 		mask := binaryOp("Max", td, od.Reshape(kshape...), nil, nil, false, func(a, b float32) float32 {
 			if a == b {

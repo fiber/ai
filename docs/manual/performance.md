@@ -147,7 +147,11 @@ storage might still be needed (a view exists, `Data()` was taken,
 autograd recorded the tensor), so library code calls it on every
 intermediate it produces (`nn.Linear`, `nn.Sequential`), which pays off
 in `NoGrad` inference; call it yourself on discarded results in hot
-loops. The tensor must not be used after `Release()`. The other half of
+loops. Under autograd, `Backward` does the same for the graph's
+intermediates once their consumers have run (see
+[autograd.md](autograd.md#what-backward-leaves-behind)); a training step
+therefore keeps a working set of a few tens of MB instead of rotating
+through the whole allocation budget. The tensor must not be used after `Release()`. The other half of
 cache residency is that the same core handles the same slice every time:
 `parallel.Range` assigns chunks owner-first for that reason (see
 [internals.md](internals.md)).

@@ -46,7 +46,7 @@ func (t *Tensor) Softmax(dim int) *Tensor {
 			kernel.Scale(o, 1/kernel.Sum(o), o)
 		}
 	})
-	od := out.Detach()
+	od := out.saved()
 	out = record(out, "Softmax", []*Tensor{x}, func(gy *Tensor) {
 		// dx = y ⊙ (g − ⟨g, y⟩) per row
 		g := gy.Contiguous()
@@ -75,7 +75,7 @@ func (t *Tensor) LogSoftmax(dim int) *Tensor {
 			kernel.AddScalar(row, -logSumExp(row), o)
 		}
 	})
-	od := out.Detach()
+	od := out.saved()
 	out = record(out, "LogSoftmax", []*Tensor{x}, func(gy *Tensor) {
 		// dx = g − softmax(x) · Σg per row
 		g := gy.Contiguous()

@@ -83,11 +83,32 @@ func record(out *Tensor, op string, inputs []*Tensor, backward func(gy *Tensor))
 		if in.requiresGrad {
 			out.requiresGrad = true
 			out.node = &node{op: op, inputs: inputs, backward: backward}
+			for _, in := range inputs {
+				in.consumers++
+			}
 			return out
 		}
 	}
 	return out
 }
+
+var releaseGraph atomic.Bool
+
+func init() { releaseGraph.Store(true) }
+
+// SetReleaseGraph controls what Backward does with intermediate results.
+// When on (the default), an intermediate tensor's storage and its
+// gradient are handed back for reuse as soon as every operation that
+// consumed it has run its backward step, and its graph node is dropped;
+// the next step then computes into cache-warm memory instead of waiting
+// for the garbage collector. Reading such a tensor afterwards panics with
+// a clear message. Tensors marked with RetainGrad, views, tensors whose
+// Data() was taken, leaves and the tensor Backward was called on are never
+// released. Turn it off to inspect intermediates after Backward.
+func SetReleaseGraph(on bool) { releaseGraph.Store(on) }
+
+// ReleaseGraph reports the current setting.
+func ReleaseGraph() bool { return releaseGraph.Load() }
 
 // accumGrad adds g into t's gradient buffer. It is a no-op for tensors not
 // requiring grad, which lets backward closures push unconditionally.
@@ -127,6 +148,7 @@ func (t *Tensor) BackwardWith(grad *Tensor) {
 	}
 	order := topoOrder(t)
 	t.accumGrad(grad.Detach())
+	release := releaseGraph.Load()
 	NoGrad(func() {
 		for i := len(order) - 1; i >= 0; i-- {
 			v := order[i]
@@ -134,8 +156,22 @@ func (t *Tensor) BackwardWith(grad *Tensor) {
 				continue
 			}
 			v.node.backward(v.grad)
+			for _, in := range v.node.inputs {
+				in.consumers--
+			}
 			if !v.retainGrad {
+				g := v.grad
 				v.grad = nil // intermediate gradient has been propagated
+				if release {
+					g.releaseStorage()
+				}
+			}
+			// The intermediate itself is dead once every consumer has run its
+			// backward (consumers in another graph keep the count up) unless
+			// the caller asked for it or it is the root.
+			if release && v != t && !v.retainGrad && v.consumers == 0 {
+				v.node = nil
+				v.releaseStorage()
 			}
 		}
 	})

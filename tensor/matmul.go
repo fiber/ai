@@ -51,7 +51,7 @@ func matmul2D(x, y *Tensor) *Tensor {
 	if out.size > 0 && k > 0 {
 		blas.Gemm(mat(out, 0, 1), mat(x, 0, 1), mat(y, 0, 1))
 	}
-	xd, yd := x.Detach(), y.Detach()
+	xd, yd := x.saved(), y.saved()
 	return record(out, "MatMul", []*Tensor{x, y}, func(gy *Tensor) {
 		if x.requiresGrad { // dX = dY · Yᵀ
 			x.accumGrad(gy.MatMul(yd.T()))
@@ -101,7 +101,7 @@ func matmulBatched(x, y *Tensor) *Tensor {
 			}
 		}
 	}
-	xd, yd := x.Detach(), y.Detach()
+	xd, yd := x.saved(), y.saved()
 	return record(out, "MatMul", []*Tensor{x, y}, func(gy *Tensor) {
 		if x.requiresGrad {
 			x.accumGrad(sumTo(gy.MatMul(yd.Transpose(-1, -2)), x.shape))

@@ -19,6 +19,8 @@ type Tensor struct {
 
 	requiresGrad bool
 	retainGrad   bool
+	consumers    int32 // graph nodes that take this tensor as input and have not run their backward yet
+	released     bool  // storage handed back after Backward: any read is a bug
 	grad         *Tensor
 	node         *node
 }
@@ -43,6 +45,14 @@ func alloc(shape Shape, zero bool) *Tensor {
 func wrap(data []float32, shape Shape) *Tensor {
 	st := &storage{buf: data, state: newState()}
 	return &Tensor{data: data, store: st, shape: shape, strides: contiguousStrides(shape), size: shape.Size()}
+}
+
+// saved is the alias an operation keeps for its backward closure: the same
+// storage, no autograd flags, and — unlike a view — it does not mark the
+// storage as shared, because the closure dies with the graph node and
+// Backward may then release the storage (see SetReleaseGraph).
+func (t *Tensor) saved() *Tensor {
+	return &Tensor{data: t.data, store: t.store, shape: t.shape, strides: t.strides, size: t.size}
 }
 
 // view creates a tensor sharing t's storage with a new data offset, shape
@@ -178,6 +188,9 @@ func (t *Tensor) IsContiguous() bool { return isContiguous(t.shape, t.strides) }
 // storage: it is excluded from buffer reuse for the rest of its life, so
 // prefer Float32s or At when you only need to read.
 func (t *Tensor) Data() []float32 {
+	if t.released {
+		fail("Data", "reading an intermediate result that Backward has released; keep it with RetainGrad, copy it before Backward, or tensor.SetReleaseGraph(false)")
+	}
 	if t.IsContiguous() {
 		t.store.state.CompareAndSwap(stateLive, stateEscaped) // the caller may keep the slice: never recycle it
 		return t.data[:t.size]
@@ -188,6 +201,9 @@ func (t *Tensor) Data() []float32 {
 // values is Data for internal use: the same slice, without pinning the
 // storage.
 func (t *Tensor) values() []float32 {
+	if t.released {
+		fail("Tensor", "reading an intermediate result that Backward has released; keep it with RetainGrad, copy it before Backward, or tensor.SetReleaseGraph(false)")
+	}
 	if t.IsContiguous() {
 		return t.data[:t.size]
 	}
