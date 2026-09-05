@@ -292,23 +292,7 @@ var bufs struct {
 // the core that used it, which on a machine with slow memory is worth
 // more than a tighter size fit (choosing the smallest fit cost a 16-core
 // Xeon 20 % of an MLP forward pass).
-// Experiment switches (FIBERAI_BLAS_PACKA=stream, FIBERAI_BLAS_BUF=pool).
-var (
-	packStream = os.Getenv("FIBERAI_BLAS_PACKA") == "stream"
-	bufSync    = os.Getenv("FIBERAI_BLAS_BUF") == "pool"
-	bufPool    sync.Pool
-)
-
 func getBuf(n int) []float32 {
-	if bufSync {
-		if v := bufPool.Get(); v != nil {
-			s := *(v.(*[]float32))
-			if cap(s) >= n {
-				return s[:n]
-			}
-		}
-		return make([]float32, n)
-	}
 	bufs.Lock()
 	for i := len(bufs.free) - 1; i >= 0; i-- {
 		s := bufs.free[i]
@@ -323,10 +307,6 @@ func getBuf(n int) []float32 {
 }
 
 func putBuf(s []float32) {
-	if bufSync {
-		bufPool.Put(&s)
-		return
-	}
 	bufs.Lock()
 	defer bufs.Unlock()
 	if len(bufs.free) >= bufKeep {
@@ -549,7 +529,9 @@ func packA(dst []float32, a Mat, i0, p0, ib, pb, mr int) {
 		rows := min(mr, ib-ir)
 		panel := dst[ir*pb : (ir+mr)*pb]
 		switch {
-		case a.CS == 1 && packStream: // experiment: the former per-row streaming loop
+		case a.CS == 1 && !packTranspose: // rows of A are contiguous: stream each row
+			// (the register-transpose path below pays off only with its
+			// assembly; its Go fallback cost a Xeon 30 % of an MLP forward)
 			for i := 0; i < rows; i++ {
 				src := a.Data[(i0+ir+i)*a.RS+p0:][:pb]
 				for p, v := range src {
