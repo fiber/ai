@@ -2,6 +2,7 @@ package tensor
 
 import (
 	"math"
+	"sync"
 
 	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/internal/parallel"
@@ -183,43 +184,66 @@ func LayerNorm(x, gamma, beta *Tensor, eps float32) *Tensor {
 		fail("LayerNorm", "gamma and beta must have %d elements, got %d and %d", n, gamma.size, beta.size)
 	}
 	xc, gc, bc := x.Contiguous(), gamma.Contiguous(), beta.Contiguous()
-	xhat := newTensorUninit(x.shape) // normalised input, needed by backward
 	rows := 0
 	if n > 0 {
 		rows = xc.size / n
 	}
+	// Only the per-row statistics are kept for backward; x̂ is recomputed
+	// from x, mean and rstd row by row into an L1-resident scratch buffer,
+	// which spares a full-size tensor written in forward and read in backward.
+	mean := make([]float32, rows)
 	rstd := make([]float32, rows)
 	out := newTensorUninit(x.shape)
 	gd, bd := gc.data[:n], bc.data[:n]
+	xd := xc.values()
 	forRows(xc.size, n, func(lo, hi int) {
+		xh := rowScratch(n)
 		for r := lo; r < hi; r++ {
-			row, xh, o := xc.data[r*n:(r+1)*n], xhat.data[r*n:(r+1)*n], out.data[r*n:(r+1)*n]
-			mean := kernel.Sum(row) / float32(n)
-			kernel.AddScalar(row, -mean, xh)
+			row, o := xd[r*n:(r+1)*n], out.data[r*n:(r+1)*n]
+			m := kernel.Sum(row) / float32(n)
+			kernel.AddScalar(row, -m, xh)
 			v := kernel.Dot(xh, xh) / float32(n)
 			rs := float32(1 / math.Sqrt(float64(v)+float64(eps)))
-			rstd[r] = rs
-			kernel.Scale(xh, rs, xh)
-			kernel.Mul(xh, gd, o)
+			mean[r], rstd[r] = m, rs
+			kernel.Scale(xh, rs, o)
+			kernel.Mul(o, gd, o)
 			kernel.Add(o, bd, o)
 		}
 	})
+	xs := xc.saved()
 	return record(out, "LayerNorm", []*Tensor{xc, gc, bc}, func(gy *Tensor) {
 		g := gy.Contiguous()
-		if gc.requiresGrad || bc.requiresGrad {
-			// dgamma = Σ_rows g ⊙ x̂, dbeta = Σ_rows g
-			gg := g.Mul(xhat).Reshape(-1, n).Sum(0)
-			gb := g.Reshape(-1, n).Sum(0)
-			gc.accumGrad(gg.Reshape(gamma.shape...))
-			bc.accumGrad(gb.Reshape(beta.shape...))
-		}
+		gdat := g.values()
+		xd := xs.values()
+		var gx *Tensor
 		if xc.requiresGrad {
-			// dx = rstd · (gy − mean(gy) − x̂ · mean(gy ⊙ x̂)),  gy = g ⊙ γ
-			gx := newTensorUninit(x.shape)
-			forRows(xc.size, n, func(lo, hi int) {
-				buf := make([]float32, n)
-				for r := lo; r < hi; r++ {
-					gr, xh, o := g.data[r*n:(r+1)*n], xhat.data[r*n:(r+1)*n], gx.data[r*n:(r+1)*n]
+			gx = newTensorUninit(x.shape)
+		}
+		wantParam := gc.requiresGrad || bc.requiresGrad
+		var (
+			mu     sync.Mutex
+			dgamma = make([]float32, n)
+			dbeta  = make([]float32, n)
+		)
+		forRows(xc.size, n, func(lo, hi int) {
+			xh := rowScratch(n)
+			buf := rowScratch(n)
+			var pg, pb []float32
+			if wantParam {
+				pg, pb = make([]float32, n), make([]float32, n)
+			}
+			for r := lo; r < hi; r++ {
+				gr := gdat[r*n : (r+1)*n]
+				kernel.AddScalar(xd[r*n:(r+1)*n], -mean[r], xh)
+				kernel.Scale(xh, rstd[r], xh) // x̂
+				if wantParam {
+					kernel.Mul(gr, xh, buf) // dγ += g ⊙ x̂, dβ += g
+					kernel.Add(pg, buf, pg)
+					kernel.Add(pb, gr, pb)
+				}
+				if gx != nil {
+					// dx = rstd · (gy − mean(gy) − x̂ · mean(gy ⊙ x̂)),  gy = g ⊙ γ
+					o := gx.data[r*n : (r+1)*n]
 					kernel.Mul(gr, gd, buf)
 					mgy := kernel.Sum(buf) / float32(n)
 					mgyx := kernel.Dot(buf, xh) / float32(n)
@@ -228,8 +252,25 @@ func LayerNorm(x, gamma, beta *Tensor, eps float32) *Tensor {
 					kernel.AddScalar(o, -mgy, o)
 					kernel.Scale(o, rstd[r], o)
 				}
-			})
+			}
+			if wantParam {
+				mu.Lock()
+				kernel.Add(dgamma, pg, dgamma)
+				kernel.Add(dbeta, pb, dbeta)
+				mu.Unlock()
+			}
+		})
+		if gc.requiresGrad {
+			gc.accumGrad(wrap(dgamma, Shape{n}).Reshape(gamma.shape...))
+		}
+		if bc.requiresGrad {
+			bc.accumGrad(wrap(dbeta, Shape{n}).Reshape(beta.shape...))
+		}
+		if gx != nil {
 			xc.accumGrad(gx)
 		}
 	})
 }
+
+// rowScratch returns an n-float scratch buffer for row-wise kernels.
+func rowScratch(n int) []float32 { return make([]float32, n) }

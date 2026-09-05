@@ -338,3 +338,34 @@ func TestBackwardKeepsSharedIntermediates(t *testing.T) {
 		t.Fatal("intermediate released although the switch is off")
 	}
 }
+
+func TestLayerNormNumericGradient(t *testing.T) {
+	rng := rand.New(rand.NewPCG(21, 22))
+	x := RandFrom(rng, 7, 33).MulScalar(3).AddScalar(1).SetRequiresGrad(true)
+	gamma := RandFrom(rng, 33).AddScalar(0.5).SetRequiresGrad(true)
+	beta := RandFrom(rng, 33).SetRequiresGrad(true)
+	w := RandFrom(rng, 7, 33) // random weighting so every output element matters
+	loss := func() *Tensor { return LayerNorm(x, gamma, beta, 1e-5).Mul(w).Sum() }
+	loss().Backward()
+	check := func(name string, p *Tensor) {
+		grad := p.Grad().Float32s()
+		d := p.Data()
+		for i := 0; i < len(d); i += max(1, len(d)/9) {
+			const h = 1e-2
+			orig := d[i]
+			d[i] = orig + h
+			var lp, lm float32
+			NoGrad(func() { lp = loss().Item() })
+			d[i] = orig - h
+			NoGrad(func() { lm = loss().Item() })
+			d[i] = orig
+			num := (lp - lm) / (2 * h)
+			if !approx(grad[i], num, 2e-2) {
+				t.Fatalf("%s[%d]: analytic %v, numeric %v", name, i, grad[i], num)
+			}
+		}
+	}
+	check("x", x)
+	check("gamma", gamma)
+	check("beta", beta)
+}

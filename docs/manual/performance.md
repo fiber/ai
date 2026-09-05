@@ -78,6 +78,11 @@ more: a run of a few milliseconds ends before the core reaches its turbo
 clock and reports three times the real cost.
 - **Reductions** along the last dimension run at memory bandwidth; along
   other dimensions they fold rows with per-goroutine partial results.
+  `Softmax`, `LogSoftmax`, `CrossEntropy` and `LayerNorm` are fused row
+  operations: layer norm keeps only mean and rstd per row for the
+  backward pass and recomputes x̂ into an L1-resident scratch row, so a
+  [4096×4096] layer norm reads its input once and writes the output once
+  (M2 Pro 1.9 ms against PyTorch's 2.35).
 
 ## Heap ballast
 

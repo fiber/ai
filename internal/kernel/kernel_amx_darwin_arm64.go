@@ -44,7 +44,7 @@ var amx = func() impl {
 	// 2.13 TFLOPS on the M2 Pro); the AMX units sit with the performance
 	// cores, so no more workers than those (the efficiency cores' unit is
 	// slow and drags the tail of every round).
-	i.hints = Hints{KC: 1024, TasksPerWorker: 32, Workers: performanceCores()}
+	i.hints = Hints{KC: 1024, TasksPerWorker: 128, Workers: performanceCores()}
 	return i
 }()
 
