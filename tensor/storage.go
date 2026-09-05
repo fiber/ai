@@ -109,6 +109,12 @@ func init() {
 			SetMappedLimit(n)
 		}
 	}
+	if v := os.Getenv("FIBERAI_MAP_BUDGET"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			mapBudget = n
+			mapPool.gcAt = n
+		}
+	}
 }
 
 // DefaultHeapBallast is the ballast installed at start-up (see
@@ -207,7 +213,7 @@ func sizeClass(n int) (class int, capacity int) {
 // functions that do not use runtime.KeepAlive.
 const (
 	mapMin           = 32 << 10  // 128 KiB
-	DefaultMapBudget = 256 << 20 // outstanding mapped bytes before the first forced GC
+	DefaultMapBudget = 256 << 20 // outstanding mapped bytes before the first forced GC (FIBERAI_MAP_BUDGET)
 )
 
 var mapPool = struct {
@@ -224,6 +230,8 @@ var mapPool = struct {
 	misses   uint64
 	pinned   int // bytes kept mapped for good because Data() escaped them
 }{limit: 512 << 20, gcAt: DefaultMapBudget, enabled: mmapSupported}
+
+var mapBudget = DefaultMapBudget
 
 // SetMappedLimit caps the off-heap buffers kept for reuse (default 512
 // MiB). A negative limit disables off-heap allocation; results then come
@@ -283,7 +291,7 @@ func getMapped(n int, zero bool) *storage {
 		collectMapped()
 		mapPool.mu.Lock()
 		buf = popMappedLocked(class)
-		mapPool.gcAt = max(2*mapPool.live, DefaultMapBudget)
+		mapPool.gcAt = max(2*mapPool.live, mapBudget)
 	}
 	if buf != nil {
 		mapPool.hits++

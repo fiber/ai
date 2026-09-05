@@ -1252,3 +1252,23 @@ logAVX2_tail:
 logAVX2_done:
 	VZEROUPPER
 	RET
+
+// ---------------------------------------------------------------------------
+// func sqrtAVX2(x, z *float32, n int)     (n % 8 == 0)
+// ---------------------------------------------------------------------------
+TEXT ·sqrtAVX2(SB), NOSPLIT, $0-24
+	MOVQ x+0(FP), SI
+	MOVQ z+8(FP), DX
+	MOVQ n+16(FP), CX
+	SHRQ $3, CX
+	JZ   sqrt_done
+sqrt_loop:
+	VSQRTPS (SI), Y0
+	VMOVUPS Y0, (DX)
+	ADDQ $32, SI
+	ADDQ $32, DX
+	DECQ CX
+	JNZ  sqrt_loop
+sqrt_done:
+	VZEROUPPER
+	RET

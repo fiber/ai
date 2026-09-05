@@ -6,6 +6,8 @@ scope:
   - internal/parallel/
   - cmd/bench/
   - tensor/
+  - internal/kernel/
+  - optim/
 manual:
   - docs/manual/internals.md
   - docs/manual/performance.md
@@ -62,3 +64,18 @@ fixed).
   the MLP figures.
 
 ## Notes
+
+Xeon sweep (one socket): spin 50 µs 30K, 300 µs 49K, 1 ms 50K, 3 ms
+53K samples/s forward+backward; Gosched frequency makes no difference.
+Element-wise chunk: 65 536 → 48.6K, 32 768 → 59K, 16 384 → 62K, 8 192 →
+68.8K, and `x + y` 64K 57 → 32 µs. M2 Pro with 8 192: forward+backward
+76K → 96K, no element-wise row worse. Profile on the Xeon: 53 % of core
+time is helpers spinning, 21 % GEMM, 3.6 % the scalar Adam loop, 3.5 %
+`time.Since` in the spin. The step is bound by the main goroutine's
+serial path; the remaining levers are the Adam step (fused SIMD kernel
+instead of a scalar loop with float64 sqrt; scope extended to
+`internal/kernel/` for a vector `Sqrt` and `optim/`), the working-set
+rotation through cold mapped buffers between forced collections (a
+smaller budget keeps the rotation in cache at the price of more
+collections; `FIBERAI_MAP_BUDGET` added to measure), and fewer, cheaper
+synchronisation rounds per small GEMM.

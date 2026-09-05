@@ -136,7 +136,7 @@ func (j *job) runItem(i int) {
 // still 40 %. A spinning helper holds its P for at most spinTime and then
 // parks; the runtime's asynchronous preemption covers the rest.
 var (
-	spinTime     = 300 * time.Microsecond
+	spinTime     = defaultSpin
 	pollTime     = 100 * time.Microsecond // caller's wait for the last items before blocking
 	goschedEvery = 0                      // loads between Gosched calls while spinning; 0 = never
 )
@@ -195,7 +195,7 @@ func helper(id int) {
 				spun = true
 				break
 			}
-			if i&1023 == 0 {
+			if i&8191 == 0 {
 				if time.Since(start) > spinTime {
 					break
 				}

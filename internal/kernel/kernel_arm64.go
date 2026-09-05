@@ -19,6 +19,7 @@ func maxNEON(x *float32, n int) float32
 func expNEON(x, z *float32, n int)  // n % 4 == 0
 func tanhNEON(x, z *float32, n int) // n % 4 == 0
 func logNEON(x, z *float32, n int)  // n % 4 == 0
+func sqrtNEON(x, z *float32, n int) // n % 4 == 0
 func gemmNEON(k int, a, b, c *float32, ldc int)
 
 var neon = impl{
@@ -38,6 +39,7 @@ var neon = impl{
 	exp:       wrapExp(expNEON, 4),
 	tanh:      wrapUnary(tanhNEON, 4, genericTanh),
 	log:       wrapUnary(logNEON, 4, genericLog),
+	sqrt:      wrapUnary(sqrtNEON, 4, genericSqrt),
 	gemm:      gemmNEON,
 	mr:        8,
 	nr:        12,

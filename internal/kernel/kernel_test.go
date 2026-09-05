@@ -514,3 +514,38 @@ func BenchmarkExpAliasing(b *testing.B) {
 		})
 	}
 }
+
+func TestSqrtAndAdamStep(t *testing.T) {
+	for _, im := range implementations() {
+		x := make([]float32, 1001)
+		for i := range x {
+			x[i] = float32(i) * 0.37
+		}
+		z := make([]float32, len(x))
+		im.sqrt(x, z)
+		for i := range x {
+			if want := float32(math.Sqrt(float64(x[i]))); z[i] != want {
+				t.Fatalf("%s: sqrt(%v) = %v, want %v", im.name, x[i], z[i], want)
+			}
+		}
+	}
+	rng := rand.New(rand.NewPCG(3, 4))
+	n := 5000
+	w, g, m, v := randSlice(rng, n), randSlice(rng, n), randSlice(rng, n), randSlice(rng, n)
+	for i := range v {
+		v[i] = float32(math.Abs(float64(v[i])))
+	}
+	w2, m2, v2 := append([]float32(nil), w...), append([]float32(nil), m...), append([]float32(nil), v...)
+	const step, b1, b2, eps, bc2 = 0.01, 0.9, 0.999, 1e-8, 0.5
+	AdamStep(w, g, m, v, step, b1, b2, eps, bc2)
+	for j := range w2 {
+		gj := g[j]
+		m2[j] = b1*m2[j] + (1-b1)*gj
+		v2[j] = b2*v2[j] + (1-b2)*gj*gj
+		denom := float32(math.Sqrt(float64(v2[j]/bc2))) + eps
+		w2[j] -= step * m2[j] / denom
+		if !closeEnough(float64(w[j]), float64(w2[j]), 1e-5) || !closeEnough(float64(m[j]), float64(m2[j]), 1e-6) || !closeEnough(float64(v[j]), float64(v2[j]), 1e-6) {
+			t.Fatalf("AdamStep mismatch at %d: w %v vs %v, m %v vs %v, v %v vs %v", j, w[j], w2[j], m[j], m2[j], v[j], v2[j])
+		}
+	}
+}

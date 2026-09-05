@@ -24,6 +24,7 @@ var generic = impl{
 	exp:       genericExp,
 	tanh:      genericTanh,
 	log:       genericLog,
+	sqrt:      genericSqrt,
 	gemm:      genericGemm,
 	mr:        genericMR,
 	nr:        genericNR,
@@ -338,5 +339,13 @@ func genericLog(x, z []float32) {
 		y += e * ln2lo
 		y -= 0.5 * zz
 		z[i] = m + y + e*ln2hi
+	}
+}
+
+func genericSqrt(x, z []float32) {
+	n := checkLen2(x, z)
+	x, z = x[:n], z[:n]
+	for i, v := range x {
+		z[i] = float32(math.Sqrt(float64(v)))
 	}
 }

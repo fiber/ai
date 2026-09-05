@@ -67,6 +67,8 @@ var (
 	// Log computes z[i] = ln(x[i]) (Cephes logf; -Inf at 0, NaN below 0,
 	// denormals flushed to the smallest normal).
 	Log func(x, z []float32)
+	// Sqrt computes z[i] = sqrt(x[i]).
+	Sqrt func(x, z []float32)
 
 	// Gemm is the active GEMM micro-kernel with tile size MR×NR.
 	Gemm   GemmFunc
@@ -88,7 +90,7 @@ type impl struct {
 	axpy                        func(alpha float32, x, y []float32)
 	dot                         func(x, y []float32) float32
 	sum, max                    func(x []float32) float32
-	exp, tanh, log              func(x, z []float32)
+	exp, tanh, log, sqrt        func(x, z []float32)
 	gemm                        GemmFunc
 	mr, nr                      int
 }
@@ -97,7 +99,7 @@ func use(i *impl) {
 	Add, Sub, Mul, Div, Maximum = i.add, i.sub, i.mul, i.div, i.maximum
 	AddScalar, Scale, MaxScalar = i.addScalar, i.scale, i.maxScalar
 	Axpy, Dot, Sum, Max = i.axpy, i.dot, i.sum, i.max
-	Exp, Tanh, Log = i.exp, i.tanh, i.log
+	Exp, Tanh, Log, Sqrt = i.exp, i.tanh, i.log, i.sqrt
 	Gemm, MR, NR = i.gemm, i.mr, i.nr
 	Impl = i.name
 }
@@ -239,6 +241,13 @@ func verify(c *impl) error {
 		for i := range got {
 			if math.Abs(float64(got[i]-want[i])) > 2e-6*math.Abs(float64(want[i]))+1e-6 {
 				return fmt.Errorf("log mismatch at n=%d i=%d: %v vs %v", n, i, got[i], want[i])
+			}
+		}
+		generic.sqrt(xe, want)
+		c.sqrt(xe, got)
+		for i := range got {
+			if got[i] != want[i] {
+				return fmt.Errorf("sqrt mismatch at n=%d i=%d: %v vs %v", n, i, got[i], want[i])
 			}
 		}
 	}

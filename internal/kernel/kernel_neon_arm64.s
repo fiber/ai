@@ -785,3 +785,23 @@ lloop:
 	BNE  lloop
 ldone:
 	RET
+
+// ---------------------------------------------------------------------------
+// func sqrtNEON(x, z *float32, n int)     (n % 4 == 0)
+// ---------------------------------------------------------------------------
+#define VFSQRT4(Vd, Vn) WORD $(0x6EA1F800 | (Vn<<5) | Vd)
+
+TEXT ·sqrtNEON(SB), NOSPLIT, $0-24
+	MOVD x+0(FP), R0
+	MOVD z+8(FP), R2
+	MOVD n+16(FP), R3
+	LSR  $2, R3, R3
+	CBZ  R3, sqrt_done
+sqrt_loop:
+	VLD1.P 16(R0), [V0.S4]
+	VFSQRT4(0, 0)
+	VST1.P [V0.S4], 16(R2)
+	SUBS $1, R3, R3
+	BNE  sqrt_loop
+sqrt_done:
+	RET

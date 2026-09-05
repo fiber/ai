@@ -5,6 +5,7 @@ package optim
 import (
 	"math"
 
+	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/internal/parallel"
 	"github.com/fiber/ai/tensor"
 )
@@ -125,14 +126,9 @@ func (a *Adam) Step() {
 			if a.WeightDecay != 0 {
 				p.MulScalarInPlace(1 - a.LR*a.WeightDecay)
 			}
+			eps := a.Eps
 			parallel.Range(len(w), 4096, func(lo, hi int) {
-				for j := lo; j < hi; j++ {
-					gj := g[j]
-					m[j] = b1*m[j] + (1-b1)*gj
-					v[j] = b2*v[j] + (1-b2)*gj*gj
-					denom := float32(math.Sqrt(float64(v[j]/bc2))) + a.Eps
-					w[j] -= stepSize * m[j] / denom
-				}
+				kernel.AdamStep(w[lo:hi], g[lo:hi], m[lo:hi], v[lo:hi], stepSize, b1, b2, eps, bc2)
 			})
 		}
 	})

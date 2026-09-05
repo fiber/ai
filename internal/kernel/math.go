@@ -6,15 +6,6 @@ import "math"
 // have Go-only implementations (per-element math calls); they are still
 // parallelised by the tensor layer.
 
-// Sqrt computes z[i] = sqrt(x[i]).
-func Sqrt(x, z []float32) {
-	n := checkLen2(x, z)
-	x, z = x[:n], z[:n]
-	for i := range z {
-		z[i] = float32(math.Sqrt(float64(x[i])))
-	}
-}
-
 // Sigmoid computes z[i] = 1 / (1 + exp(-x[i])) as ½·tanh(x/2) + ½ with
 // the vector Tanh; every pass stays within the caller's chunk.
 func Sigmoid(x, z []float32) {
@@ -165,5 +156,31 @@ func GELUGrad(x, z []float32) {
 			du := geluC * (1 + 3*0.044715*v*v)
 			zb[i] = 0.5*(1+tb[i]) + 0.5*v*(1-tb[i]*tb[i])*du
 		}
+	}
+}
+
+// AdamStep applies one Adam update in place over a slice of parameters:
+// m = b1·m + (1-b1)·g, v = b2·v + (1-b2)·g², w -= step·m/(√(v/bc2)+eps),
+// composed from the vector kernels over L1-sized blocks. All four slices
+// must have the same length and must not overlap.
+func AdamStep(w, g, m, v []float32, step, b1, b2, eps, bc2 float32) {
+	n := checkLen2(w, g)
+	if len(m) < n || len(v) < n {
+		panic("kernel: AdamStep moment slices too short")
+	}
+	var t [block]float32
+	for lo := 0; lo < n; lo += block {
+		hi := min(lo+block, n)
+		wb, gb, mb, vb, tb := w[lo:hi], g[lo:hi], m[lo:hi], v[lo:hi], t[:hi-lo]
+		Scale(mb, b1, mb)
+		Axpy(1-b1, gb, mb)
+		Mul(gb, gb, tb)
+		Scale(vb, b2, vb)
+		Axpy(1-b2, tb, vb)
+		Scale(vb, 1/bc2, tb)
+		Sqrt(tb, tb)
+		AddScalar(tb, eps, tb)
+		Div(mb, tb, tb)
+		Axpy(-step, tb, wb)
 	}
 }

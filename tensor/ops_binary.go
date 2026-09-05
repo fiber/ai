@@ -10,7 +10,7 @@ import (
 // minChunk is the smallest number of elements handed to one goroutine by
 // SIMD element-wise operations: below ~64K elements the cost of waking
 // idle worker threads exceeds the work itself.
-var minChunk = 1 << 16 // FIBERAI_MIN_CHUNK overrides for experiments
+var minChunk = 1 << 13 // 8K elements: a 128K-element activation then uses all cores; FIBERAI_MIN_CHUNK overrides
 
 // minChunkMath is the chunk size for transcendental element-wise
 // operations (exp, tanh, ...), which cost ~10 ns per element.
