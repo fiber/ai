@@ -88,6 +88,10 @@ var (
 	ParallelThreshold = 4 * 1024 * 1024
 )
 
+// tasksPerWorker sets the granularity of the compute grid; FIBERAI_BLAS_TASKS
+// overrides it for experiments.
+var tasksPerWorker = 8
+
 // Strategy selects how the compute phase is distributed:
 //
 //	StrategyShared: all workers pack every A panel of the K block into one
@@ -107,6 +111,9 @@ const (
 // The blocking parameters can be overridden for tuning runs without a
 // rebuild: FIBERAI_BLAS_KC, FIBERAI_BLAS_MC and FIBERAI_BLAS_NC (elements).
 func init() {
+	if v, err := strconv.Atoi(os.Getenv("FIBERAI_BLAS_TASKS")); err == nil && v > 0 {
+		tasksPerWorker = v
+	}
 	switch os.Getenv("FIBERAI_BLAS_STRATEGY") {
 	case "rows":
 		Strategy = StrategyRows
@@ -274,13 +281,15 @@ func gemm(c, a, b Mat, workers int) {
 			// one parallel round (the two packings are independent).
 			packAB(ap, bp, a, b, pc, jc, m, pb, jb, mr, nr, workers)
 
-			// Phase 3: pure compute over a grid of (row block × panel range)
-			// tasks. A few tasks per worker keep dynamic scheduling effective
-			// on uneven cores; nothing is packed inside a task, so the grid
-			// can be fine-grained without redundant work.
+			// Phase 2: pure compute over a grid of (row block × panel range)
+			// tasks. Nothing is packed inside a task, so the grid can be fine:
+			// about tasksPerWorker tasks per worker keep the tail of each round
+			// short (with 3 per worker the last round left up to 14 of 16
+			// cores waiting for 25 % of a K block on the Xeon) and let dynamic
+			// scheduling absorb uneven cores.
 			nJ := 1
 			if workers > 1 {
-				nJ = min(nPanels, max(1, (3*workers+nIc-1)/nIc))
+				nJ = min(nPanels, max(1, (tasksPerWorker*workers+nIc-1)/nIc))
 			}
 			panelsPerTask := (nPanels + nJ - 1) / nJ
 			nJ = (nPanels + panelsPerTask - 1) / panelsPerTask
