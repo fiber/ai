@@ -1,0 +1,94 @@
+#!/bin/sh
+# Collect the full x86 measurement set for BENCHMARKS.md (spec T-008).
+#
+#   sh benchmarks/x86.sh            # everything, results in benchmarks/results/<host>/
+#   sh benchmarks/x86.sh -nopython  # skip the NumPy/PyTorch comparison
+#
+# Needs: Linux x86-64, git checkout of the repository, Go (any version with
+# GOTOOLCHAIN=auto; go.mod pins the toolchain), python3 with venv for the
+# comparison. Commit the results directory afterwards.
+set -eu
+
+cd "$(dirname "$0")/.."
+host=$(hostname -s 2>/dev/null || hostname)
+out="benchmarks/results/$host"
+mkdir -p "$out"
+python=1
+[ "${1:-}" = "-nopython" ] && python=0
+
+log() { printf '%s\n' "$*" | tee -a "$out/run.log"; }
+: > "$out/run.log"
+log "fiber/ai x86 measurement on $host, $(date -u +%Y-%m-%dT%H:%MZ)"
+
+# --- machine ---------------------------------------------------------------
+{
+  echo "== CPU =="
+  grep -m1 "model name" /proc/cpuinfo | cut -d: -f2
+  echo "cores: $(nproc)"
+  lscpu | grep -E "^(Socket|NUMA node)\(s\)|Thread\(s\) per core|Model name"
+  echo "virt: $(systemd-detect-virt 2>/dev/null || echo unknown)"
+  echo "== Flags =="
+  f=$(grep -m1 flags /proc/cpuinfo)
+  for x in avx2 fma avx512f avx512bw avx512vl avx512dq avx512_vnni avx512_bf16 amx_tile amx_bf16 amx_int8 avx_vnni; do
+    case " $f " in *" $x "*) echo "  $x: yes";; *) echo "  $x: NO";; esac
+  done
+  echo "== Caches =="
+  lscpu | grep -E "L1d|L2|L3"
+  echo "== Frequency =="
+  lscpu | grep -E "MHz" || true
+  grep -m1 "cpu MHz" /proc/cpuinfo || true
+  echo "== Kernel =="
+  uname -srm
+  echo "== Toolchain =="
+  go version
+  python3 --version 2>&1 || true
+} > "$out/machine.txt" 2>&1
+log "machine info -> $out/machine.txt"
+grep -E "avx2|avx512f" "$out/machine.txt" | tee -a "$out/run.log"
+
+# --- correctness -----------------------------------------------------------
+log "go vet"
+go vet ./... > "$out/vet.txt" 2>&1 && log "  ok" || log "  FAILED (see vet.txt)"
+log "go test (detected backend)"
+go test -count=1 ./... > "$out/test.txt" 2>&1 && log "  ok" || log "  FAILED (see test.txt)"
+go test -count=1 ./internal/kernel -run TestInitSelectedImplementation -v 2>&1 | grep -E "active kernel|warnings" | tee -a "$out/run.log" >> "$out/test.txt"
+for k in avx2 generic; do
+  log "go test FIBERAI_KERNEL=$k"
+  FIBERAI_KERNEL=$k go test -count=1 ./internal/... ./tensor/ > "$out/test-$k.txt" 2>&1 && log "  ok" || log "  FAILED (see test-$k.txt)"
+done
+if grep -q "avx512f: yes" "$out/machine.txt"; then
+  log "go test FIBERAI_KERNEL=avx512"
+  FIBERAI_KERNEL=avx512 go test -count=1 ./internal/... ./tensor/ > "$out/test-avx512.txt" 2>&1 && log "  ok" || log "  FAILED (see test-avx512.txt)"
+fi
+
+# --- throughput ------------------------------------------------------------
+log "go bench (detected backend)"
+go run ./cmd/bench > "$out/go.md" 2>&1
+log "go bench FIBERAI_KERNEL=avx2 -quick"
+FIBERAI_KERNEL=avx2 go run ./cmd/bench -quick > "$out/go-avx2.md" 2>&1
+log "go bench FIBERAI_KERNEL=generic -quick"
+FIBERAI_KERNEL=generic go run ./cmd/bench -quick > "$out/go-generic.md" 2>&1
+log "go bench, 1 thread (GEMM efficiency)"
+go test ./internal/blas -run x -bench 'Gemm$' -benchtime=1s > "$out/gemm-bench.txt" 2>&1 || true
+
+# --- python comparison -----------------------------------------------------
+if [ $python -eq 1 ]; then
+  venv="benchmarks/python/.venv"
+  if [ ! -x "$venv/bin/python" ]; then
+    log "creating $venv and installing numpy + torch (CPU)"
+    python3 -m venv "$venv"
+    "$venv/bin/pip" install -q --upgrade pip
+    "$venv/bin/pip" install -q numpy torch --index-url https://download.pytorch.org/whl/cpu \
+      || "$venv/bin/pip" install -q numpy torch
+  fi
+  {
+    echo "== numpy build =="
+    "$venv/bin/python" -c "import numpy; numpy.show_config()" 2>&1 | grep -iE "name|blas|lapack|openblas|mkl|version" | head -20
+    echo "== torch build =="
+    "$venv/bin/python" -c "import torch; print(torch.__version__); print(torch.__config__.parallel_info())" 2>&1
+  } > "$out/python-build.txt" 2>&1
+  log "python bench"
+  "$venv/bin/python" benchmarks/python/bench.py > "$out/python.md" 2>&1
+fi
+
+log "done: $(ls "$out" | tr '\n' ' ')"
