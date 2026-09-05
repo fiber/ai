@@ -1,6 +1,7 @@
 package tensor
 
 import (
+	"github.com/fiber/ai/internal/parallel"
 	"math/bits"
 	"os"
 	"runtime"
@@ -320,6 +321,7 @@ func getMapped(n int, zero bool) *storage {
 			return &storage{buf: make([]float32, n), state: newState()}
 		}
 		buf = m // fresh pages are zero
+		touchPages(buf[:n])
 	} else if zero {
 		parallelClear(buf[:n])
 	}
@@ -367,6 +369,21 @@ type sentinel struct {
 func armSentinel(done chan struct{}) {
 	s := &sentinel{ch: done}
 	runtime.AddCleanup(s, func(ch chan struct{}) { close(ch) }, done)
+}
+
+// touchPages faults a fresh mapping in with all workers, one write per
+// page over disjoint ranges. Left to the consumer, sixteen GEMM workers
+// writing interleaved tiles into the same fresh pages each trapped and
+// serialised on the page-table lock: 3.6× the faults and a third off an
+// MLP training step on a Xeon Gold 6130. Reused mappings skip this.
+func touchPages(buf []float32) {
+	const page = 4096 / 4
+	pages := (len(buf) + page - 1) / page
+	parallel.Range(pages, 64, func(lo, hi int) {
+		for p := lo; p < hi; p++ {
+			buf[p*page] = 0
+		}
+	})
 }
 
 func releaseMapped(a cleanupArg) {
