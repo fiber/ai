@@ -11,7 +11,9 @@
 #
 # Needs: Linux x86-64, git checkout of the repository, Go (any version with
 # GOTOOLCHAIN=auto; go.mod pins the toolchain), python3 with venv for the
-# comparison.
+# comparison. On a machine without internet access put pre-downloaded
+# wheels (numpy, torch and dependencies for linux x86-64 and the local
+# Python version) into a directory and pass it as FIBERAI_WHEELS=<dir>.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -103,11 +105,19 @@ if [ $python -eq 1 ]; then
       log "  details in $out/venv.err"
       exit 1
     fi
-    "$venv/bin/pip" install -q --upgrade pip > "$out/pip.log" 2>&1 || true
-    if ! "$venv/bin/pip" install -q numpy torch --index-url https://download.pytorch.org/whl/cpu >> "$out/pip.log" 2>&1 \
-       && ! "$venv/bin/pip" install -q numpy torch >> "$out/pip.log" 2>&1; then
-      log "  pip install numpy torch failed; see $out/pip.log (network? disk?) — rerun, or use -nopython"
-      exit 1
+    if [ -n "${FIBERAI_WHEELS:-}" ]; then
+      log "  offline install from $FIBERAI_WHEELS"
+      if ! "$venv/bin/pip" install -q --no-index --find-links "$FIBERAI_WHEELS" numpy torch > "$out/pip.log" 2>&1; then
+        log "  offline pip install failed; see $out/pip.log"
+        exit 1
+      fi
+    else
+      "$venv/bin/pip" install -q --upgrade pip > "$out/pip.log" 2>&1 || true
+      if ! "$venv/bin/pip" install -q numpy torch --index-url https://download.pytorch.org/whl/cpu >> "$out/pip.log" 2>&1 \
+         && ! "$venv/bin/pip" install -q numpy torch >> "$out/pip.log" 2>&1; then
+        log "  pip install numpy torch failed; see $out/pip.log (no internet? set FIBERAI_WHEELS=<dir of wheels>) — rerun, or use -nopython"
+        exit 1
+      fi
     fi
   fi
   if ! "$venv/bin/python" -c "import numpy, torch" 2> "$out/pip.log"; then
