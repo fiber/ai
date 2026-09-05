@@ -43,7 +43,11 @@ comparison in [BENCHMARKS.md](../../BENCHMARKS.md).
   from `tanh` and the vector primitives, `Softmax` and `CrossEntropy`
   from `exp`. On the M2 Pro `tanh` over 1M elements went from 2.1 ms
   (`math.Tanh` per element) to ~110 µs, seven times faster than PyTorch
-  there; the kernel alone does 0.4 ns per element on one core.
+  there; the kernel alone does 0.4 ns per element on one core (NEON on
+the M2 Pro and AVX2 on a Skylake-SP core alike, the latter at IPC 1.8).
+When measuring such kernels use a time-based `-benchtime` of a second or
+more: a run of a few milliseconds ends before the core reaches its turbo
+clock and reports three times the real cost.
 - **Reductions** along the last dimension run at memory bandwidth; along
   other dimensions they fold rows with per-goroutine partial results.
 

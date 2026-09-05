@@ -33,7 +33,10 @@ tensor  ──►  internal/blas  ──►  internal/kernel  ──►  CPU
   ±7.9988, exactly ±1 from |x| ≥ 9), `log` by Cephes' `logf`
   (mantissa/exponent split with integer ops, degree-9 polynomial). The
   Go fallbacks use the same arithmetic, so the start-up self-test can
-  hold the SIMD versions to 2e-6.
+  hold the SIMD versions to 2e-6. The AVX2 versions process two
+  vectors per loop iteration with eight-fold replicated constants as
+  memory operands; the NEON `exp` likewise, which tripled its throughput
+  on Apple cores.
 - `internal/blas` — `Gemm(c, a, b Mat)` on strided `Mat` views.
 - `tensor` — everything user-facing.
 

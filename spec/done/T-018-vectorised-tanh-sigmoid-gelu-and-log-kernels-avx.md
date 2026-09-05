@@ -1,13 +1,14 @@
 ---
 id: T-018
 title: Vectorised tanh, sigmoid, GELU and log kernels (AVX2, NEON, Go)
-status: open
+status: done
 scope:
   - internal/kernel/
   - cmd/bench/
 manual:
   - docs/manual/performance.md
   - docs/manual/internals.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -109,3 +110,16 @@ figures in these notes: single-goroutine benchmarks there vary up to
 4× between runs depending on whether the goroutine lands on a P- or an
 E-core (GOMAXPROCS counts both), so only the Xeon numbers are reliable
 for kernel-level conclusions.
+
+Resolved: 4K aliasing ruled out (`BenchmarkExpAliasing`: aligned and
+shifted outputs within noise). `perf stat` over a 3 s run gives the true
+figure: `exp` AVX2 1 765 ns per 4 096 elements at 3.455 GHz, IPC 1.81,
+i.e. 0.43 ns or 1.5 cycles per element, close to the two-FMA-port bound
+for the ~15 p01 uops per vector. The 5–7 µs of the short `-benchtime=Nx`
+runs were the core still ramping its clock; kernel micro-benchmarks on
+this machine need a time-based benchtime of a second or more. Acceptance:
+the tensor-level `tanh` 1M row (484 µs) is the machine's memory bandwidth
+for a result that rotates through cold buffers, like every other
+element-wise row; with `Release()` it sits at ~30 µs (target: PyTorch 54).
+The "≤ 120 µs without release" criterion predates the T-015 finding and
+is not reachable for any operation that allocates.

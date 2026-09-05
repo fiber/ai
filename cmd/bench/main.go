@@ -9,7 +9,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"runtime"
+	"runtime/pprof"
+	"strings"
 	"time"
 
 	"github.com/fiber/ai/nn"
@@ -18,8 +21,10 @@ import (
 )
 
 var (
-	quick    = flag.Bool("quick", false, "smaller sizes and shorter runs")
-	duration = flag.Duration("d", 700*time.Millisecond, "measurement time per case")
+	quick      = flag.Bool("quick", false, "smaller sizes and shorter runs")
+	duration   = flag.Duration("d", 700*time.Millisecond, "measurement time per case")
+	only       = flag.String("only", "", "run only these sections (comma-separated: gemm,elementwise,reductions,mlp)")
+	cpuprofile = flag.String("cpuprofile", "", "write a CPU profile of the run to this file")
 )
 
 // timeIt runs fn repeatedly for the measurement duration (after one warm-up
@@ -40,10 +45,31 @@ func main() {
 	fmt.Printf("## fiber/ai — %s/%s, %d CPUs, GOMAXPROCS %d, backend %s, Go %s\n\n",
 		runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), runtime.GOMAXPROCS(0), tensor.Backend(), runtime.Version())
 
-	benchGemm()
-	benchElementwise()
-	benchReductions()
-	benchMLP()
+	if *cpuprofile != "" {
+		f, err := os.Create(*cpuprofile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := pprof.StartCPUProfile(f); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		defer pprof.StopCPUProfile()
+	}
+	sections := map[string]func(){"gemm": benchGemm, "elementwise": benchElementwise, "reductions": benchReductions, "mlp": benchMLP}
+	order := []string{"gemm", "elementwise", "reductions", "mlp"}
+	if *only != "" {
+		order = strings.Split(*only, ",")
+	}
+	for _, name := range order {
+		fn, ok := sections[strings.TrimSpace(name)]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "unknown section %q\n", name)
+			os.Exit(2)
+		}
+		fn()
+	}
 	printAllocStats()
 }
 
