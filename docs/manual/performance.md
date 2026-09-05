@@ -60,7 +60,9 @@ comparison in [BENCHMARKS.md](../../BENCHMARKS.md).
   materialise it.
 
   On x86 the AVX-512 kernel is chosen where available (Skylake-SP and
-  later Xeons, Zen 4/5), otherwise AVX2. `KC=512` and a fine compute grid
+  later Xeons, Zen 4/5), otherwise AVX2. Every back-end has an
+  overwriting tile variant, so a product's output is written in its
+  first K block rather than cleared and accumulated into. `KC=512` and a fine compute grid
   are the tuned defaults; `FIBERAI_BLAS_KC/MC/NC` and `FIBERAI_BLAS_TASKS`
   override them for tuning runs. On a two-socket machine pin the process
   to one socket (`numactl --cpunodebind=0 --membind=0`) until topology-

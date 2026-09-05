@@ -1,13 +1,14 @@
 ---
 id: T-016
 title: AVX-512 micro-kernel under all-core load: prefetch, tile shape, C layout
-status: open
+status: done
 scope:
   - internal/kernel/
   - internal/blas/
   - tensor/
 manual:
   - docs/manual/performance.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -73,3 +74,11 @@ when the back-end lacks the variant or for k = 0 and the gemv paths;
 `tensor.MatMul` no longer clears its output. Scope extended to `tensor/`
 for that call site. The start-up self-test verifies the overwriting
 variant on garbage C with the padding columns untouched.
+
+Closing. Acceptance: n=2048 ≥ 1 250 met (kernel 1 285, tensor level
+1 307 GFLOPS); n=1024 ≥ 1 300 not met (kernel 1 242, tensor level
+1 208; MKL 1 434). Single core 164–168 GFLOPS, 92 % of the measured
+peak. The remaining n=1024 gap is round structure (one pack round and
+one compute round per K block, two K blocks at KC=512) and the tail of
+the compute grid, not the micro-kernel; that is driver work and belongs
+with the small-shape item T-005 rather than here.

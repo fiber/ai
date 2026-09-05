@@ -2,6 +2,8 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-05 T-008 — x86 validation and benchmarks: AVX-512 on hardware, tuning, comparison with OpenBLAS/MKL (spec/done/T-008-x86-validation-and-benchmarks.md)
+- 2026-09-05 T-016 — AVX-512 micro-kernel under all-core load: prefetch, tile shape, C layout (spec/done/T-016-avx-512-micro-kernel-under-all-core-load-prefetc.md)
 - 2026-09-05 T-021 — Tutorial: AI for Go developers with fiber/ai, eight chapters with runnable programs (spec/done/T-021-tutorial-ai-for-go-developers-with-fiber-ai-eigh.md)
 - 2026-09-05 T-019 — Worker pool idle path: rare Gosched, wake-ups only for parked helpers, cheaper small jobs (spec/done/T-019-worker-pool-idle-path-rare-gosched-wake-ups-only.md)
 - 2026-09-05 T-020 — Fused LayerNorm: row statistics in one pass, normalise-scale-shift in one pass, matching backward (spec/done/T-020-fused-layernorm-row-statistics-in-one-pass-norma.md)
@@ -14,3 +16,4 @@ Finished work items and fixed bugs, newest first.
 - 2026-09-05 T-011 — Gate enforces the beat-Python rule: performance specs must name a Python baseline (spec/done/T-011-gate-enforces-the-beat-python-rule-performance-s.md)
 - 2026-09-05 T-001 — Process gate: lists, specs and enforcement tool (spec/done/T-001-process-gate.md)
 - 2026-09-05 T-000 — Tensor foundation: SIMD kernels, blocked SGEMM, tensor/autograd, nn, optim, benchmarks (spec/done/T-000-tensor-foundation.md)
+- T-007 — Optional Accelerate BLAS backend behind a cgo build tag: dropped, superseded by the native AMX back-end (T-010)

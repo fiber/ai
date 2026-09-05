@@ -1,7 +1,7 @@
 ---
 id: T-008
 title: x86 validation and benchmarks: AVX-512 on hardware, tuning, comparison with OpenBLAS/MKL
-status: open
+status: done
 scope:
   - internal/kernel/
   - internal/blas/
@@ -9,6 +9,7 @@ scope:
   - benchmarks/
 manual:
   - docs/manual/performance.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -68,3 +69,17 @@ wherever we can, and know precisely where we do not yet.
 - Results directories committed under `benchmarks/results/`.
 
 ## Notes
+
+Closing. Tests pass natively on the KVM AVX2 guest and on the Xeon Gold
+6130 with detection selecting avx2 and avx512. Single-core SGEMM 168 of
+~179 GFLOPS peak on the Xeon (94 %); the VM cannot report its clock.
+n=2048 all cores 1 307 GFLOPS against PyTorch/MKL 780 (168 %). n ≤ 256:
+n=256 542 against 627 (within 2×), n=128 73 against 236 (3.2×; fixed
+per-call cost of packing rounds and the parallel threshold; recorded
+under T-005). Non-GEMM workloads: reductions, transposes, matrix–vector,
+softmax, layer norm, exp/tanh/gelu at 16M, `x + y` at 64K and 16M
+(released) all on par with or ahead of PyTorch; behind at 1M without
+`Release()` (650 µs against 24 µs, cache residency, explained in
+BENCHMARKS.md), ahead at 1M released (17 µs against 24 µs). x86 guidance
+is in performance.md, tables in BENCHMARKS.md, raw results under
+benchmarks/results/.
