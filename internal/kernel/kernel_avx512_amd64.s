@@ -8,7 +8,13 @@
 // broadcast A in Z26/Z27. A is packed k-major (12 floats = 48 bytes per k),
 // B is packed k-major (32 floats = 128 bytes per k).
 
+// KSTEP consumes one k of the packed panels. The prefetches keep A and B
+// a few hundred bytes ahead in L1: with sixteen cores streaming panels
+// out of L2/L3 at once the hardware prefetchers fall behind, which cost
+// ~25 % of the kernel's single-core rate on Skylake-SP.
 #define KSTEP(AOFF, BOFF) \
+	PREFETCHT0 (BOFF+1024)(BX) \
+	PREFETCHT0 (AOFF+384)(AX) \
 	VMOVUPS BOFF(BX), Z24 \
 	VMOVUPS BOFF+64(BX), Z25 \
 	VBROADCASTSS AOFF(AX), Z26 \
@@ -65,6 +71,44 @@ TEXT ·gemmAVX512(SB), NOSPLIT, $0-40
 	SHLQ $2, R8
 	TESTQ CX, CX
 	JZ   done
+	// Pull the C tile into cache while the k loop runs: twelve rows ldc
+	// apart, two lines each, otherwise fetched serially in the store phase.
+	MOVQ DX, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 64(R9)
 	VPXORQ Z0, Z0, Z0
 	VPXORQ Z1, Z1, Z1
 	VPXORQ Z2, Z2, Z2

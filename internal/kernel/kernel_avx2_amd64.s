@@ -130,6 +130,8 @@ done: \
 // current k within the packed panels. Accumulators Y0..Y11 (row r uses
 // Y(2r), Y(2r+1)), B in Y12/Y13, broadcast A in Y14/Y15.
 #define KSTEP(AOFF, BOFF) \
+	PREFETCHT0 (BOFF+512)(BX) \
+	PREFETCHT0 (AOFF+192)(AX) \
 	VMOVUPS BOFF(BX), Y12 \
 	VMOVUPS BOFF+32(BX), Y13 \
 	VBROADCASTSS AOFF(AX), Y14 \
@@ -428,6 +430,25 @@ TEXT ·gemmAVX2(SB), NOSPLIT, $0-40
 	SHLQ $2, R8
 	TESTQ CX, CX
 	JZ   done
+	// prefetch the six C rows (two lines each) for the store phase
+	MOVQ DX, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 32(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 32(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 32(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 32(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 32(R9)
+	ADDQ R8, R9
+	PREFETCHT0 (R9)
+	PREFETCHT0 32(R9)
 	VXORPS Y0, Y0, Y0
 	VXORPS Y1, Y1, Y1
 	VXORPS Y2, Y2, Y2
