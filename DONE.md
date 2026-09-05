@@ -26,3 +26,6 @@ Finished work items and fixed bugs, newest first.
 - 2026-09-05 T-000 — Tensor foundation: SIMD kernels, blocked SGEMM, tensor/autograd, nn, optim, benchmarks (spec/done/T-000-tensor-foundation.md)
 - T-007 — Optional Accelerate BLAS backend behind a cgo build tag: dropped, superseded by the native AMX back-end (T-010)
 - T-030 — Few-rows GEMM register kernel: dropped. [8×4096]·[4096×4096] must read the 64 MB of B once, which caps it at ~51 GFLOPS on the M2 Pro's bandwidth; the packed path measures 54, PyTorch 68 by streaming B a little better. Not worth a kernel.
+- T-013 — folded into T-029 (topology-aware worker defaults).
+- T-005 — folded into T-028 (small GEMM shapes: threshold lowered, few-rows path measured).
+- T-009 — folded into T-024 (attention) and T-027 (convolutions).
