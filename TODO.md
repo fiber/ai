@@ -15,3 +15,4 @@ macOS is the development platform.
 - [ ] T-007 — Optional Accelerate BLAS backend behind a cgo build tag
 - [ ] T-009 — Conv1D/Conv2D via im2col, multi-head attention module
 - [ ] T-016 — AVX-512 micro-kernel under all-core load: prefetch, tile shape, C layout (spec/T-016-avx-512-micro-kernel-under-all-core-load-prefetc.md)
+- [ ] T-017 — Owner-preferred chunk assignment in parallel.Range for cache locality of repeated element-wise operations (spec/T-017-owner-preferred-chunk-assignment-in-parallel-ran.md)

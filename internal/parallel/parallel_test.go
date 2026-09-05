@@ -113,3 +113,40 @@ func TestPanicStopsRemainingItems(t *testing.T) {
 		ran.Add(1)
 	})
 }
+
+func TestRangePropagatesPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("panic not propagated from Range")
+		}
+	}()
+	RangeWorkers(1000, 1, 4, func(lo, hi int) {
+		if lo == 0 {
+			panic("boom")
+		}
+	})
+}
+
+func TestNestedRangeDoesNotDeadlock(t *testing.T) {
+	var outer, count atomic.Int64
+	for round := 0; round < 20; round++ {
+		RangeWorkers(64, 1, 8, func(lo, hi int) {
+			outer.Add(1)
+			RangeWorkers(64, 1, 8, func(lo2, hi2 int) { count.Add(int64(hi2 - lo2)) })
+		})
+	}
+	if count.Load() != outer.Load()*64 {
+		t.Fatalf("nested ranges covered %d items over %d outer chunks", count.Load(), outer.Load())
+	}
+}
+
+func TestRangeWithMoreHelpersThanWorkers(t *testing.T) {
+	// a wide job spawns helpers; a narrower owned job afterwards must still
+	// complete although most helpers are not among its workers
+	ForWorkers(64, 16, func(int) {})
+	var count atomic.Int64
+	RangeWorkers(1<<12, 1, 2, func(lo, hi int) { count.Add(int64(hi - lo)) })
+	if count.Load() != 1<<12 {
+		t.Fatalf("covered %d items", count.Load())
+	}
+}

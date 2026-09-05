@@ -12,9 +12,14 @@ tensor  ──►  internal/blas  ──►  internal/kernel  ──►  CPU
                 internal/parallel
 ```
 
-- `internal/parallel` — `For(n, fn)` and `Range(n, minChunk, fn)` hand
-  work items to up to `Workers()` goroutines from an atomic counter. A
-  persistent pool of helpers picks up jobs published through an atomic
+- `internal/parallel` — `For(n, fn)` hands work items to up to
+  `Workers()` goroutines from an atomic counter. `Range(n, minChunk, fn)`
+  splits the range into up to four chunks per worker and claims them by
+  per-chunk CAS, owner first: worker w (the caller is 0, helper k is k+1)
+  takes chunks w, w+workers, … before stealing what is left, so repeated
+  operations on the same tensors put the same chunk on the same
+  goroutine, and the data a core wrote last time is in its own cache.
+  A persistent pool of helpers picks up jobs published through an atomic
   generation counter, spins ~200 µs between jobs before parking on a
   condition variable, and never blocks the caller waiting for a helper to
   start (nested calls are safe). Panics stop the job and are re-raised

@@ -37,8 +37,8 @@ func timeIt(fn func()) float64 {
 
 func main() {
 	flag.Parse()
-	fmt.Printf("## fiber/ai — %s/%s, %d CPUs, backend %s, Go %s\n\n",
-		runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), tensor.Backend(), runtime.Version())
+	fmt.Printf("## fiber/ai — %s/%s, %d CPUs, GOMAXPROCS %d, backend %s, Go %s\n\n",
+		runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), runtime.GOMAXPROCS(0), tensor.Backend(), runtime.Version())
 
 	benchGemm()
 	benchElementwise()

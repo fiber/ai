@@ -108,7 +108,10 @@ storage might still be needed (a view exists, `Data()` was taken,
 autograd recorded the tensor), so library code calls it on every
 intermediate it produces (`nn.Linear`, `nn.Sequential`), which pays off
 in `NoGrad` inference; call it yourself on discarded results in hot
-loops. The tensor must not be used after `Release()`.
+loops. The tensor must not be used after `Release()`. The other half of
+cache residency is that the same core handles the same slice every time:
+`parallel.Range` assigns chunks owner-first for that reason (see
+[internals.md](internals.md)).
 
 Two things to know. `Data()` on a contiguous tensor hands out the mapped
 slice, so its storage is pinned for good (never unmapped, never reused).

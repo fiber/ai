@@ -35,32 +35,65 @@ func SetWorkers(n int) {
 // Workers returns the maximum number of goroutines used for parallel work.
 func Workers() int { return int(maxWorkers.Load()) }
 
-// job is one For call: items [0, n) handed out from an atomic counter.
+// job is one For or Range call. In counter mode items [0, n) are handed
+// out from an atomic counter to whoever asks first. In owned mode
+// (Range) each item is claimed by CAS; worker w first takes items
+// w, w+workers, … so that repeated calls put the same chunk on the same
+// goroutine, which is what keeps repeated element-wise work on the same
+// tensors in the cores' private caches, and then steals what is left.
 type job struct {
 	n       int
 	fn      func(int)
-	next    atomic.Int64 // next item to hand out
+	next    atomic.Int64 // next item to hand out (counter mode)
 	pending atomic.Int64 // items not yet finished (or skipped)
 	failed  atomic.Bool
 	done    chan struct{}
+
+	owned   bool
+	workers int
+	claimed []atomic.Bool
 
 	panicMu  sync.Mutex
 	panicVal any
 }
 
-// run claims and executes items until none are left.
-func (j *job) run() {
+// run claims and executes items until none are left. w is the worker's
+// id: 0 for the caller, k+1 for helper k.
+func (j *job) run(w int) {
+	if j.owned {
+		if w >= j.workers {
+			return // not one of this job's workers; stealing here would only cost locality
+		}
+		for i := w; i < j.n; i += j.workers {
+			j.claim(i)
+		}
+		for i := 0; i < j.n; i++ {
+			j.claim(i)
+		}
+		return
+	}
 	for {
 		i := int(j.next.Add(1)) - 1
 		if i >= j.n {
 			return
 		}
-		if j.failed.Load() {
-			j.finish() // an earlier item panicked: skip the rest, keep the count right
-			continue
-		}
-		j.runItem(i)
+		j.exec(i)
 	}
+}
+
+func (j *job) claim(i int) {
+	if j.claimed[i].Load() || !j.claimed[i].CompareAndSwap(false, true) {
+		return
+	}
+	j.exec(i)
+}
+
+func (j *job) exec(i int) {
+	if j.failed.Load() {
+		j.finish() // an earlier item panicked: skip the rest, keep the count right
+		return
+	}
+	j.runItem(i)
 }
 
 func (j *job) finish() {
@@ -113,19 +146,19 @@ func ensureHelpers(n int) {
 	spawnMu.Lock()
 	defer spawnMu.Unlock()
 	for int(helpers.Load()) < n {
-		go helper()
+		go helper(int(helpers.Load()) + 1)
 		helpers.Add(1)
 	}
 }
 
-func helper() {
+func helper(id int) {
 	var seen uint64
 	for {
 		g := gen.Load()
 		if g != seen {
 			seen = g
 			if j := cur.Load(); j != nil {
-				j.run()
+				j.run(id)
 			}
 			continue
 		}
@@ -180,11 +213,14 @@ func ForWorkers(n, workers int, fn func(i int)) {
 		}
 		return
 	}
-	j := &job{n: n, fn: fn, done: make(chan struct{})}
-	j.pending.Store(int64(n))
+	runJob(&job{n: n, fn: fn, done: make(chan struct{})}, workers)
+}
+
+func runJob(j *job, workers int) {
+	j.pending.Store(int64(j.n))
 	ensureHelpers(workers - 1)
 	publish(j)
-	j.run()
+	j.run(0)
 	// The last items are usually finishing on helpers right now: poll
 	// briefly before blocking, so the caller does not pay a futex wake-up
 	// at the end of every round.
@@ -225,9 +261,14 @@ func RangeWorkers(n, minChunk, workers int, fn func(lo, hi int)) {
 	}
 	size := (n + chunks - 1) / chunks
 	chunks = (n + size - 1) / size
-	ForWorkers(chunks, workers, func(c int) {
+	if workers > chunks {
+		workers = chunks
+	}
+	j := &job{n: chunks, done: make(chan struct{}), owned: true, workers: workers, claimed: make([]atomic.Bool, chunks)}
+	j.fn = func(c int) {
 		lo := c * size
 		hi := min(lo+size, n)
 		fn(lo, hi)
-	})
+	}
+	runJob(j, workers)
 }
