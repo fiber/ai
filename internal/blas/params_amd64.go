@@ -9,6 +9,6 @@ package blas
 // 32 KiB.
 const (
 	defaultKC = 512
-	defaultMC = 96 // multiple of both 6 (AVX2 MR) and 12 (AVX-512 MR)
+	defaultMC = 112 // rounded down to a multiple of MR at use: 112 for the 14×32 AVX-512 tile, 108 for the 6×16 AVX2 tile
 	defaultNC = 4096
 )

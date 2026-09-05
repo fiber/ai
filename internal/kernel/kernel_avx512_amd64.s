@@ -3,6 +3,7 @@
 #include "textflag.h"
 
 // AVX-512F GEMM micro-kernel, MR=12, NR=32:  C[12×32] += A[12×k] · B[k×32]
+// (the earlier default, kept as FIBERAI_KERNEL=avx512x12; see gemmAVX512x14)
 //
 // Accumulators Z0..Z23 (row r uses Z(2r), Z(2r+1)), B in Z24/Z25,
 // broadcast A in Z26/Z27. A is packed k-major (12 floats = 48 bytes per k),
@@ -224,7 +225,7 @@ done:
 // Accumulators Z0..Z27, B in Z28/Z29, broadcast A in Z30/Z31. A is packed
 // k-major (14 floats = 56 bytes per k), B k-major (32 floats = 128 bytes).
 // Higher arithmetic intensity than the 12×32 tile (28 accumulators against
-// two B loads); selectable as FIBERAI_KERNEL=avx512w for comparison.
+// two B loads): the AVX-512 default since it measured 5–10 % faster.
 // ---------------------------------------------------------------------------
 
 // func gemmAVX512x14(k int, a, b, c *float32, ldc int)

@@ -1,6 +1,7 @@
 package tensor
 
 import (
+	"fmt"
 	"runtime"
 	"testing"
 	"time"
@@ -164,4 +165,24 @@ func TestHeapBallast(t *testing.T) {
 		t.Fatal("ballast not set")
 	}
 	SetHeapBallast(DefaultHeapBallast)
+}
+
+// BenchmarkAllocate measures what a fresh result costs before any
+// arithmetic happens: Go zero-fills every make on the allocating thread.
+func BenchmarkAllocate(b *testing.B) {
+	for _, n := range []int{1 << 16, 1 << 20, 1 << 24} {
+		b.Run(fmtN(n), func(b *testing.B) {
+			b.SetBytes(int64(4 * n))
+			for i := 0; i < b.N; i++ {
+				_ = newTensorUninit(Shape{n})
+			}
+		})
+	}
+}
+
+func fmtN(n int) string {
+	if n >= 1<<20 {
+		return fmt.Sprintf("%dM", n>>20)
+	}
+	return fmt.Sprintf("%dK", n>>10)
 }

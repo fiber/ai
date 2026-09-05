@@ -54,3 +54,9 @@ Experiment 1 (software prefetch of A/B ahead and the C tile at entry):
 Xeon, 1 worker 143/151 GFLOPS (n=1024/2048), 16 workers 1 119/1 177 —
 within the ±3 % noise of the runs before (1 147/1 139). Kept, no effect.
 Next: tile shape (14×32) and KC with the tile change.
+
+Experiment 2 (14×32 tile, 28 accumulators): Xeon 1 worker 156 → 164 /
+155 → 168 GFLOPS (n=1024/2048), 16 workers 1 132 → 1 242 / 1 194 → 1 285.
+Adopted as the AVX-512 default (`avx512`); the 12×32 kernel stays as
+`avx512x12`. n=1024 now at 87 % of MKL (1 434), n=2048 at 165 % of MKL
+(780) and 146 % of OpenBLAS (881).
