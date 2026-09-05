@@ -76,3 +76,9 @@ same benchmark, three times tanh's cost; unrolling two vectors per
 iteration is a follow-up worth taking before it shows up on the 16-core
 Xeon, where `exp` over 1M would otherwise be compute-bound. Xeon numbers
 pending.
+Done for NEON `exp`: two vectors per iteration took the kernel from 1.4
+to 0.4 ns/element (`BenchmarkExp` 4096: 5.7 → 1.6 µs; 1M one core 792
+→ 382 µs). The M2's out-of-order engine evidently does not overlap
+consecutive iterations of the single-vector loop. The AVX2 kernels are
+left single-vector until the Xeon `BenchmarkExp`/`BenchmarkTanh` figures
+say whether they need the same.

@@ -502,7 +502,68 @@ TEXT ·expNEON(SB), NOSPLIT, $0-24
 	VDUP R4, V28.S4
 	LSR  $2, R3, R3
 	CBZ  R3, done
-loop:
+	// Two vectors per iteration: the FMA chains of the two are
+	// independent, so the second fills the latency bubbles of the first.
+	LSR  $1, R3, R5
+	CBZ  R5, tail
+loop2:
+	VLD1.P 16(R0), [V0.S4]
+	VLD1.P 16(R0), [V8.S4]
+	VFMAX4(0, 0, 21)
+	VFMAX4(8, 8, 21)
+	VFMIN4(0, 0, 20)
+	VFMIN4(8, 8, 20)
+	VFMUL4(1, 0, 16)
+	VFMUL4(9, 8, 16)
+	VFADD4(1, 1, 17)
+	VFADD4(9, 9, 17)
+	VFSUB4(2, 1, 17)
+	VFSUB4(10, 9, 17)
+	VFMLS V18.S4, V2.S4, V0.S4
+	VFMLS V18.S4, V10.S4, V8.S4
+	VFMLS V19.S4, V2.S4, V0.S4
+	VFMLS V19.S4, V10.S4, V8.S4
+	VMOV  V23.B16, V4.B16
+	VMOV  V23.B16, V12.B16
+	VFMLA V0.S4, V22.S4, V4.S4     // p = c1 + c0·r
+	VFMLA V8.S4, V22.S4, V12.S4
+	VMOV  V24.B16, V3.B16
+	VMOV  V24.B16, V11.B16
+	VFMLA V0.S4, V4.S4, V3.S4      // p = c2 + p·r
+	VFMLA V8.S4, V12.S4, V11.S4
+	VMOV  V25.B16, V4.B16
+	VMOV  V25.B16, V12.B16
+	VFMLA V0.S4, V3.S4, V4.S4
+	VFMLA V8.S4, V11.S4, V12.S4
+	VMOV  V26.B16, V3.B16
+	VMOV  V26.B16, V11.B16
+	VFMLA V0.S4, V4.S4, V3.S4
+	VFMLA V8.S4, V12.S4, V11.S4
+	VMOV  V27.B16, V4.B16
+	VMOV  V27.B16, V12.B16
+	VFMLA V0.S4, V3.S4, V4.S4      // p = c5 + p·r
+	VFMLA V8.S4, V11.S4, V12.S4
+	VFMUL4(3, 0, 0)                // r²
+	VFMUL4(11, 8, 8)
+	VMOV  V0.B16, V5.B16           // p·r² + r + 1, with FMLA into r
+	VMOV  V8.B16, V13.B16
+	VFMLA V3.S4, V4.S4, V5.S4      // r + p·r²
+	VFMLA V11.S4, V12.S4, V13.S4
+	VFADD4(5, 5, 28)               // + 1
+	VFADD4(13, 13, 28)
+	VSUB  V17.S4, V1.S4, V1.S4     // n = bits(t) - bits(magic)
+	VSUB  V17.S4, V9.S4, V9.S4
+	VSHL  $23, V1.S4, V1.S4
+	VSHL  $23, V9.S4, V9.S4
+	VADD  V1.S4, V5.S4, V5.S4      // p · 2^n via the exponent field
+	VADD  V9.S4, V13.S4, V13.S4
+	VST1.P [V5.S4], 16(R2)
+	VST1.P [V13.S4], 16(R2)
+	SUBS $1, R5, R5
+	BNE  loop2
+	ANDS $1, R3, R3
+	BEQ  done
+tail:
 	VLD1.P 16(R0), [V0.S4]
 	VFMAX4(0, 0, 21)               // x = max(x, lo)
 	VFMIN4(0, 0, 20)               // x = min(x, hi)
@@ -511,9 +572,8 @@ loop:
 	VFSUB4(2, 1, 17)               // nf = t - magic
 	VFMLS V18.S4, V2.S4, V0.S4     // r = x - nf·ln2hi
 	VFMLS V19.S4, V2.S4, V0.S4     // r -= nf·ln2lo
-	VMOV  V22.B16, V3.B16          // p = c0
 	VMOV  V23.B16, V4.B16
-	VFMLA V0.S4, V3.S4, V4.S4      // p = c1 + p·r
+	VFMLA V0.S4, V22.S4, V4.S4     // p = c1 + c0·r
 	VMOV  V24.B16, V3.B16
 	VFMLA V0.S4, V4.S4, V3.S4      // p = c2 + p·r
 	VMOV  V25.B16, V4.B16
@@ -523,15 +583,15 @@ loop:
 	VMOV  V27.B16, V4.B16
 	VFMLA V0.S4, V3.S4, V4.S4      // p = c5 + p·r
 	VFMUL4(3, 0, 0)                // r²
-	VFMUL4(4, 4, 3)                // p·r²
-	VFADD4(4, 4, 0)                // + r
-	VFADD4(4, 4, 28)               // + 1
+	VMOV  V0.B16, V5.B16
+	VFMLA V3.S4, V4.S4, V5.S4      // r + p·r²
+	VFADD4(5, 5, 28)               // + 1
 	VSUB  V17.S4, V1.S4, V1.S4     // n = bits(t) - bits(magic)
 	VSHL  $23, V1.S4, V1.S4        // n << 23
-	VADD  V1.S4, V4.S4, V4.S4      // p · 2^n via the exponent field
-	VST1.P [V4.S4], 16(R2)
+	VADD  V1.S4, V5.S4, V5.S4      // p · 2^n via the exponent field
+	VST1.P [V5.S4], 16(R2)
 	SUBS $1, R3, R3
-	BNE  loop
+	BNE  tail
 done:
 	RET
 
