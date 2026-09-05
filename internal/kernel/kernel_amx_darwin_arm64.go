@@ -1,0 +1,69 @@
+//go:build darwin && arm64
+
+package kernel
+
+import (
+	"os"
+	"runtime"
+	"strings"
+	"syscall"
+)
+
+// Apple AMX: the undocumented matrix coprocessor of the M1–M4 (see
+// github.com/corsix/amx). The instructions are system-instruction
+// encodings emitted as WORDs; executing one before AMX_SET on a thread
+// is an illegal instruction, so a run of tiles is bracketed by amxBegin
+// (lock the goroutine to its thread, enable the state) and amxEnd.
+//
+// Opt-in: FIBERAI_AMX=1 or FIBERAI_KERNEL=amx, and only on a CPU whose
+// brand string names an Apple M-series chip. The start-up self-test
+// cannot catch an illegal instruction, hence no automatic selection yet.
+
+// Implemented in kernel_amx_darwin_arm64.s.
+func amxSet()
+func amxClr()
+func gemmAMX(k int, a, b, c *float32, ldc int)
+
+func amxBegin() {
+	runtime.LockOSThread()
+	amxSet()
+}
+
+func amxEnd() {
+	amxClr()
+	runtime.UnlockOSThread()
+}
+
+var amx = func() impl {
+	i := neon
+	i.name = "amx"
+	i.gemm = gemmAMX
+	i.mr, i.nr = 32, 32
+	i.gemmBegin, i.gemmEnd = amxBegin, amxEnd
+	// KC=1024 amortises the 64 Z loads and stores per tile (n=2048: 1.93 →
+	// 2.13 TFLOPS on the M2 Pro); the AMX units sit with the performance
+	// cores, so no more workers than those (the efficiency cores' unit is
+	// slow and drags the tail of every round).
+	i.hints = Hints{KC: 1024, TasksPerWorker: 32, Workers: performanceCores()}
+	return i
+}()
+
+func performanceCores() int {
+	if n, err := syscall.SysctlUint32("hw.perflevel0.physicalcpu"); err == nil && n > 0 {
+		return int(n)
+	}
+	return 0
+}
+
+var amxImpl = amxDetect()
+
+func amxDetect() *impl {
+	if os.Getenv("FIBERAI_AMX") != "1" && os.Getenv("FIBERAI_KERNEL") != "amx" {
+		return nil
+	}
+	brand, err := syscall.Sysctl("machdep.cpu.brand_string")
+	if err != nil || !strings.Contains(brand, "Apple M") {
+		return nil
+	}
+	return &amx
+}

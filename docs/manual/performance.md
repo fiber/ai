@@ -10,12 +10,40 @@ disabled and reported by `tensor.BackendWarnings()`.
 
 | Variable | Effect |
 |---|---|
-| `FIBERAI_KERNEL=generic\|avx2\|avx512\|neon` | select an implementation among those the CPU supports (benchmarking, debugging) |
+| `FIBERAI_KERNEL=generic\|avx2\|avx512\|neon\|amx` | select an implementation among those the CPU supports (benchmarking, debugging) |
+| `FIBERAI_AMX=1` | Apple Silicon (macOS, M1–M4): run matrix products on the AMX coprocessor; opt-in, see below |
 | `FIBERAI_KERNEL_FORCE=1` | skip CPU feature detection for the selected implementation — only for emulators such as Rosetta 2 that hide features from CPUID |
 | `GOMAXPROCS` | default goroutine limit |
 
 `tensor.SetThreads(n)` limits the goroutines used by tensor operations at
 run time; `tensor.Threads()` reads it back.
+
+### AMX on Apple Silicon (opt-in)
+
+Apple's M1–M4 carry an undocumented matrix coprocessor, AMX, which is
+what Accelerate (and therefore NumPy and PyTorch) use for SGEMM. With
+`FIBERAI_AMX=1` (or `FIBERAI_KERNEL=amx`) fiber/ai runs its GEMM
+micro-kernel on it: a 32×32 tile per call, four 16×16 f32 outer products
+per k-step, software-pipelined over four register slots. Measured on the
+M2 Pro against PyTorch/Accelerate:
+
+| | fiber/ai NEON | fiber/ai AMX | PyTorch |
+|---|---:|---:|---:|
+| SGEMM 512², GFLOPS | 514 | 1 409 | 2 131 |
+| SGEMM 1024² | 581 | 1 881 | 2 665 |
+| SGEMM 2048² | 636 | **2 250** | 2 243 |
+| [256×768]·[768×3072] | 500 | 1 562 | 2 357 |
+| MLP training step, samples/s | 85 K | **146 K** | 116 K |
+| MLP inference | 221 K | **569 K** | 532 K |
+
+It is opt-in because the instructions are undocumented and an
+unsupported chip would fault with an illegal instruction that the
+start-up self-test cannot catch; the kernel enables itself only when the
+CPU brand string names an Apple M-series chip. AMX state belongs to the
+OS thread, so the driver locks each worker goroutine to its thread for
+the duration of a task and enables the state there; the element-wise
+kernels stay NEON. The units sit with the performance cores, so the
+back-end caps GEMM workers at their number. Not available on Linux/arm64.
 
 ## What is fast
 
@@ -170,8 +198,9 @@ Use `Float32s()` (copy) or `At` when you only read.
    TODO.md T-005).
 5. Large GEMMs on Apple Silicon: Accelerate/NumPy/PyTorch use the AMX or
    SME matrix unit and reach 2–2.7 TFLOPS; NEON tops out around 600 GFLOPS
-   on ten cores. That gap is hardware, not code; an SME kernel for M4-class
-   chips is planned (T-006).
+   on ten cores. Set `FIBERAI_AMX=1` on an M1–M4 to use the same unit
+   (2.25 TFLOPS at n=2048 on the M2 Pro); an SME kernel for M4-class chips
+   is planned (T-006).
 
 ## Measuring
 

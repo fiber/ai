@@ -45,5 +45,11 @@ var neon = impl{
 	nr:        12,
 }
 
-func candidates() []*impl { return []*impl{&neon} }
-func allImpls() []*impl   { return []*impl{&neon} }
+func candidates() []*impl {
+	if amxImpl != nil {
+		return []*impl{amxImpl, &neon}
+	}
+	return []*impl{&neon}
+}
+
+func allImpls() []*impl { return candidates() }

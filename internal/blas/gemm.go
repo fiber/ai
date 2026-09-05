@@ -113,6 +113,12 @@ const (
 // The blocking parameters can be overridden for tuning runs without a
 // rebuild: FIBERAI_BLAS_KC, FIBERAI_BLAS_MC and FIBERAI_BLAS_NC (elements).
 func init() {
+	if h := kernel.GemmHints; h.KC > 0 {
+		KC = h.KC
+	}
+	if h := kernel.GemmHints; h.TasksPerWorker > 0 {
+		tasksPerWorker = h.TasksPerWorker
+	}
 	if v, err := strconv.Atoi(os.Getenv("FIBERAI_BLAS_TASKS")); err == nil && v > 0 {
 		tasksPerWorker = v
 	}
@@ -143,6 +149,9 @@ func Gemm(c, a, b Mat) { GemmWorkers(c, a, b, parallel.Workers()) }
 
 // GemmWorkers is Gemm with an explicit upper bound on goroutines.
 func GemmWorkers(c, a, b Mat, workers int) {
+	if h := kernel.GemmHints.Workers; h > 0 && workers > h {
+		workers = h
+	}
 	a.check("A")
 	b.check("B")
 	c.check("C")
@@ -297,6 +306,8 @@ func gemm(c, a, b Mat, workers int) {
 			nJ = (nPanels + panelsPerTask - 1) / panelsPerTask
 
 			parallel.ForWorkers(nIc*nJ, workers, func(task int) {
+				kernel.GemmBegin()
+				defer kernel.GemmEnd()
 				ic := (task / nJ) * mc
 				jt := task % nJ
 				ib := min(mc, m-ic)
@@ -379,6 +390,8 @@ func computeRows(c, a Mat, bp []float32, starts []int, jc, pc, pb, jb, mr, nr, w
 		ap := getBuf(roundUp(ib, mr) * pb)
 		defer putBuf(ap)
 		packA(ap, a, ic, pc, ib, pb, mr)
+		kernel.GemmBegin()
+		defer kernel.GemmEnd()
 		var tmp []float32
 		for jr := 0; jr < nPanels; jr++ {
 			j := jr * nr
@@ -436,11 +449,22 @@ func packA(dst []float32, a Mat, i0, p0, ib, pb, mr int) {
 		rows := min(mr, ib-ir)
 		panel := dst[ir*pb : (ir+mr)*pb]
 		switch {
-		case a.CS == 1: // rows of A are contiguous: stream each row
-			for i := 0; i < rows; i++ {
+		case a.CS == 1: // rows of A are contiguous: 4×4 register transposes, scalar tails
+			i := 0
+			pb4 := pb &^ 3
+			for ; i+4 <= rows && pb4 > 0; i += 4 {
+				packRows4(&panel[i], &a.Data[(i0+ir+i)*a.RS+p0], a.RS, pb4, mr)
+			}
+			for ; i < rows; i++ { // leftover rows, all columns
 				src := a.Data[(i0+ir+i)*a.RS+p0:][:pb]
 				for p, v := range src {
 					panel[p*mr+i] = v
+				}
+			}
+			for i := 0; i < rows&^3 && pb4 > 0; i++ { // column tail of the transposed rows
+				src := a.Data[(i0+ir+i)*a.RS+p0:][:pb]
+				for p := pb4; p < pb; p++ {
+					panel[p*mr+i] = src[p]
 				}
 			}
 		case a.RS == 1: // columns of A are contiguous (transposed input)

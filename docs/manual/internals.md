@@ -33,7 +33,19 @@ tensor  ──►  internal/blas  ──►  internal/kernel  ──►  CPU
   ±7.9988, exactly ±1 from |x| ≥ 9), `log` by Cephes' `logf`
   (mantissa/exponent split with integer ops, degree-9 polynomial). The
   Go fallbacks use the same arithmetic, so the start-up self-test can
-  hold the SIMD versions to 2e-6. The AVX2 versions process two
+  hold the SIMD versions to 2e-6. `kernel_amx_darwin_arm64.s` holds the
+  Apple AMX GEMM tile (instruction words `0x201000 | op<<5 | Xn` as
+  documented by github.com/corsix/amx): `ldx`/`ldy` pair-load 32 B and
+  32 A values per k, four `fma32` outer products fill the four 16×16
+  tiles of the 4 KiB Z register (C row j, column half h in Z row
+  4·(j mod 16) + 2·(j div 16) + h), `ldz`/`stz` move the C tile in and
+  out. The coprocessor executes in order, so the loads of step k+4 are
+  issued before the outer products of step k (four X/Y register slots);
+  that alone tripled the throughput. `GemmBegin`/`GemmEnd` hooks in the
+  driver lock the goroutine to its thread and issue `set`/`clr` once
+  per task, because an AMX instruction on a thread without `set` is an
+  illegal instruction and assembly functions are not preemption points
+  but the Go code between tiles is. The AVX2 versions process two
   vectors per loop iteration with eight-fold replicated constants as
   memory operands; the NEON `exp` likewise, which tripled its throughput
   on Apple cores.

@@ -1,13 +1,14 @@
 ---
 id: T-010
 title: AMX SGEMM kernel for Apple Silicon via the undocumented AMX instructions
-status: open
+status: done
 scope:
   - internal/kernel/
   - internal/blas/
 manual:
   - docs/manual/performance.md
   - docs/manual/internals.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -62,3 +63,26 @@ per cluster, so more goroutines than clusters do not help.
   `internals.md`.
 
 ## Notes
+
+Implemented on the M2 Pro (macOS, Go 1.26). Feasibility probes:
+`fma32` on a thread that has not executed `set` is SIGILL (hence
+`set`/`clr` per task with `runtime.LockOSThread`, since the Go code
+between tiles is a preemption point while the assembly tile is not);
+pair loads need no alignment (offsets 16–64 bytes verified); the Z
+layout for f32 is row 4·j + t for Y lane j and tile t (verified against a
+reference for k = 0…513). Throughput of the raw tile: naive loop 282
+GFLOPS per thread; pipelined over four X/Y slots 882 with `set`/`clr` per
+tile and 1 551 without; six threads 3.3 TFLOPS, ten threads 3.26 (the
+efficiency cores add nothing). Driver: KC=1024, 32 tasks per worker,
+workers capped at the performance-core count (`hw.perflevel0.physicalcpu`)
+through the new `kernel.GemmHints`; A packing got a NEON 4×4 register
+transpose (`packRows4`), which was a third of the single-thread time
+with a 15× faster tile. Results (`cmd/bench`, results released): n=2048
+2 250 GFLOPS (PyTorch 2 243, NumPy 2 241), n=1024 1 881 (2 665), n=512
+1 409 (2 131); MLP training step 146 K samples/s (PyTorch 116 K),
+inference 569 K (532 K). Acceptance met (≥ 1.8 TFLOPS at n=2048, training
+step above PyTorch). Opt-in stays until the M4 has run the tests with
+`FIBERAI_AMX=1`. Follow-ups: pack buffers from the off-heap allocator
+(they are Go-heap `make`s today, re-zeroed after every GC; the profile
+shows 5 % `madvise` from the scavenger), B packing at 9 % of the AMX run,
+and n ≤ 1024 where Accelerate is still 30–40 % ahead.

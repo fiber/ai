@@ -73,6 +73,14 @@ var (
 	// Gemm is the active GEMM micro-kernel with tile size MR×NR.
 	Gemm   GemmFunc
 	MR, NR int
+	// GemmBegin and GemmEnd bracket a run of Gemm calls on one goroutine.
+	// They are no-ops except for coprocessor back-ends (AMX) that must
+	// enable per-thread state; callers keep the goroutine on its thread
+	// between them (the AMX hooks lock it themselves).
+	GemmBegin, GemmEnd func()
+	// GemmHints carries the back-end's preferences for the blocked driver;
+	// zero fields mean "use the architecture default".
+	GemmHints Hints
 
 	// Impl names the active implementation ("generic", "avx2", "avx512", "neon").
 	Impl string
@@ -80,6 +88,13 @@ var (
 	// verification and were therefore disabled.
 	Warnings []string
 )
+
+// Hints are a back-end's preferences for the GEMM driver.
+type Hints struct {
+	KC             int // K block length
+	TasksPerWorker int // compute-grid granularity
+	Workers        int // cap on goroutines (a coprocessor shared per cluster gains nothing from more)
+}
 
 // impl bundles one complete implementation.
 type impl struct {
@@ -93,6 +108,22 @@ type impl struct {
 	exp, tanh, log, sqrt        func(x, z []float32)
 	gemm                        GemmFunc
 	mr, nr                      int
+	gemmBegin, gemmEnd          func() // nil: nothing to do
+	hints                       Hints
+}
+
+func noop() {}
+
+func (i *impl) beginGemm() {
+	if i.gemmBegin != nil {
+		i.gemmBegin()
+	}
+}
+
+func (i *impl) endGemm() {
+	if i.gemmEnd != nil {
+		i.gemmEnd()
+	}
 }
 
 func use(i *impl) {
@@ -101,6 +132,11 @@ func use(i *impl) {
 	Axpy, Dot, Sum, Max = i.axpy, i.dot, i.sum, i.max
 	Exp, Tanh, Log, Sqrt = i.exp, i.tanh, i.log, i.sqrt
 	Gemm, MR, NR = i.gemm, i.mr, i.nr
+	GemmBegin, GemmEnd = noop, noop
+	if i.gemmBegin != nil {
+		GemmBegin, GemmEnd = i.gemmBegin, i.gemmEnd
+	}
+	GemmHints = i.hints
 	Impl = i.name
 }
 
@@ -270,7 +306,9 @@ func verify(c *impl) error {
 		if k > 0 {
 			ap, bp = &a[0], &b[0]
 		}
+		c.beginGemm()
 		c.gemm(k, ap, bp, &cgot[0], ldc)
+		c.endGemm()
 		if !closeSlices(cgot, cwant) {
 			return fmt.Errorf("gemm micro-kernel mismatch at k=%d", k)
 		}

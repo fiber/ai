@@ -202,7 +202,9 @@ func TestGemmMicroKernel(t *testing.T) {
 				if k > 0 {
 					ap, bp = &a[0], &b[0]
 				}
+				im.beginGemm()
 				im.gemm(k, ap, bp, &c[0], ldc)
+				im.endGemm()
 				for i := range c {
 					if !closeEnough(float64(c[i]), want[i], 1e-5) {
 						t.Fatalf("k=%d: c[%d]=%v want %v", k, i, c[i], want[i])
@@ -296,7 +298,9 @@ func BenchmarkGemmMicroKernel(b *testing.B) {
 		c := make([]float32, im.mr*im.nr)
 		b.Run(im.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
+				im.beginGemm()
 				im.gemm(k, &a[0], &bb[0], &c[0], im.nr)
+				im.endGemm()
 			}
 			flops := 2 * float64(k) * float64(im.mr) * float64(im.nr) * float64(b.N)
 			b.ReportMetric(flops/b.Elapsed().Seconds()/1e9, "GFLOPS")

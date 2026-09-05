@@ -242,3 +242,39 @@ func BenchmarkGemmSmallM(b *testing.B) {
 		})
 	}
 }
+
+func TestPackARowContiguous(t *testing.T) {
+	rng := rand.New(rand.NewPCG(5, 6))
+	for _, mr := range []int{8, 14, 32} {
+		for _, pb := range []int{1, 3, 4, 5, 8, 17, 64, 513} {
+			for _, ib := range []int{1, 3, 4, 5, mr, mr + 3, 2*mr + 1} {
+				rs := pb + 7
+				a := Mat{Data: make([]float32, (ib+2)*rs), Rows: ib, Cols: pb, RS: rs, CS: 1}
+				for i := range a.Data {
+					a.Data[i] = rng.Float32()
+				}
+				panels := (ib + mr - 1) / mr
+				dst := make([]float32, panels*mr*pb)
+				for i := range dst {
+					dst[i] = -1
+				}
+				packA(dst, a, 0, 0, ib, pb, mr)
+				for ir := 0; ir < ib; ir += mr {
+					rows := min(mr, ib-ir)
+					panel := dst[ir*pb : (ir+mr)*pb]
+					for p := 0; p < pb; p++ {
+						for i := 0; i < mr; i++ {
+							want := float32(0)
+							if i < rows {
+								want = a.Data[(ir+i)*rs+p]
+							}
+							if panel[p*mr+i] != want {
+								t.Fatalf("mr=%d pb=%d ib=%d: panel[p=%d][i=%d] = %v, want %v", mr, pb, ib, p, i, panel[p*mr+i], want)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

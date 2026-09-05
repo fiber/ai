@@ -205,6 +205,36 @@ Observations:
   exp, softmax, column reductions and max; behind on layernorm (five
   passes per row instead of one fused pass) and on tanh.
 
+## Apple AMX back-end (M2 Pro, opt-in `FIBERAI_AMX=1`)
+
+Accelerate's SGEMM numbers on the Macs come from the AMX coprocessor;
+spec T-010 puts fiber/ai's GEMM tile on the same unit (Go assembly with
+the instruction words documented by github.com/corsix/amx). Same
+`cmd/bench`, results released as in the other tables:
+
+| Workload | NEON (10 cores) | AMX | NumPy | PyTorch |
+|---|---:|---:|---:|---:|
+| SGEMM 512², all cores (GFLOPS) | 514 | 1 409 | **2 142** | 2 131 |
+| SGEMM 1024² | 581 | 1 881 | **2 693** | 2 665 |
+| SGEMM 2048² | 636 | **2 250** | 2 241 | 2 243 |
+| SGEMM 1024², 1 thread | 96 | 1 049 | – | 2 690 (Accelerate ignores the thread limit) |
+| [64×1024]·[1024²] | 332 | 928 | **1 292** | 1 275 |
+| [256×768]·[768×3072] | 500 | 1 562 | **2 389** | 2 357 |
+| [1024²]·[1024²]ᵀ (view) | 562 | 1 893 | **2 431** | 2 398 |
+| MLP inference (samples/s) | 221 K | **569 K** | – | 532 K |
+| MLP forward + backward | 96 K | 162 K | – | **219 K** |
+| MLP training step | 85 K | **146 K** | – | 116 K |
+
+The raw tile reaches 1.55 TFLOPS on one thread and 3.3 TFLOPS on six
+(the units sit with the six performance cores; the efficiency cores'
+unit is slow), so the driver — packing, one barrier per K block, the C
+tile in and out of Z once per K block — is what separates 2.25 from
+Accelerate's 2.7 at n=1024 and below. Two findings on the way: the
+coprocessor executes in order, so the loads of step k+4 must be issued
+before the outer products of step k (four X/Y register slots; 3× faster
+than the naive loop), and `set`/`clr` per tile costs 0.7 µs, hence once
+per task with the goroutine locked to its thread.
+
 ## Allocation cost (why the element-wise numbers are what they are)
 
 Every element-wise operation allocates its result; Go zero-fills it and,
