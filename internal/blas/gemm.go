@@ -88,9 +88,31 @@ var (
 	ParallelThreshold = 4 * 1024 * 1024
 )
 
+// Strategy selects how the compute phase is distributed:
+//
+//	StrategyShared: all workers pack every A panel of the K block into one
+//	  shared buffer, then a grid of (row block × panel range) tasks reads it.
+//	StrategyRows: one task per row block; the task packs its own A rows
+//	  into a private buffer (L2-hot) and sweeps every B panel. B is shared
+//	  packed in both.
+//
+// FIBERAI_BLAS_STRATEGY=shared|rows overrides the default for experiments.
+var Strategy = StrategyShared
+
+const (
+	StrategyShared = iota
+	StrategyRows
+)
+
 // The blocking parameters can be overridden for tuning runs without a
 // rebuild: FIBERAI_BLAS_KC, FIBERAI_BLAS_MC and FIBERAI_BLAS_NC (elements).
 func init() {
+	switch os.Getenv("FIBERAI_BLAS_STRATEGY") {
+	case "rows":
+		Strategy = StrategyRows
+	case "shared":
+		Strategy = StrategyShared
+	}
 	for _, v := range []struct {
 		name string
 		dst  *int
@@ -243,8 +265,12 @@ func gemm(c, a, b Mat, workers int) {
 		for pc := 0; pc < k; pc += kc {
 			pb := min(kc, k-pc)
 
-			// Phases 1 and 2: pack the B panels and all A panels of this K block.
 			packB(bp, b, pc, jc, pb, jb, nr, workers)
+			if Strategy == StrategyRows {
+				computeRows(c, a, bp, ic0(m, mc), jc, pc, pb, jb, mr, nr, workers)
+				continue
+			}
+			// Phase 2: pack all A panels of this K block with every worker.
 			packAAll(ap, a, pc, m, pb, mr, workers)
 
 			// Phase 3: pure compute over a grid of (row block × panel range)
@@ -292,6 +318,63 @@ func gemm(c, a, b Mat, workers int) {
 			})
 		}
 	}
+}
+
+// ic0 returns the row block starts for m rows in blocks of mc.
+func ic0(m, mc int) []int {
+	starts := make([]int, 0, (m+mc-1)/mc)
+	for ic := 0; ic < m; ic += mc {
+		starts = append(starts, ic)
+	}
+	return starts
+}
+
+// computeRows is the StrategyRows compute phase: one task per row block,
+// each packing its own A rows into a private buffer and sweeping all
+// panels of the shared packed B block.
+func computeRows(c, a Mat, bp []float32, starts []int, jc, pc, pb, jb, mr, nr, workers int) {
+	m := a.Rows
+	nPanels := (jb + nr - 1) / nr
+	parallel.ForWorkers(len(starts), workers, func(task int) {
+		ic := starts[task]
+		ib := ic0Block(starts, task, m)
+		ap := getBuf(roundUp(ib, mr) * pb)
+		defer putBuf(ap)
+		packA(ap, a, ic, pc, ib, pb, mr)
+		var tmp []float32
+		for jr := 0; jr < nPanels; jr++ {
+			j := jr * nr
+			cols := min(nr, jb-j)
+			bpanel := &bp[jr*nr*pb]
+			for ir := 0; ir < ib; ir += mr {
+				rows := min(mr, ib-ir)
+				apanel := &ap[ir*pb]
+				if rows == mr && cols == nr {
+					kernel.Gemm(pb, apanel, bpanel, &c.Data[(ic+ir)*c.RS+jc+j], c.RS)
+					continue
+				}
+				if tmp == nil {
+					tmp = make([]float32, mr*nr)
+				} else {
+					clear(tmp)
+				}
+				kernel.Gemm(pb, apanel, bpanel, &tmp[0], nr)
+				for i := 0; i < rows; i++ {
+					off := (ic+ir+i)*c.RS + jc + j
+					crow := c.Data[off : off+cols]
+					kernel.Add(crow, tmp[i*nr:i*nr+cols], crow)
+				}
+			}
+		}
+	})
+}
+
+// ic0Block returns the size of row block task.
+func ic0Block(starts []int, task, m int) int {
+	if task+1 < len(starts) {
+		return starts[task+1] - starts[task]
+	}
+	return m - starts[task]
 }
 
 // packAAll packs rows [0, m) of A for the K block at p0 into dst as

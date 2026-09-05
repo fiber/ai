@@ -89,6 +89,15 @@ var shapes = [][3]int{
 }
 
 func TestGemm(t *testing.T) {
+	savedStrategy := Strategy
+	defer func() { Strategy = savedStrategy }()
+	for _, strategy := range []int{StrategyShared, StrategyRows} {
+		Strategy = strategy
+		t.Run([]string{"shared", "rows"}[strategy], testGemm)
+	}
+}
+
+func testGemm(t *testing.T) {
 	saved := ParallelThreshold
 	ParallelThreshold = 0 // exercise the parallel path even for tiny shapes
 	defer func() { ParallelThreshold = saved }()
@@ -140,15 +149,20 @@ func TestGemmBlockingBoundaries(t *testing.T) {
 	defer func() { KC, MC, NC, ParallelThreshold = savedKC, savedMC, savedNC, savedPT }()
 
 	rng := rand.New(rand.NewPCG(5, 6))
-	for _, s := range [][3]int{{15, 47, 7}, {16, 48, 8}, {17, 49, 9}, {33, 97, 25}, {40, 100, 24}} {
-		m, n, k := s[0], s[1], s[2]
-		for _, workers := range []int{1, 3} {
-			a := makeMat(rng, m, k, rowMajor)
-			b := makeMat(rng, k, n, colMajor)
-			c := makeMat(rng, m, n, rowMajor)
-			want := refGemm(c, a, b)
-			GemmWorkers(c, a, b, workers)
-			checkResult(t, fmt.Sprintf("blocking m=%d n=%d k=%d workers=%d", m, n, k, workers), c, want)
+	savedStrategy := Strategy
+	defer func() { Strategy = savedStrategy }()
+	for _, strategy := range []int{StrategyShared, StrategyRows} {
+		Strategy = strategy
+		for _, s := range [][3]int{{15, 47, 7}, {16, 48, 8}, {17, 49, 9}, {33, 97, 25}, {40, 100, 24}} {
+			m, n, k := s[0], s[1], s[2]
+			for _, workers := range []int{1, 3} {
+				a := makeMat(rng, m, k, rowMajor)
+				b := makeMat(rng, k, n, colMajor)
+				c := makeMat(rng, m, n, rowMajor)
+				want := refGemm(c, a, b)
+				GemmWorkers(c, a, b, workers)
+				checkResult(t, fmt.Sprintf("blocking m=%d n=%d k=%d workers=%d strategy=%d", m, n, k, workers, strategy), c, want)
+			}
 		}
 	}
 }
@@ -200,7 +214,7 @@ func BenchmarkGemm(b *testing.B) {
 			if workers == 1 && parallel.Workers() == 1 {
 				continue
 			}
-			b.Run(fmt.Sprintf("%s/n=%d/workers=%d", kernel.Impl, n, workers), func(b *testing.B) {
+			b.Run(fmt.Sprintf("%s/%s/n=%d/workers=%d", kernel.Impl, []string{"shared", "rows"}[Strategy], n, workers), func(b *testing.B) {
 				for i := 0; i < b.N; i++ {
 					GemmWorkers(z, x, y, workers)
 				}
