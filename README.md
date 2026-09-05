@@ -152,7 +152,7 @@ Rosetta 2, which hides AVX from CPUID; bypass detection with
 | NEON (arm64) | all + exp + 8×12 GEMM | natively on Apple M2 Pro |
 | AVX2 + FMA (amd64) | all + exp + 6×16 GEMM | under Rosetta 2 (all tests pass) |
 | AVX-512F (amd64) | 14×32 GEMM (vector ops use AVX2, they are memory-bound) | on a Xeon Gold 6130 (Skylake-SP): 1 242 GFLOPS at n=1024 on 16 cores, see BENCHMARKS.md |
-| Apple AMX (macOS arm64, opt-in `FIBERAI_AMX=1`) | 32×32 GEMM on the matrix coprocessor | on an Apple M2 Pro: 2 250 GFLOPS at n=2048, level with PyTorch/Accelerate; training step 146 K samples/s vs 116 K |
+| Apple AMX (macOS arm64, default on M1–M4) | 32×32 GEMM on the matrix coprocessor | Apple M2 Pro: 2 296 GFLOPS at n=2048, level with PyTorch/Accelerate; training step 162 K samples/s vs 116 K; tests pass on an M4 |
 
 ## Roadmap
 

@@ -11,21 +11,21 @@ disabled and reported by `tensor.BackendWarnings()`.
 | Variable | Effect |
 |---|---|
 | `FIBERAI_KERNEL=generic\|avx2\|avx512\|neon\|amx` | select an implementation among those the CPU supports (benchmarking, debugging) |
-| `FIBERAI_AMX=1` | Apple Silicon (macOS, M1–M4): run matrix products on the AMX coprocessor; opt-in, see below |
+| `FIBERAI_AMX=0` / `=1` | Apple Silicon (macOS): matrix products on the AMX coprocessor, on by default for the M1–M4; `0` switches to NEON, `1` forces it on a newer chip (see below) |
 | `FIBERAI_KERNEL_FORCE=1` | skip CPU feature detection for the selected implementation — only for emulators such as Rosetta 2 that hide features from CPUID |
 | `GOMAXPROCS` | default goroutine limit |
 
 `tensor.SetThreads(n)` limits the goroutines used by tensor operations at
 run time; `tensor.Threads()` reads it back.
 
-### AMX on Apple Silicon (opt-in)
+### AMX on Apple Silicon
 
 Apple's M1–M4 carry an undocumented matrix coprocessor, AMX, which is
-what Accelerate (and therefore NumPy and PyTorch) use for SGEMM. With
-`FIBERAI_AMX=1` (or `FIBERAI_KERNEL=amx`) fiber/ai runs its GEMM
-micro-kernel on it: a 32×32 tile per call, four 16×16 f32 outer products
-per k-step, software-pipelined over four register slots. Measured on the
-M2 Pro against PyTorch/Accelerate:
+what Accelerate (and therefore NumPy and PyTorch) use for SGEMM. On
+those chips fiber/ai runs its GEMM micro-kernel on it by default: a
+32×32 tile per call, four 16×16 f32 outer products per k-step,
+software-pipelined over four register slots. Measured on the M2 Pro
+against PyTorch/Accelerate:
 
 | | fiber/ai NEON | fiber/ai AMX | PyTorch |
 |---|---:|---:|---:|
@@ -36,10 +36,11 @@ M2 Pro against PyTorch/Accelerate:
 | MLP training step, samples/s | 85 K | **146 K** | 116 K |
 | MLP inference | 221 K | **569 K** | 532 K |
 
-It is opt-in because the instructions are undocumented and an
-unsupported chip would fault with an illegal instruction that the
-start-up self-test cannot catch; the kernel enables itself only when the
-CPU brand string names an Apple M-series chip. AMX state belongs to the
+The instructions are undocumented and an unsupported chip would fault
+with an illegal instruction that the start-up self-test cannot catch, so
+the kernel enables itself only on the generations it was verified on
+(M1–M4 by brand string; `FIBERAI_AMX=1` forces it on a newer chip,
+`FIBERAI_AMX=0` switches back to NEON). AMX state belongs to the
 OS thread, so the driver locks each worker goroutine to its thread for
 the duration of a task and enables the state there; the element-wise
 kernels stay NEON. The units sit with the performance cores, so the
@@ -207,8 +208,8 @@ Use `Float32s()` (copy) or `At` when you only read.
    TODO.md T-005).
 5. Large GEMMs on Apple Silicon: Accelerate/NumPy/PyTorch use the AMX or
    SME matrix unit and reach 2–2.7 TFLOPS; NEON tops out around 600 GFLOPS
-   on ten cores. Set `FIBERAI_AMX=1` on an M1–M4 to use the same unit
-   (2.25 TFLOPS at n=2048 on the M2 Pro); an SME kernel for M4-class chips
+   on ten cores. On the M1–M4 fiber/ai uses the same unit by default
+   (2.3 TFLOPS at n=2048 on the M2 Pro); an SME kernel for M4-class chips
    is planned (T-006).
 
 ## Measuring

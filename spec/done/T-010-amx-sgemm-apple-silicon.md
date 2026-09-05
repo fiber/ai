@@ -86,3 +86,7 @@ step above PyTorch). Opt-in stays until the M4 has run the tests with
 (they are Go-heap `make`s today, re-zeroed after every GC; the profile
 shows 5 % `madvise` from the scavenger), B packing at 9 % of the AMX run,
 and n ≤ 1024 where Accelerate is still 30–40 % ahead.
+
+M4: `FIBERAI_AMX=1 go test ./...` passes (kernel self-test included), so
+the back-end is now on by default for brand strings matching M1–M4;
+newer chips need `FIBERAI_AMX=1`, `FIBERAI_AMX=0` opts out.

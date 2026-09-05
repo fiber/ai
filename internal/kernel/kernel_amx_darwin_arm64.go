@@ -4,6 +4,7 @@ package kernel
 
 import (
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -15,9 +16,10 @@ import (
 // is an illegal instruction, so a run of tiles is bracketed by amxBegin
 // (lock the goroutine to its thread, enable the state) and amxEnd.
 //
-// Opt-in: FIBERAI_AMX=1 or FIBERAI_KERNEL=amx, and only on a CPU whose
-// brand string names an Apple M-series chip. The start-up self-test
-// cannot catch an illegal instruction, hence no automatic selection yet.
+// Enabled by default on the M1–M4 (verified on an M2 Pro and an M4; the
+// start-up self-test cannot catch an illegal instruction, so unknown
+// chips stay on NEON unless FIBERAI_AMX=1 or FIBERAI_KERNEL=amx asks for
+// it). FIBERAI_AMX=0 switches it off.
 
 // Implemented in kernel_amx_darwin_arm64.s.
 func amxSet()
@@ -59,13 +61,19 @@ func performanceCores() int {
 
 var amxImpl = amxDetect()
 
+var amxKnown = regexp.MustCompile(`Apple M[1-4]( |$)`)
+
 func amxDetect() *impl {
-	if os.Getenv("FIBERAI_AMX") != "1" && os.Getenv("FIBERAI_KERNEL") != "amx" {
+	if os.Getenv("FIBERAI_AMX") == "0" {
 		return nil
 	}
 	brand, err := syscall.Sysctl("machdep.cpu.brand_string")
 	if err != nil || !strings.Contains(brand, "Apple M") {
 		return nil
+	}
+	forced := os.Getenv("FIBERAI_AMX") == "1" || os.Getenv("FIBERAI_KERNEL") == "amx"
+	if !forced && !amxKnown.MatchString(brand) {
+		return nil // an M-series chip corsix/amx has not documented: opt-in only
 	}
 	return &amx
 }

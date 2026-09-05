@@ -45,7 +45,10 @@ tensor  ──►  internal/blas  ──►  internal/kernel  ──►  CPU
   driver lock the goroutine to its thread and issue `set`/`clr` once
   per task, because an AMX instruction on a thread without `set` is an
   illegal instruction and assembly functions are not preemption points
-  but the Go code between tiles is. The AVX2 versions process two
+  but the Go code between tiles is. The back-end is selected by default
+  when the brand string names an M1–M4 (verified on an M2 Pro and an
+  M4); `FIBERAI_AMX=0` opts out, `FIBERAI_AMX=1` forces it on a newer
+  chip. The AVX2 versions process two
   vectors per loop iteration with eight-fold replicated constants as
   memory operands; the NEON `exp` likewise, which tripled its throughput
   on Apple cores.
