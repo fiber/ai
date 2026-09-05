@@ -49,3 +49,8 @@ Non-goals: AMX/SME (T-006/T-010), changes to the driver (T-014 done).
 - BENCHMARKS.md and `docs/manual/performance.md` updated with the result.
 
 ## Notes
+
+Experiment 1 (software prefetch of A/B ahead and the C tile at entry):
+Xeon, 1 worker 143/151 GFLOPS (n=1024/2048), 16 workers 1 119/1 177 —
+within the ±3 % noise of the runs before (1 147/1 139). Kept, no effect.
+Next: tile shape (14×32) and KC with the tile change.

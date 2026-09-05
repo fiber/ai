@@ -115,3 +115,13 @@ Meets the 64K target (≤ 12 µs), misses 1M by 17 % (129 vs 110) and
 16M (fresh 64 MB results are page-faulted either way; only reuse of the
 output buffer can fix that — out-parameter API, kept out of scope).
 Adopted as default; Xeon acceptance numbers pending.
+
+Xeon Gold 6130 (one socket, 16 workers, `cmd/bench -quick`), ballast off
+vs 128 MiB: MLP step 26.3 → 36.5 K/s, `x + y` 64K 72 → 58 µs, `relu` 64K
+128 → 58 µs — but `x + y` 1M 770 → 897 µs and the tensor-level GEMM
+n=1024 730 → 455 GFLOPS (blas benchmark: 1 119). Diagnosis: a 4 MB
+result is zero-filled serially by the allocator, and with fewer GCs it is
+fresh memory that sixteen threads then fault in at once. Fix applied:
+MatMul allocates its output uninitialised and clears it in parallel
+(M2 Pro tensor-level n=1024: 501 → 568, n=512: 350 → 463). Ballast stays
+the default; Xeon re-measurement of the GEMM and 1M rows pending.
