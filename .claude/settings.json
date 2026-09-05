@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "go run ./cmd/gate hook",
-            "timeout": 30,
+            "command": "go build -o .claude/gate-bin ./cmd/gate || exit 2; exec .claude/gate-bin hook",
+            "timeout": 60,
             "statusMessage": "process gate"
           }
         ]

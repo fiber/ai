@@ -58,7 +58,10 @@ It runs automatically in two places:
   (`.claude/settings.json`): an Edit/Write to a code file with no covering
   open spec is refused with the missing spec named; a Bash command that
   redirects into, moves, copies or deletes a code file is checked the same
-  way, and `--no-verify` commits are refused.
+  way, and `--no-verify` commits are refused. The hook builds the gate into
+  the ignored binary `.claude/gate-bin` and runs that, because a `go run`
+  wrapper would turn the blocking exit code 2 into a 1. A settings file
+  created during a session becomes active after `/hooks` or a restart.
 
 What counts as code: everything except `*.md`, `spec/`, `.claude/`,
 `.githooks/`, `benchmarks/results/`, `.gitignore` and `orig/`.

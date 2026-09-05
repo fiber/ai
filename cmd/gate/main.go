@@ -316,7 +316,7 @@ func coveringSpec(rel string, specs []Spec, changed map[string]bool) (Spec, erro
 			open = append(open, fmt.Sprintf("  %s %s (scope %s)", s.ID, s.Title, strings.Join(s.Scope, ", ")))
 		}
 	}
-	msg := fmt.Sprintf("%s is not covered by any open spec.\nWrite a spec first: go run ./cmd/gate new -scope %s \"title\"  (see PROCESS.md)", rel, scopeSuggestion(rel))
+	msg := fmt.Sprintf("%s is not covered by any open spec.\nWrite a spec first: go run ./cmd/gate new -scope %s -manual docs/manual/<page>.md|none \"title\"  (see PROCESS.md)", rel, scopeSuggestion(rel))
 	if len(open) > 0 {
 		msg += "\nOpen specs:\n" + strings.Join(open, "\n")
 	}
