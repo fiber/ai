@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-05 T-022 — Syslog building blocks: log template mining at 50M lines a day, k-means and nearest-centre search over embeddings (spec/done/T-022-syslog-building-blocks-log-template-mining-at-50.md)
 - 2026-09-05 T-008 — x86 validation and benchmarks: AVX-512 on hardware, tuning, comparison with OpenBLAS/MKL (spec/done/T-008-x86-validation-and-benchmarks.md)
 - 2026-09-05 T-016 — AVX-512 micro-kernel under all-core load: prefetch, tile shape, C layout (spec/done/T-016-avx-512-micro-kernel-under-all-core-load-prefetc.md)
 - 2026-09-05 T-021 — Tutorial: AI for Go developers with fiber/ai, eight chapters with runnable programs (spec/done/T-021-tutorial-ai-for-go-developers-with-fiber-ai-eigh.md)

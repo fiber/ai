@@ -1,7 +1,7 @@
 ---
 id: T-022
 title: Syslog building blocks: log template mining at 50M lines a day, k-means and nearest-centre search over embeddings
-status: open
+status: done
 scope:
   - logtemplate/
   - cluster/
@@ -9,6 +9,7 @@ scope:
   - examples/
 manual:
   - docs/manual/README.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -70,3 +71,17 @@ nearest-centre search over embedding rows with the tensor layer.
   seconds.
 
 ## Notes
+
+Implemented. The first `Mask` was six regular expressions and cost 16 µs
+a line (62 000 lines/s, a fifth of the target); the single-pass scanner
+that replaced it does 0.54 µs, and `Miner.Add` 0.74 µs including it:
+1.17 million lines/s on one M2 Pro core in `examples/syslog` (two million
+generated lines → 9 templates in 1.7 s). Design choices recorded there:
+digit runs inside words are masked (`eth0` → `eth<NUM>`) because
+interface numbers vary; pure hex-letter words are not, because `cafe`
+and `added` are hex too. The miner treats any token containing a
+placeholder as variable when keying its tree, otherwise `ge-…` and
+`xe-…` lines never met. `cluster`: k-means recovers three planted
+clusters at similarity ≥ 0.85 (noise 0.05 per dimension over 64);
+`Nearest` on 50 000 × 768 against 40 centres runs in 9.7 ms. Manual page
+`applications.md` added.

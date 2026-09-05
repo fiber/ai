@@ -11,4 +11,5 @@ refuses to complete a spec whose pages were not updated (see
 4. [Neural networks and optimisers](nn-and-optim.md) — modules, losses, training loops, SGD/Adam
 5. [Performance](performance.md) — back-ends, threads, environment variables, what is fast and what is not
 6. [Internals](internals.md) — kernels, GEMM blocking, adding an operation or an architecture
-7. [Development process](process.md) — TODO/BUGS/DONE, specs, the gate tool
+7. [Application packages](applications.md) — `logtemplate` (syslog templates at millions of lines a second), `cluster` (k-means and nearest centre over embeddings)
+8. [Development process](process.md) — TODO/BUGS/DONE, specs, the gate tool
