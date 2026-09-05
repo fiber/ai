@@ -18,6 +18,10 @@ github.com/fiber/ai
 ├── cmd/bench/         throughput benchmarks (Markdown output)
 ├── cmd/gate/          development-process gate (specs, lists, manual)
 ├── docs/manual/       the user manual
+├── docs/tutorial/     eight chapters for Go developers new to the field
+├── data/, metrics/    data preparation and evaluation for applications
+├── logtemplate/       syslog lines to templates, a million lines a second
+├── cluster/           k-means and nearest-centre search over embeddings
 ├── benchmarks/        results and the NumPy/PyTorch comparison script
 └── examples/          tensor basics, autograd, MLP regression, spiral classification
 ```
