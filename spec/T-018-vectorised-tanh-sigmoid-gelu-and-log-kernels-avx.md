@@ -96,3 +96,16 @@ with eight-fold replicated constants as memory operands (no register
 pressure), and the composed kernels block internally at 4096 elements.
 Tensor-level GEMM with the result released: n=1024 658 → 1 117 GFLOPS,
 n=2048 1 165 (kernel alone 1 242/1 285).
+
+Second Xeon round: `sigmoid`/`gelu` 16M now 10.6 ms like `tanh`, but the
+AVX2 unroll only took `exp` 4096 from 7.0 to 5.2 µs (1.27 ns/element,
+about 20–30 cycles per 8-wide vector where the two FMA ports allow ~7).
+Hypothesis: 4K aliasing. `make` hands out 16 KiB buffers at the same
+page offset and the mmap allocator page-aligns every result, so the
+kernel's store to z[i] and its load of x[i+8] agree in the low 12 bits
+and the load waits for the store on Intel cores. `BenchmarkExpAliasing`
+compares same-offset against shifted output buffers. Caveat for the M2
+figures in these notes: single-goroutine benchmarks there vary up to
+4× between runs depending on whether the goroutine lands on a P- or an
+E-core (GOMAXPROCS counts both), so only the Xeon numbers are reliable
+for kernel-level conclusions.

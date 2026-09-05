@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"testing"
+	"unsafe"
 )
 
 // implementations returns every implementation that can run on this CPU,
@@ -469,6 +470,46 @@ func BenchmarkTanh(b *testing.B) {
 				for j := range x {
 					z[j] = float32(math.Tanh(float64(x[j])))
 				}
+			}
+		})
+	}
+}
+
+// BenchmarkExpAliasing runs the exp kernel with the output at the same
+// page offset as the input (as page-aligned buffers are) and shifted by
+// 16 floats. On Intel cores a store and a later load whose addresses
+// agree in the low 12 bits stall the load (4K aliasing); a large gap
+// between the two rows says the kernels are fine and the allocator has
+// to colour its buffers.
+func BenchmarkExpAliasing(b *testing.B) {
+	rng := rand.New(rand.NewPCG(15, 16))
+	const n = 4096
+	x := make([]float32, n+2048)
+	z := make([]float32, n+2048)
+	copy(x, randSlice(rng, n))
+	// same low 12 address bits for x[i] and z[i]
+	xo := (4096 - int(uintptr(unsafe.Pointer(&x[0]))&4095)) / 4
+	zo := (4096 - int(uintptr(unsafe.Pointer(&z[0]))&4095)) / 4
+	xa, za := x[xo:xo+n], z[zo:zo+n]
+	for _, im := range implementations() {
+		b.Run(im.name+"/aligned", func(b *testing.B) {
+			b.SetBytes(8 * n)
+			for i := 0; i < b.N; i++ {
+				im.exp(xa, za)
+			}
+		})
+		b.Run(im.name+"/offset16", func(b *testing.B) {
+			zb := z[zo+16 : zo+16+n]
+			b.SetBytes(8 * n)
+			for i := 0; i < b.N; i++ {
+				im.exp(xa, zb)
+			}
+		})
+		b.Run(im.name+"/offset512", func(b *testing.B) {
+			zb := z[zo+512 : zo+512+n]
+			b.SetBytes(8 * n)
+			for i := 0; i < b.N; i++ {
+				im.exp(xa, zb)
 			}
 		})
 	}
