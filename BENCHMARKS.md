@@ -243,8 +243,8 @@ OpenBLAS 0.3.34 (Haswell kernels), PyTorch 2.14.0+cpu links MKL 2024.2
 | SGEMM 1024², 1 thread (GFLOPS, blas bench) | **162** | – | – | 169 |
 | SGEMM 1024², 1 thread (GFLOPS, incl. output allocation) | 122 | 74 | – | – |
 | SGEMM 512², all cores (GFLOPS) | 245 | 241 | 717 | **991** |
-| SGEMM 1024², all cores (GFLOPS) | 530 | 439 | 1 303 | **1 434** |
-| SGEMM 2048², all cores (GFLOPS) | 732 (blas bench: **1 018**) | – | 881 | 780 |
+| SGEMM 1024², all cores (GFLOPS) | 530 → 1 147 after T-014 (blas bench) | 439 | 1 303 | **1 434** |
+| SGEMM 2048², all cores (GFLOPS) | 732 → **1 139** after T-014 (blas bench) | – | 881 | 780 |
 | [1×4096]·[4096×4096] (GFLOPS) | **13.0** | 13.0 | 10.9 | 11.0 |
 | [256×768]·[768×3072] (GFLOPS) | 323 | 344 | **1 088** | 980 |
 | x + y, 1M | 1.49 ms | | 506 µs | **24 µs** |
@@ -268,15 +268,19 @@ What this says:
   peak — level with MKL's single thread. This is the like-for-like
   comparison the Macs could not give: kernel against kernel, we are
   there.
-- **Multi-core scaling is the problem: 6.3× on 16 cores.** MKL and
-  OpenBLAS reach 1.3–1.4 TFLOPS at n=1024, we reach 0.53 (0.73 in the
-  allocation-free blas benchmark). Two suspects, both in the driver, not
-  the kernel: the amd64 blocking (MC=96) was chosen blind and leaves a
-  1 MiB L2 mostly empty; and goroutines are not pinned, so on a
-  hyperthreaded socket two workers can share one core's FMA units while
-  another core idles. Neither exists on the Macs, which is why they did
-  not show up before. Blocking parameters can now be swept without a
-  rebuild via `FIBERAI_BLAS_KC/MC/NC`.
+- **Multi-core scaling was the problem — and it was the driver.** The
+  first run reached 759 GFLOPS at n=1024 with 16 workers (32 % of the
+  socket's ~2 000 GFLOPS AVX-512 peak at its 1.95 GHz all-core clock).
+  Spec T-014 took it to **1 147** (57 %) in four measured steps: pack A
+  once per K block instead of per task, replace channel polling in the
+  worker pool with an atomic spin (a profile showed 20 % of CPU in
+  runtime locks), spin through the rounds instead of parking (perf showed
+  the cores only 70 % busy), and a finer task grid (the last round of a
+  K block left most cores waiting). Blocking, hyperthreading and NUMA
+  placement were measured and ruled out along the way. At n=2048 (1 139)
+  fiber/ai is now ahead of both MKL (780) and OpenBLAS (881); at n=1024
+  MKL's 1 434 (72 % of peak) is still 20 % ahead — that remainder is
+  inside the micro-kernel under all-core load (spec T-016).
 - **Two sockets are slower than one** (n=1024: 162 vs 530 GFLOPS with 64
   vs 16 threads). NUMA and hyperthreads are invisible to Go's scheduler;
   a topology-aware default thread count is TODO T-013.

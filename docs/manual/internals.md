@@ -13,8 +13,12 @@ tensor  ──►  internal/blas  ──►  internal/kernel  ──►  CPU
 ```
 
 - `internal/parallel` — `For(n, fn)` and `Range(n, minChunk, fn)` hand
-  work items to up to `Workers()` goroutines from an atomic counter; the
-  caller participates; panics are re-raised in the caller.
+  work items to up to `Workers()` goroutines from an atomic counter. A
+  persistent pool of helpers picks up jobs published through an atomic
+  generation counter, spins ~200 µs between jobs before parking on a
+  condition variable, and never blocks the caller waiting for a helper to
+  start (nested calls are safe). Panics stop the job and are re-raised
+  in the caller.
 - `internal/kernel` — float32 kernels on contiguous slices, one
   implementation table per ISA (`impl` struct), selected in `init`.
 - `internal/blas` — `Gemm(c, a, b Mat)` on strided `Mat` views.
@@ -53,12 +57,22 @@ Conventions in the assembly:
 `internal/blas/gemm.go` is a Goto/BLIS blocked SGEMM:
 
 ```
-for jc in N step NC:              pack B[pc.., jc..] into NR-wide panels (kept in L2)
+for jc in N step NC:
   for pc in K step KC:
-    tasks = (M/MC row blocks) × (panel ranges)      ← distributed over goroutines
-      pack A[ic.., pc..] into MR-wide panels (L1)
-      for each NR panel, each MR panel: micro-kernel C[MR×NR] += A·B
+    round 1 (all workers): pack B[pc.., jc..] into NR-wide panels and
+                           every A[.., pc..] row panel into one shared buffer
+    round 2 (all workers): grid of (row block × panel range) compute tasks,
+                           ~16 per worker, handed out from an atomic counter;
+                           each task streams its panels against its L2-hot A block
 ```
+
+Packing happens once per K block and never inside a compute task; a
+fine task grid keeps the tail of each round short. The rounds run on
+`internal/parallel`'s persistent helpers, which spin on a generation
+counter between rounds instead of parking, so the two barriers per K
+block cost no thread wake-ups. `FIBERAI_BLAS_KC/MC/NC`,
+`FIBERAI_BLAS_TASKS` and `FIBERAI_BLAS_STRATEGY=rows` (one task per row
+block with private A packing) exist for experiments.
 
 The micro-kernel (`kernel.Gemm`) receives packed panels in k-major order
 and accumulates the tile in registers: 8×12 on NEON (24 accumulators),

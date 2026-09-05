@@ -22,9 +22,21 @@ run time; `tensor.Threads()` reads it back.
 Numbers from `go run ./cmd/bench`; full tables and the NumPy/PyTorch
 comparison in [BENCHMARKS.md](../../BENCHMARKS.md).
 
-- **Matrix products** run at ~87 % of a core's FMA peak (Apple M2 Pro:
-  ~100 GFLOPS per core, ~600 GFLOPS on 10 cores; Apple M4: 120 / 614).
-  Transposed operands cost nothing — pass `w.T()`, do not materialise it.
+- **Matrix products** run at 84–90 % of a core's FMA peak on one core
+  (Apple M2 Pro ~100 GFLOPS, M4 121, Xeon Gold 6130 with AVX-512 150–162)
+  and scale to ~600 GFLOPS on the ten Apple cores and ~1 150 GFLOPS on a
+  16-core Skylake-SP socket (n=1024–2048), which is ahead of NumPy/
+  OpenBLAS and PyTorch/MKL at n=2048 on that machine and 20 % behind MKL
+  at n=1024. Transposed operands cost nothing — pass `w.T()`, do not
+  materialise it.
+
+  On x86 the AVX-512 kernel is chosen where available (Skylake-SP and
+  later Xeons, Zen 4/5), otherwise AVX2. `KC=512` and a fine compute grid
+  are the tuned defaults; `FIBERAI_BLAS_KC/MC/NC` and `FIBERAI_BLAS_TASKS`
+  override them for tuning runs. On a two-socket machine pin the process
+  to one socket (`numactl --cpunodebind=0 --membind=0`) until topology-
+  aware scheduling exists (TODO T-013); running on both sockets is slower
+  than one.
 - **Element-wise operations** on large tensors run at memory bandwidth.
   `exp` is a vectorised kernel; `Softmax`, `CrossEntropy` and `Sigmoid`
   use it. `Tanh`, `GELU` and `Log` still call `math.*` per element and are

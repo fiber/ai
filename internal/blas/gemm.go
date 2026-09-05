@@ -88,9 +88,11 @@ var (
 	ParallelThreshold = 4 * 1024 * 1024
 )
 
-// tasksPerWorker sets the granularity of the compute grid; FIBERAI_BLAS_TASKS
-// overrides it for experiments.
-var tasksPerWorker = 8
+// tasksPerWorker sets the granularity of the compute grid (Xeon Gold 6130,
+// 16 workers: 4/8/16/32 per worker gave 1073/1147/1096/1141 GFLOPS at
+// n=1024 and 1012/1086/1139/1133 at n=2048; the M2 Pro also preferred 16).
+// FIBERAI_BLAS_TASKS overrides it for experiments.
+var tasksPerWorker = 16
 
 // Strategy selects how the compute phase is distributed:
 //

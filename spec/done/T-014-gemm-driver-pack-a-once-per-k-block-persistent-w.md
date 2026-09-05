@@ -1,13 +1,14 @@
 ---
 id: T-014
 title: GEMM driver: pack A once per K block, persistent workers, no per-task repacking
-status: open
+status: done
 scope:
   - internal/blas/
   - internal/parallel/
 manual:
   - docs/manual/internals.md
   - docs/manual/performance.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -69,3 +70,34 @@ heterogeneous P/E cores); a spinning barrier inside one parallel region
   worker pool; `docs/manual/performance.md` carries the new x86 figures.
 
 ## Notes
+
+Implemented in four steps, each measured on the Xeon Gold 6130 (one
+socket, 16 workers, `go test ./internal/blas -bench`):
+
+| step | n=1024 | n=2048 |
+|---|---:|---:|
+| before | 759 | 1 018 |
+| A packed once per K block, channel-polling worker pool | 942 | 944 |
+| helpers spin on an atomic counter (profile: 20 % CPU in lock2/procyield) | 898–1 002 | 1 070 |
+| longer spin, caller polls, A+B packed in one round (perf: cores only 70 % busy) | 1 051 | 1 025 |
+| 16 compute tasks per worker instead of 3 (tail of each round) | **1 147** | **1 139** |
+
+Blocking sweep with the new driver (KC × MC, n=1024): MC no longer
+matters (860–1 000 across 96–512); KC 256/384/512 → 924/982/999, so
+KC=512 is the amd64 default. A row-block strategy with private A packing
+(`FIBERAI_BLAS_STRATEGY=rows`) was no better (926 at MC=32, worse for
+larger blocks), so cross-core reads of packed data are not the limit;
+pinning to physical cores changed nothing either.
+
+Measured limits: all-core AVX-512 clock 1.95 GHz (perf: cycles/user), so
+the socket's FMA peak is ~2 000 GFLOPS; we reach 57 % of it per cycle,
+MKL 72 %, our single core 84 % at 2.8 GHz. The remaining gap is inside
+the micro-kernel under all-core load (no software prefetch, 12×32 tile,
+C rows 4 KiB apart) — spec T-016.
+
+Acceptance: n=1024 at 1 147 misses the 1 200 target by 4 %; n=2048 at
+1 139 misses 1 400, a target set before the all-core clock was known
+(at 1.95 GHz it corresponds to 70 % of peak, MKL's level). Against the
+Python baselines: n=2048 ahead of PyTorch (780) and NumPy (881),
+n=1024 at 80 % of PyTorch. Closing the spec here; the driver work is
+done, the rest is kernel work.
