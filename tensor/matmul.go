@@ -42,14 +42,11 @@ func matmul2D(x, y *Tensor) *Tensor {
 	if k != y.shape[0] {
 		fail("MatMul", "shape mismatch %v · %v", x.shape, y.shape)
 	}
-	// Gemm accumulates into C, which therefore has to be zero. Clearing in
-	// parallel instead of letting the allocator do it on one thread takes
-	// the fresh pages in with all workers too (a 4 MB result cost ~15 % of
-	// a 1024² product on a 16-core Xeon when zeroed serially).
+	// GemmZero writes the product into the uninitialised output: no clear
+	// pass, and the first K block does not read C.
 	out := newTensorUninit(Shape{m, n})
-	parallelClear(out.data)
-	if out.size > 0 && k > 0 {
-		blas.Gemm(mat(out, 0, 1), mat(x, 0, 1), mat(y, 0, 1))
+	if out.size > 0 {
+		blas.GemmZero(mat(out, 0, 1), mat(x, 0, 1), mat(y, 0, 1))
 	}
 	xd, yd := x.saved(), y.saved()
 	return record(out, "MatMul", []*Tensor{x, y}, func(gy *Tensor) {
@@ -75,8 +72,10 @@ func matmulBatched(x, y *Tensor) *Tensor {
 	batch := broadcastShapes("MatMul", x.shape[:nx-2], y.shape[:ny-2])
 	shape := append(batch.clone(), m, n)
 	out := newTensorUninit(shape)
-	parallelClear(out.data)
 	nb := batch.Size()
+	if out.size > 0 && (k == 0 || nb == 0) {
+		parallelClear(out.data)
+	}
 	if out.size > 0 && k > 0 && nb > 0 {
 		// per-batch offsets via broadcast strides over the batch dims
 		xb := view(x, x.data, x.shape[:nx-2], x.strides[:nx-2])
@@ -91,7 +90,7 @@ func matmulBatched(x, y *Tensor) *Tensor {
 			a, c := xm, ym
 			a.Data, c.Data = x.data[xoff[b]:], y.data[yoff[b]:]
 			o := blas.Contiguous(out.data[b*m*n:(b+1)*m*n], m, n)
-			blas.GemmWorkers(o, a, c, workers)
+			blas.GemmZeroWorkers(o, a, c, workers)
 		}
 		if float64(m)*float64(n)*float64(k) < float64(blas.ParallelThreshold) {
 			parallel.For(nb, func(b int) { run(b, 1) }) // many small products: parallel over the batch

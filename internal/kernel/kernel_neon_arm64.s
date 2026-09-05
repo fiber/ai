@@ -159,6 +159,10 @@ done: \
 	VFADD4(C, C, 26) \
 	VST1 [VA.S4, VB.S4, VC.S4], (R2) \
 	ADD  R4, R2, R2
+// CROWZ stores the tile without reading C (β = 0).
+#define CROWZ(VA, VB, VC) \
+	VST1 [VA.S4, VB.S4, VC.S4], (R2) \
+	ADD  R4, R2, R2
 
 // ---------------------------------------------------------------------------
 // Binary element-wise kernels: z = x OP y
@@ -402,7 +406,17 @@ done:
 
 // CROW(a, b, c, Va, Vb, Vc): C row += accumulators a,b,c; advance C by ldc.
 
+// gemmNEON accumulates into C, gemmZeroNEON overwrites it; both jump into
+// the shared body with the mode in R6.
 TEXT ·gemmNEON(SB), NOSPLIT, $0-40
+	MOVD $1, R6
+	B    ·gemmNEONBody(SB)
+
+TEXT ·gemmZeroNEON(SB), NOSPLIT, $0-40
+	MOVD $0, R6
+	B    ·gemmNEONBody(SB)
+
+TEXT ·gemmNEONBody(SB), NOSPLIT, $0-40
 	MOVD k+0(FP), R3
 	MOVD a+8(FP), R0
 	MOVD b+16(FP), R1
@@ -451,6 +465,7 @@ kloop1:
 	SUBS $1, R3, R3
 	BNE  kloop1
 store:
+	CBZ  R6, storez
 	CROW(0, 1, 2, V0, V1, V2)
 	CROW(3, 4, 5, V3, V4, V5)
 	CROW(6, 7, 8, V6, V7, V8)
@@ -459,6 +474,16 @@ store:
 	CROW(15, 16, 17, V15, V16, V17)
 	CROW(18, 19, 20, V18, V19, V20)
 	CROW(21, 22, 23, V21, V22, V23)
+	RET
+storez:
+	CROWZ(V0, V1, V2)
+	CROWZ(V3, V4, V5)
+	CROWZ(V6, V7, V8)
+	CROWZ(V9, V10, V11)
+	CROWZ(V12, V13, V14)
+	CROWZ(V15, V16, V17)
+	CROWZ(V18, V19, V20)
+	CROWZ(V21, V22, V23)
 done:
 	RET
 

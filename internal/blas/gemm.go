@@ -147,8 +147,20 @@ func init() {
 // into, not overwritten.
 func Gemm(c, a, b Mat) { GemmWorkers(c, a, b, parallel.Workers()) }
 
+// GemmZero computes C = A·B, overwriting C: the first K block writes its
+// tiles instead of accumulating, so C needs no clearing and is not read
+// before it is produced.
+func GemmZero(c, a, b Mat) { GemmZeroWorkers(c, a, b, parallel.Workers()) }
+
+// GemmZeroWorkers is GemmZero with an explicit upper bound on goroutines.
+func GemmZeroWorkers(c, a, b Mat, workers int) {
+	gemmWorkers(c, a, b, workers, true)
+}
+
 // GemmWorkers is Gemm with an explicit upper bound on goroutines.
-func GemmWorkers(c, a, b Mat, workers int) {
+func GemmWorkers(c, a, b Mat, workers int) { gemmWorkers(c, a, b, workers, false) }
+
+func gemmWorkers(c, a, b Mat, workers int, zero bool) {
 	if h := kernel.GemmHints.Workers; h > 0 && workers > h {
 		workers = h
 	}
@@ -163,25 +175,43 @@ func GemmWorkers(c, a, b Mat, workers int) {
 		panic("blas: Gemm requires C with unit column stride")
 	}
 	m, n, k := a.Rows, b.Cols, a.Cols
-	if m == 0 || n == 0 || k == 0 {
-		return
-	}
 	if float64(m)*float64(n)*float64(k) < float64(ParallelThreshold) {
 		workers = 1
 	}
 	if workers < 1 {
 		workers = 1
 	}
+	if m == 0 || n == 0 || k == 0 {
+		if zero {
+			clearC(c, workers)
+		}
+		return
+	}
 
 	// Matrix-vector products get dedicated paths: the packed kernel would
 	// waste MR-1 of MR rows (or NR-1 of NR columns).
-	if m == 1 && gemvRow(c, a, b, workers) {
-		return
+	if m == 1 || n == 1 {
+		if zero {
+			clearC(c, workers) // a single row or column: cheap to clear, then accumulate
+		}
+		if m == 1 && gemvRow(c, a, b, workers) {
+			return
+		}
+		if n == 1 && gemvCol(c, a, b, workers) {
+			return
+		}
+		zero = false
 	}
-	if n == 1 && gemvCol(c, a, b, workers) {
-		return
-	}
-	gemm(c, a, b, workers)
+	gemm(c, a, b, workers, zero)
+}
+
+// clearC zeroes C row by row with all workers.
+func clearC(c Mat, workers int) {
+	parallel.RangeWorkers(c.Rows, max(1, 4096/max(1, c.Cols)), workers, func(lo, hi int) {
+		for i := lo; i < hi; i++ {
+			clear(c.Data[i*c.RS : i*c.RS+c.Cols])
+		}
+	})
 }
 
 // gemvRow handles C[1×n] += a[1×k] · B[k×n]. Returns false if the strides
@@ -298,9 +328,13 @@ func putBuf(s []float32) {
 
 func roundUp(x, m int) int { return (x + m - 1) / m * m }
 
-func gemm(c, a, b Mat, workers int) {
+func gemm(c, a, b Mat, workers int, zero bool) {
 	mr, nr := kernel.MR, kernel.NR
 	m, n, k := a.Rows, b.Cols, a.Cols
+	if zero && kernel.GemmZero == nil {
+		clearC(c, workers) // no overwriting tile on this back-end: clear, then accumulate
+		zero = false
+	}
 	kc := max(1, KC)
 	mc := max(mr, MC/mr*mr)
 	nc := max(nr, NC/nr*nr)
@@ -318,10 +352,11 @@ func gemm(c, a, b Mat, workers int) {
 		nPanels := (jb + nr - 1) / nr
 		for pc := 0; pc < k; pc += kc {
 			pb := min(kc, k-pc)
+			first := zero && pc == 0 // this K block writes C instead of accumulating
 
 			if Strategy == StrategyRows {
 				packB(bp, b, pc, jc, pb, jb, nr, workers)
-				computeRows(c, a, bp, ic0(m, mc), jc, pc, pb, jb, mr, nr, workers)
+				computeRows(c, a, bp, ic0(m, mc), jc, pc, pb, jb, mr, nr, workers, first)
 				continue
 			}
 			// Phase 1: pack the B panels and all A panels of this K block in
@@ -358,7 +393,11 @@ func gemm(c, a, b Mat, workers int) {
 						rows := min(mr, ib-ir)
 						apanel := &ap[(ic+ir)*pb]
 						if rows == mr && cols == nr {
-							kernel.Gemm(pb, apanel, bpanel, &c.Data[(ic+ir)*c.RS+jc+j], c.RS)
+							if first {
+								kernel.GemmZero(pb, apanel, bpanel, &c.Data[(ic+ir)*c.RS+jc+j], c.RS)
+							} else {
+								kernel.Gemm(pb, apanel, bpanel, &c.Data[(ic+ir)*c.RS+jc+j], c.RS)
+							}
 							continue
 						}
 						if tmp == nil {
@@ -370,7 +409,11 @@ func gemm(c, a, b Mat, workers int) {
 						for i := 0; i < rows; i++ {
 							off := (ic+ir+i)*c.RS + jc + j
 							crow := c.Data[off : off+cols]
-							kernel.Add(crow, tmp[i*nr:i*nr+cols], crow)
+							if first {
+								copy(crow, tmp[i*nr:i*nr+cols])
+							} else {
+								kernel.Add(crow, tmp[i*nr:i*nr+cols], crow)
+							}
 						}
 					}
 				}
@@ -417,7 +460,7 @@ func ic0(m, mc int) []int {
 // computeRows is the StrategyRows compute phase: one task per row block,
 // each packing its own A rows into a private buffer and sweeping all
 // panels of the shared packed B block.
-func computeRows(c, a Mat, bp []float32, starts []int, jc, pc, pb, jb, mr, nr, workers int) {
+func computeRows(c, a Mat, bp []float32, starts []int, jc, pc, pb, jb, mr, nr, workers int, first bool) {
 	m := a.Rows
 	nPanels := (jb + nr - 1) / nr
 	parallel.ForWorkers(len(starts), workers, func(task int) {
@@ -437,7 +480,11 @@ func computeRows(c, a Mat, bp []float32, starts []int, jc, pc, pb, jb, mr, nr, w
 				rows := min(mr, ib-ir)
 				apanel := &ap[ir*pb]
 				if rows == mr && cols == nr {
-					kernel.Gemm(pb, apanel, bpanel, &c.Data[(ic+ir)*c.RS+jc+j], c.RS)
+					if first {
+						kernel.GemmZero(pb, apanel, bpanel, &c.Data[(ic+ir)*c.RS+jc+j], c.RS)
+					} else {
+						kernel.Gemm(pb, apanel, bpanel, &c.Data[(ic+ir)*c.RS+jc+j], c.RS)
+					}
 					continue
 				}
 				if tmp == nil {
@@ -449,7 +496,11 @@ func computeRows(c, a Mat, bp []float32, starts []int, jc, pc, pb, jb, mr, nr, w
 				for i := 0; i < rows; i++ {
 					off := (ic+ir+i)*c.RS + jc + j
 					crow := c.Data[off : off+cols]
-					kernel.Add(crow, tmp[i*nr:i*nr+cols], crow)
+					if first {
+						copy(crow, tmp[i*nr:i*nr+cols])
+					} else {
+						kernel.Add(crow, tmp[i*nr:i*nr+cols], crow)
+					}
 				}
 			}
 		}

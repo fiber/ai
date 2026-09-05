@@ -73,6 +73,10 @@ var (
 	// Gemm is the active GEMM micro-kernel with tile size MR×NR.
 	Gemm   GemmFunc
 	MR, NR int
+	// GemmZero is Gemm with C overwritten instead of accumulated (β = 0),
+	// so a product's first K block needs neither a cleared output nor the
+	// read of it. nil when the back-end has no such variant; k must be > 0.
+	GemmZero GemmFunc
 	// GemmBegin and GemmEnd bracket a run of Gemm calls on one goroutine.
 	// They are no-ops except for coprocessor back-ends (AMX) that must
 	// enable per-thread state; callers keep the goroutine on its thread
@@ -106,7 +110,7 @@ type impl struct {
 	dot                         func(x, y []float32) float32
 	sum, max                    func(x []float32) float32
 	exp, tanh, log, sqrt        func(x, z []float32)
-	gemm                        GemmFunc
+	gemm, gemmZero              GemmFunc
 	mr, nr                      int
 	gemmBegin, gemmEnd          func() // nil: nothing to do
 	hints                       Hints
@@ -132,6 +136,7 @@ func use(i *impl) {
 	Axpy, Dot, Sum, Max = i.axpy, i.dot, i.sum, i.max
 	Exp, Tanh, Log, Sqrt = i.exp, i.tanh, i.log, i.sqrt
 	Gemm, MR, NR = i.gemm, i.mr, i.nr
+	GemmZero = i.gemmZero
 	GemmBegin, GemmEnd = noop, noop
 	if i.gemmBegin != nil {
 		GemmBegin, GemmEnd = i.gemmBegin, i.gemmEnd
@@ -295,10 +300,12 @@ func verify(c *impl) error {
 		ldc := nr + 3
 		cgot := randSlice(mr * ldc)
 		cwant := append([]float32(nil), cgot...)
+		prod := make([]float32, mr*nr) // the bare tile A·B, for the overwriting variant
 		for p := 0; p < k; p++ {
 			for i := 0; i < mr; i++ {
 				for j := 0; j < nr; j++ {
 					cwant[i*ldc+j] += a[p*mr+i] * b[p*nr+j]
+					prod[i*nr+j] += a[p*mr+i] * b[p*nr+j]
 				}
 			}
 		}
@@ -311,6 +318,19 @@ func verify(c *impl) error {
 		c.endGemm()
 		if !closeSlices(cgot, cwant) {
 			return fmt.Errorf("gemm micro-kernel mismatch at k=%d", k)
+		}
+		if c.gemmZero != nil && k > 0 {
+			zgot := randSlice(mr * ldc) // garbage that must be overwritten, padding kept
+			zwant := append([]float32(nil), zgot...)
+			for i := 0; i < mr; i++ {
+				copy(zwant[i*ldc:i*ldc+nr], prod[i*nr:i*nr+nr])
+			}
+			c.beginGemm()
+			c.gemmZero(k, ap, bp, &zgot[0], ldc)
+			c.endGemm()
+			if !closeSlices(zgot, zwant) {
+				return fmt.Errorf("gemm-zero micro-kernel mismatch at k=%d", k)
+			}
 		}
 	}
 	return nil

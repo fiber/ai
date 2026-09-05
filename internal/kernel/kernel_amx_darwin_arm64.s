@@ -17,6 +17,9 @@
 // yoff = s*128 + a*64, xoff = s*128 + b*64, zrow = t
 #define FMA(s, a, b) MOVD $(((s)*128 + (a)*64) | (((s)*128 + (b)*64)<<10) | (((a)*2+(b))<<20)), R10; AMX_FMA32
 #define FMA4(s) FMA(s,0,0); FMA(s,0,1); FMA(s,1,0); FMA(s,1,1)
+// FMAZ ignores the Z input (bit 27): the first k-step of an overwriting tile
+#define FMAZ(s, a, b) MOVD $((1<<27) | ((s)*128 + (a)*64) | (((s)*128 + (b)*64)<<10) | (((a)*2+(b))<<20)), R10; AMX_FMA32
+#define FMA4Z(s) FMAZ(s,0,0); FMAZ(s,0,1); FMAZ(s,1,0); FMAZ(s,1,1)
 // pair load of A (R1) into Y slot s and B (R2) into X slot s, advancing both pointers
 #define LOAD(s) MOVD $(((2*(s))<<56) | (1<<62)), R11; ORR R1, R11, R10; AMX_LDY; ORR R2, R11, R10; AMX_LDX; ADD $128, R1, R1; ADD $128, R2, R2
 
@@ -42,12 +45,29 @@ TEXT ·amxClr(SB), NOSPLIT, $0-0
 // in order; without this the kernel ran at a third of the speed). The
 // thread must have executed AMX_SET (see amxBegin).
 TEXT ·gemmAMX(SB), NOSPLIT, $0-40
+	MOVD $1, R19
+	B    ·gemmAMXBody(SB)
+
+// gemmZeroAMX overwrites C (β = 0, k > 0): no Z load, and the first k-step
+// runs its outer products with the Z input ignored.
+TEXT ·gemmZeroAMX(SB), NOSPLIT, $0-40
+	MOVD $0, R19
+	B    ·gemmAMXBody(SB)
+
+TEXT ·gemmAMXBody(SB), NOSPLIT, $0-40
 	MOVD k+0(FP), R0
 	MOVD a+8(FP), R1
 	MOVD b+16(FP), R2
 	MOVD c+24(FP), R3
 	MOVD ldc+32(FP), R4
 	LSL  $2, R4, R4
+	CBNZ R19, loadc
+	// overwrite: peel step 0 with Z ignored, then continue accumulating
+	LOAD(0)
+	FMA4Z(0)
+	SUB  $1, R0, R0
+	B    kstart
+loadc:
 	MOVD $0, R5
 	MOVD R3, R6
 ldz:
@@ -68,6 +88,7 @@ ldz:
 	ADD  $1, R5, R5
 	CMP  $32, R5
 	BNE  ldz
+kstart:
 	// pipelined main loop: 4 steps per iteration; loads for slot s of the
 	// next block are issued right after the FMAs of slot s.
 	CMP  $8, R0

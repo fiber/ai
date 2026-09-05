@@ -5,6 +5,7 @@ status: open
 scope:
   - internal/kernel/
   - internal/blas/
+  - tensor/
 manual:
   - docs/manual/performance.md
 created: 2026-09-05
@@ -60,3 +61,15 @@ Experiment 2 (14×32 tile, 28 accumulators): Xeon 1 worker 156 → 164 /
 Adopted as the AVX-512 default (`avx512`); the 12×32 kernel stays as
 `avx512x12`. n=1024 now at 87 % of MKL (1 434), n=2048 at 165 % of MKL
 (780) and 146 % of OpenBLAS (881).
+
+β = 0 output path: every back-end now has an overwriting tile variant
+(`GemmZero`; generic, NEON, AVX2, both AVX-512 tiles, AMX) reached
+through a second entry point that sets a mode register and jumps into
+the shared body, so the epilogue either adds into C or stores. AMX
+peels the first k-step with the Z input ignored instead of loading C
+into Z. `blas.GemmZero` writes C in the first K block (edge tiles are
+copied from the scratch tile instead of added) and clears C itself only
+when the back-end lacks the variant or for k = 0 and the gemv paths;
+`tensor.MatMul` no longer clears its output. Scope extended to `tensor/`
+for that call site. The start-up self-test verifies the overwriting
+variant on garbage C with the padding columns untouched.

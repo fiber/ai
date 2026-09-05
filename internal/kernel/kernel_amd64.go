@@ -24,10 +24,16 @@ func tanhAVX2(x, z *float32, n int) // n % 8 == 0
 func logAVX2(x, z *float32, n int)  // n % 8 == 0
 func sqrtAVX2(x, z *float32, n int) // n % 8 == 0
 func gemmAVX2(k int, a, b, c *float32, ldc int)
+func gemmZeroAVX2(k int, a, b, c *float32, ldc int)
+func gemmAVX2Body(k int, a, b, c *float32, ldc int)
 
 // Implemented in kernel_avx512_amd64.s (AVX-512F).
 func gemmAVX512(k int, a, b, c *float32, ldc int)
+func gemmZeroAVX512(k int, a, b, c *float32, ldc int)
+func gemmAVX512Body(k int, a, b, c *float32, ldc int)
 func gemmAVX512x14(k int, a, b, c *float32, ldc int)
+func gemmZeroAVX512x14(k int, a, b, c *float32, ldc int)
+func gemmAVX512x14Body(k int, a, b, c *float32, ldc int)
 
 var avx2 = impl{
 	name:      "avx2",
@@ -48,6 +54,7 @@ var avx2 = impl{
 	log:       wrapUnary(logAVX2, 8, genericLog),
 	sqrt:      wrapUnary(sqrtAVX2, 8, genericSqrt),
 	gemm:      gemmAVX2,
+	gemmZero:  gemmZeroAVX2,
 	mr:        6,
 	nr:        16,
 }
@@ -58,7 +65,7 @@ var avx2 = impl{
 var avx512 = func() impl {
 	i := avx2
 	i.name = "avx512"
-	i.gemm = gemmAVX512x14
+	i.gemm, i.gemmZero = gemmAVX512x14, gemmZeroAVX512x14
 	i.mr, i.nr = 14, 32
 	return i
 }()
@@ -70,7 +77,7 @@ var avx512 = func() impl {
 var avx512x12 = func() impl {
 	i := avx512
 	i.name = "avx512x12"
-	i.gemm = gemmAVX512
+	i.gemm, i.gemmZero = gemmAVX512, gemmZeroAVX512
 	i.mr, i.nr = 12, 32
 	return i
 }()

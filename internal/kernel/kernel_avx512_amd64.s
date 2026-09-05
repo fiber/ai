@@ -61,6 +61,11 @@
 	VMOVUPS R0, (DX) \
 	VMOVUPS R1, 64(DX) \
 	ADDQ R8, DX
+// CROWZ stores the tile without reading C (β = 0).
+#define CROWZ(R0, R1) \
+	VMOVUPS R0, (DX) \
+	VMOVUPS R1, 64(DX) \
+	ADDQ R8, DX
 
 #define KSTEP14(AOFF, BOFF) \
 	PREFETCHT0 (BOFF+1024)(BX) \
@@ -111,7 +116,17 @@
 	VFMADD231PS Z29, Z31, Z27
 
 // func gemmAVX512(k int, a, b, c *float32, ldc int)
+// Each kernel has an accumulating and an overwriting entry; the mode
+// travels in R10 into the shared body.
 TEXT ·gemmAVX512(SB), NOSPLIT, $0-40
+	MOVQ $1, R10
+	JMP  ·gemmAVX512Body(SB)
+
+TEXT ·gemmZeroAVX512(SB), NOSPLIT, $0-40
+	XORQ R10, R10
+	JMP  ·gemmAVX512Body(SB)
+
+TEXT ·gemmAVX512Body(SB), NOSPLIT, $0-40
 	MOVQ k+0(FP), CX
 	MOVQ a+8(FP), AX
 	MOVQ b+16(FP), BX
@@ -204,6 +219,8 @@ kloop1:
 	DECQ CX
 	JNZ  kloop1
 store:
+	TESTQ R10, R10
+	JZ    storez
 	CROW(Z0, Z1)
 	CROW(Z2, Z3)
 	CROW(Z4, Z5)
@@ -216,6 +233,21 @@ store:
 	CROW(Z18, Z19)
 	CROW(Z20, Z21)
 	CROW(Z22, Z23)
+	VZEROUPPER
+	RET
+storez:
+	CROWZ(Z0, Z1)
+	CROWZ(Z2, Z3)
+	CROWZ(Z4, Z5)
+	CROWZ(Z6, Z7)
+	CROWZ(Z8, Z9)
+	CROWZ(Z10, Z11)
+	CROWZ(Z12, Z13)
+	CROWZ(Z14, Z15)
+	CROWZ(Z16, Z17)
+	CROWZ(Z18, Z19)
+	CROWZ(Z20, Z21)
+	CROWZ(Z22, Z23)
 done:
 	VZEROUPPER
 	RET
@@ -230,6 +262,14 @@ done:
 
 // func gemmAVX512x14(k int, a, b, c *float32, ldc int)
 TEXT ·gemmAVX512x14(SB), NOSPLIT, $0-40
+	MOVQ $1, R10
+	JMP  ·gemmAVX512x14Body(SB)
+
+TEXT ·gemmZeroAVX512x14(SB), NOSPLIT, $0-40
+	XORQ R10, R10
+	JMP  ·gemmAVX512x14Body(SB)
+
+TEXT ·gemmAVX512x14Body(SB), NOSPLIT, $0-40
 	MOVQ k+0(FP), CX
 	MOVQ a+8(FP), AX
 	MOVQ b+16(FP), BX
@@ -330,6 +370,8 @@ kloop14t:
 	DECQ CX
 	JNZ  kloop14t
 store14:
+	TESTQ R10, R10
+	JZ    storez14
 	CROW(Z0, Z1)
 	CROW(Z2, Z3)
 	CROW(Z4, Z5)
@@ -344,6 +386,23 @@ store14:
 	CROW(Z22, Z23)
 	CROW(Z24, Z25)
 	CROW(Z26, Z27)
+	VZEROUPPER
+	RET
+storez14:
+	CROWZ(Z0, Z1)
+	CROWZ(Z2, Z3)
+	CROWZ(Z4, Z5)
+	CROWZ(Z6, Z7)
+	CROWZ(Z8, Z9)
+	CROWZ(Z10, Z11)
+	CROWZ(Z12, Z13)
+	CROWZ(Z14, Z15)
+	CROWZ(Z16, Z17)
+	CROWZ(Z18, Z19)
+	CROWZ(Z20, Z21)
+	CROWZ(Z22, Z23)
+	CROWZ(Z24, Z25)
+	CROWZ(Z26, Z27)
 done14:
 	VZEROUPPER
 	RET

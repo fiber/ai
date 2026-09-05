@@ -21,6 +21,7 @@ var generic = impl{
 	dot:       genericDot,
 	sum:       genericSum,
 	max:       genericMax,
+	gemmZero:  genericGemmZero,
 	exp:       genericExp,
 	tanh:      genericTanh,
 	log:       genericLog,
@@ -162,8 +163,13 @@ const (
 )
 
 // genericGemm is the portable 4×8 micro-kernel: C[4×8] += A[4×k] · B[k×8].
-func genericGemm(k int, a, b, c *float32, ldc int) {
-	if k == 0 {
+func genericGemm(k int, a, b, c *float32, ldc int) { genericGemmAcc(k, a, b, c, ldc, true) }
+
+// genericGemmZero writes the tile instead of accumulating it (β = 0).
+func genericGemmZero(k int, a, b, c *float32, ldc int) { genericGemmAcc(k, a, b, c, ldc, false) }
+
+func genericGemmAcc(k int, a, b, c *float32, ldc int, accumulate bool) {
+	if k == 0 && accumulate {
 		return
 	}
 	ap := unsafe.Slice(a, k*genericMR)
@@ -188,8 +194,12 @@ func genericGemm(k int, a, b, c *float32, ldc int) {
 	cp := unsafe.Slice(c, (genericMR-1)*ldc+genericNR)
 	for i := 0; i < genericMR; i++ {
 		row := cp[i*ldc : i*ldc+genericNR : i*ldc+genericNR]
-		for j := range row {
-			row[j] += acc[i][j]
+		if accumulate {
+			for j := range row {
+				row[j] += acc[i][j]
+			}
+		} else {
+			copy(row, acc[i][:])
 		}
 	}
 }

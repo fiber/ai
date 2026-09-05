@@ -278,3 +278,52 @@ func TestPackARowContiguous(t *testing.T) {
 		}
 	}
 }
+
+func TestGemmZeroOverwrites(t *testing.T) {
+	rng := rand.New(rand.NewPCG(9, 10))
+	for _, strat := range []int{StrategyShared, StrategyRows} {
+		old := Strategy
+		Strategy = strat
+		for _, dims := range [][3]int{{1, 1, 1}, {3, 5, 7}, {8, 12, 4}, {33, 45, 17}, {70, 130, 600}, {257, 129, 1030}, {1, 300, 40}, {300, 1, 40}, {64, 64, 0}} {
+			m, n, k := dims[0], dims[1], dims[2]
+			a := Mat{Data: make([]float32, m*k), Rows: m, Cols: k, RS: k, CS: 1}
+			b := Mat{Data: make([]float32, k*n), Rows: k, Cols: n, RS: n, CS: 1}
+			for i := range a.Data {
+				a.Data[i] = rng.Float32() - 0.5
+			}
+			for i := range b.Data {
+				b.Data[i] = rng.Float32() - 0.5
+			}
+			ldc := n + 3
+			c := Mat{Data: make([]float32, m*ldc), Rows: m, Cols: n, RS: ldc, CS: 1}
+			for i := range c.Data {
+				c.Data[i] = 1e6 // garbage that must vanish
+			}
+			want := make([]float32, m*ldc)
+			for i := 0; i < m; i++ {
+				for j := 0; j < n; j++ {
+					var s float64
+					for p := 0; p < k; p++ {
+						s += float64(a.Data[i*k+p]) * float64(b.Data[p*n+j])
+					}
+					want[i*ldc+j] = float32(s)
+				}
+			}
+			GemmZero(c, a, b)
+			for i := 0; i < m; i++ {
+				for j := 0; j < n; j++ {
+					got := c.Data[i*ldc+j]
+					if d := got - want[i*ldc+j]; d > 1e-3 || d < -1e-3 {
+						t.Fatalf("strategy %v %v: C[%d,%d] = %v, want %v", strat, dims, i, j, got, want[i*ldc+j])
+					}
+				}
+				for j := n; j < ldc; j++ { // padding untouched
+					if c.Data[i*ldc+j] != 1e6 {
+						t.Fatalf("strategy %v %v: padding at [%d,%d] modified", strat, dims, i, j)
+					}
+				}
+			}
+		}
+		Strategy = old
+	}
+}

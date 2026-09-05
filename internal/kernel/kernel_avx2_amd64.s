@@ -160,6 +160,11 @@ done: \
 	VMOVUPS R0, (DX) \
 	VMOVUPS R1, 32(DX) \
 	ADDQ R8, DX
+// CROWZ stores the tile without reading C (β = 0).
+#define CROWZ(R0, R1) \
+	VMOVUPS R0, (DX) \
+	VMOVUPS R1, 32(DX) \
+	ADDQ R8, DX
 
 // ---------------------------------------------------------------------------
 // Binary element-wise kernels
@@ -421,7 +426,17 @@ hmax:
 // func gemmAVX2(k int, a, b, c *float32, ldc int)
 // A is packed k-major (6 floats per k), B is packed k-major (16 per k).
 // ---------------------------------------------------------------------------
+// gemmAVX2 accumulates into C, gemmZeroAVX2 overwrites it; both jump into
+// the shared body with the mode in R10.
 TEXT ·gemmAVX2(SB), NOSPLIT, $0-40
+	MOVQ $1, R10
+	JMP  ·gemmAVX2Body(SB)
+
+TEXT ·gemmZeroAVX2(SB), NOSPLIT, $0-40
+	XORQ R10, R10
+	JMP  ·gemmAVX2Body(SB)
+
+TEXT ·gemmAVX2Body(SB), NOSPLIT, $0-40
 	MOVQ k+0(FP), CX
 	MOVQ a+8(FP), AX
 	MOVQ b+16(FP), BX
@@ -483,12 +498,23 @@ kloop1:
 	DECQ CX
 	JNZ  kloop1
 store:
+	TESTQ R10, R10
+	JZ    storez
 	CROW(Y0, Y1)
 	CROW(Y2, Y3)
 	CROW(Y4, Y5)
 	CROW(Y6, Y7)
 	CROW(Y8, Y9)
 	CROW(Y10, Y11)
+	VZEROUPPER
+	RET
+storez:
+	CROWZ(Y0, Y1)
+	CROWZ(Y2, Y3)
+	CROWZ(Y4, Y5)
+	CROWZ(Y6, Y7)
+	CROWZ(Y8, Y9)
+	CROWZ(Y10, Y11)
 done:
 	VZEROUPPER
 	RET

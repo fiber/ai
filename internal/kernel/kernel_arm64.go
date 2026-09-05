@@ -21,6 +21,8 @@ func tanhNEON(x, z *float32, n int) // n % 4 == 0
 func logNEON(x, z *float32, n int)  // n % 4 == 0
 func sqrtNEON(x, z *float32, n int) // n % 4 == 0
 func gemmNEON(k int, a, b, c *float32, ldc int)
+func gemmZeroNEON(k int, a, b, c *float32, ldc int)
+func gemmNEONBody(k int, a, b, c *float32, ldc int)
 
 var neon = impl{
 	name:      "neon",
@@ -41,6 +43,7 @@ var neon = impl{
 	log:       wrapUnary(logNEON, 4, genericLog),
 	sqrt:      wrapUnary(sqrtNEON, 4, genericSqrt),
 	gemm:      gemmNEON,
+	gemmZero:  gemmZeroNEON,
 	mr:        8,
 	nr:        12,
 }
