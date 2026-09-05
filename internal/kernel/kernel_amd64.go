@@ -19,7 +19,9 @@ func axpyAVX2(x, y *float32, alpha float32, n int)
 func dotAVX2(x, y *float32, n int) float32
 func sumAVX2(x *float32, n int) float32
 func maxAVX2(x *float32, n int) float32
-func expAVX2(x, z *float32, n int) // n % 8 == 0
+func expAVX2(x, z *float32, n int)  // n % 8 == 0
+func tanhAVX2(x, z *float32, n int) // n % 8 == 0
+func logAVX2(x, z *float32, n int)  // n % 8 == 0
 func gemmAVX2(k int, a, b, c *float32, ldc int)
 
 // Implemented in kernel_avx512_amd64.s (AVX-512F).
@@ -41,6 +43,8 @@ var avx2 = impl{
 	sum:       wrapSum(sumAVX2),
 	max:       wrapMax(maxAVX2),
 	exp:       wrapExp(expAVX2, 8),
+	tanh:      wrapUnary(tanhAVX2, 8, genericTanh),
+	log:       wrapUnary(logAVX2, 8, genericLog),
 	gemm:      gemmAVX2,
 	mr:        6,
 	nr:        16,

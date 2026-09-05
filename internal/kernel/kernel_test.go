@@ -362,3 +362,114 @@ func BenchmarkExp(b *testing.B) {
 		})
 	}
 }
+
+func TestTanhAccuracy(t *testing.T) {
+	for _, im := range implementations() {
+		t.Run(im.name, func(t *testing.T) {
+			for _, n := range []int{1, 3, 7, 8, 9, 15, 16, 17, 1000, 4097} {
+				x := make([]float32, n)
+				for i := range x {
+					x[i] = -12 + 24*float32(i)/float32(max(1, n-1))
+				}
+				// and a dense band around zero where cancellation would show
+				if n == 4097 {
+					for i := range x[:1024] {
+						x[i] = -1e-3 + 2e-3*float32(i)/1023
+					}
+				}
+				z := make([]float32, n)
+				im.tanh(x, z)
+				for i := range x {
+					want := math.Tanh(float64(x[i]))
+					if math.Abs(float64(z[i])-want) > 2e-6*math.Abs(want)+1e-7 {
+						t.Fatalf("n=%d: tanh(%v) = %v, want %v", n, x[i], z[i], want)
+					}
+				}
+			}
+			z := make([]float32, 3)
+			im.tanh([]float32{0, float32(math.Inf(1)), float32(math.Inf(-1))}, z)
+			if z[0] != 0 || z[1] != 1 || z[2] != -1 {
+				t.Errorf("special values: %v", z)
+			}
+		})
+	}
+}
+
+func TestLogAccuracy(t *testing.T) {
+	for _, im := range implementations() {
+		t.Run(im.name, func(t *testing.T) {
+			for _, n := range []int{1, 3, 7, 8, 9, 15, 16, 17, 1000, 4097} {
+				x := make([]float32, n)
+				for i := range x {
+					x[i] = float32(math.Exp(-85 + 170*float64(i)/float64(max(1, n-1))))
+				}
+				if n == 4097 {
+					for i := range x[:1024] { // dense around 1, where ln is small
+						x[i] = 0.9 + 0.2*float32(i)/1023
+					}
+				}
+				z := make([]float32, n)
+				im.log(x, z)
+				for i := range x {
+					want := math.Log(float64(x[i]))
+					if math.Abs(float64(z[i])-want) > 2e-6*math.Abs(want)+1e-6 {
+						t.Fatalf("n=%d: log(%v) = %v, want %v", n, x[i], z[i], want)
+					}
+				}
+			}
+			z := make([]float32, 4)
+			im.log([]float32{0, -1, float32(math.Inf(1)), 1}, z)
+			if !math.IsInf(float64(z[0]), -1) || !math.IsNaN(float64(z[1])) || !math.IsInf(float64(z[2]), 1) || z[3] != 0 {
+				t.Errorf("special values: %v", z)
+			}
+		})
+	}
+}
+
+func TestGELUAgainstFloat64(t *testing.T) {
+	x := make([]float32, 5000)
+	for i := range x {
+		x[i] = -8 + 16*float32(i)/4999
+	}
+	z := make([]float32, len(x))
+	g := make([]float32, len(x))
+	GELU(x, z)
+	GELUGrad(x, g)
+	for i, v := range x {
+		fv := float64(v)
+		u := geluC * (fv + 0.044715*fv*fv*fv)
+		want := 0.5 * fv * (1 + math.Tanh(u))
+		if !closeEnough(float64(z[i]), want, 1e-5) {
+			t.Fatalf("GELU(%v) = %v, want %v", v, z[i], want)
+		}
+		th := math.Tanh(u)
+		wantG := 0.5*(1+th) + 0.5*fv*(1-th*th)*geluC*(1+3*0.044715*fv*fv)
+		if !closeEnough(float64(g[i]), wantG, 1e-5) {
+			t.Fatalf("GELUGrad(%v) = %v, want %v", v, g[i], wantG)
+		}
+	}
+}
+
+func BenchmarkTanh(b *testing.B) {
+	rng := rand.New(rand.NewPCG(15, 16))
+	for _, n := range []int{4096, 1 << 20} {
+		x := randSlice(rng, n)
+		z := make([]float32, n)
+		for _, im := range implementations() {
+			b.Run(fmt.Sprintf("%s/n=%d", im.name, n), func(b *testing.B) {
+				b.SetBytes(int64(8 * n))
+				for i := 0; i < b.N; i++ {
+					im.tanh(x, z)
+				}
+			})
+		}
+		b.Run(fmt.Sprintf("math.Tanh/n=%d", n), func(b *testing.B) {
+			b.SetBytes(int64(8 * n))
+			for i := 0; i < b.N; i++ {
+				for j := range x {
+					z[j] = float32(math.Tanh(float64(x[j])))
+				}
+			}
+		})
+	}
+}

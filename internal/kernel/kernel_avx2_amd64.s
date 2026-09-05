@@ -557,3 +557,186 @@ loop:
 done:
 	VZEROUPPER
 	RET
+
+// ---------------------------------------------------------------------------
+// func tanhAVX2(x, z *float32, n int)     (n % 8 == 0)
+//
+// Rational approximation (see genericTanh): odd degree-13 numerator over
+// even degree-6 denominator of the clamped argument, x itself below 4e-4.
+// ---------------------------------------------------------------------------
+DATA ·tanhConsts+0(SB)/4, $0x40FFF644 // clamp
+DATA ·tanhConsts+4(SB)/4, $0xC0FFF644 // nclamp
+DATA ·tanhConsts+8(SB)/4, $0x39D1B717 // tiny
+DATA ·tanhConsts+12(SB)/4, $0x3BA059DC // a1
+DATA ·tanhConsts+16(SB)/4, $0x3A270DED // a3
+DATA ·tanhConsts+20(SB)/4, $0x3779434A // a5
+DATA ·tanhConsts+24(SB)/4, $0x335C0041 // a7
+DATA ·tanhConsts+28(SB)/4, $0xAEBD37FF // a9
+DATA ·tanhConsts+32(SB)/4, $0x2A61337E // a11
+DATA ·tanhConsts+36(SB)/4, $0xA59F25C0 // a13
+DATA ·tanhConsts+40(SB)/4, $0x3BA059DD // b0
+DATA ·tanhConsts+44(SB)/4, $0x3B14AA05 // b2
+DATA ·tanhConsts+48(SB)/4, $0x38F895D6 // b4
+DATA ·tanhConsts+52(SB)/4, $0x35A0D3D8 // b6
+DATA ·tanhConsts+56(SB)/4, $0x7FFFFFFF // abs mask
+DATA ·tanhConsts+60(SB)/4, $0x80000000 // sign mask
+DATA ·tanhConsts+64(SB)/4, $0x41100000 // 9.0: tanh is exactly ±1 in float32 beyond
+DATA ·tanhConsts+68(SB)/4, $0x3F800000 // 1.0
+GLOBL ·tanhConsts(SB), RODATA|NOPTR, $72
+
+TEXT ·tanhAVX2(SB), NOSPLIT, $0-24
+	MOVQ x+0(FP), SI
+	MOVQ z+8(FP), DX
+	MOVQ n+16(FP), CX
+	VBROADCASTSS ·tanhConsts+0(SB), Y8   // clamp
+	VBROADCASTSS ·tanhConsts+4(SB), Y9  // -clamp
+	VBROADCASTSS ·tanhConsts+8(SB), Y10   // tiny
+	VBROADCASTSS ·tanhConsts+56(SB), Y11    // abs mask
+	VBROADCASTSS ·tanhConsts+36(SB), Y12
+	VBROADCASTSS ·tanhConsts+52(SB), Y13
+	SHRQ $3, CX
+	JZ   tdone
+tloop:
+	VMOVUPS (SI), Y0
+	VANDPS  Y11, Y0, Y6                  // |x|
+	VBROADCASTSS ·tanhConsts+60(SB), Y14
+	VANDPS  Y14, Y0, Y14                 // sign bit
+	VBROADCASTSS ·tanhConsts+68(SB), Y15
+	VORPS   Y15, Y14, Y14                // ±1
+	VMAXPS  Y9, Y0, Y0                   // clamp
+	VMINPS  Y8, Y0, Y0
+	VMULPS  Y0, Y0, Y1                   // x²
+	VBROADCASTSS ·tanhConsts+32(SB), Y3
+	VMOVAPS Y12, Y2
+	VFMADD213PS Y3, Y1, Y2               // p = p·x² + a11
+	VBROADCASTSS ·tanhConsts+28(SB), Y3
+	VFMADD213PS Y3, Y1, Y2
+	VBROADCASTSS ·tanhConsts+24(SB), Y3
+	VFMADD213PS Y3, Y1, Y2
+	VBROADCASTSS ·tanhConsts+20(SB), Y3
+	VFMADD213PS Y3, Y1, Y2
+	VBROADCASTSS ·tanhConsts+16(SB), Y3
+	VFMADD213PS Y3, Y1, Y2
+	VBROADCASTSS ·tanhConsts+12(SB), Y3
+	VFMADD213PS Y3, Y1, Y2
+	VMULPS  Y0, Y2, Y2                   // p·x
+	VBROADCASTSS ·tanhConsts+48(SB), Y3
+	VMOVAPS Y13, Y4
+	VFMADD213PS Y3, Y1, Y4               // q = q·x² + b4
+	VBROADCASTSS ·tanhConsts+44(SB), Y3
+	VFMADD213PS Y3, Y1, Y4
+	VBROADCASTSS ·tanhConsts+40(SB), Y3
+	VFMADD213PS Y3, Y1, Y4
+	VDIVPS  Y4, Y2, Y5                   // p / q
+	VCMPPS  $1, Y10, Y6, Y7              // |x| < tiny
+	VBLENDVPS Y7, Y0, Y5, Y5             // tiny: x itself
+	VBROADCASTSS ·tanhConsts+64(SB), Y15
+	VCMPPS  $5, Y15, Y6, Y7              // |x| >= 9
+	VBLENDVPS Y7, Y14, Y5, Y5            // saturate to ±1
+	VMOVUPS Y5, (DX)
+	ADDQ $32, SI
+	ADDQ $32, DX
+	DECQ CX
+	JNZ  tloop
+tdone:
+	VZEROUPPER
+	RET
+
+// ---------------------------------------------------------------------------
+// func logAVX2(x, z *float32, n int)      (n % 8 == 0)
+//
+// Cephes logf (see genericLog): mantissa in [√½, √2) by integer ops,
+// degree-9 polynomial, exponent times split ln 2.
+// ---------------------------------------------------------------------------
+DATA ·logConsts+0(SB)/4, $0x00800000 // minnorm
+DATA ·logConsts+4(SB)/4, $0x3F3504F3 // sqrthf
+DATA ·logConsts+8(SB)/4, $0x3F800000 // one
+DATA ·logConsts+12(SB)/4, $0x3F000000 // half
+DATA ·logConsts+16(SB)/4, $0x3D9021BB // p0
+DATA ·logConsts+20(SB)/4, $0xBDEBD1B8 // p1
+DATA ·logConsts+24(SB)/4, $0x3DEF251A // p2
+DATA ·logConsts+28(SB)/4, $0xBDFE5D4F // p3
+DATA ·logConsts+32(SB)/4, $0x3E11E9BF // p4
+DATA ·logConsts+36(SB)/4, $0xBE2AAE50 // p5
+DATA ·logConsts+40(SB)/4, $0x3E4CCEAC // p6
+DATA ·logConsts+44(SB)/4, $0xBE7FFFFC // p7
+DATA ·logConsts+48(SB)/4, $0x3EAAAAAA // p8
+DATA ·logConsts+52(SB)/4, $0xB95E8083 // ln2lo
+DATA ·logConsts+56(SB)/4, $0x3F318000 // ln2hi
+DATA ·logConsts+60(SB)/4, $0x007FFFFF // mant
+DATA ·logConsts+64(SB)/4, $0x0000007E // e126
+DATA ·logConsts+68(SB)/4, $0x7F800000 // inf
+DATA ·logConsts+72(SB)/4, $0xFF800000 // ninf
+DATA ·logConsts+76(SB)/4, $0x7FC00000 // nan
+GLOBL ·logConsts(SB), RODATA|NOPTR, $80
+
+TEXT ·logAVX2(SB), NOSPLIT, $0-24
+	MOVQ x+0(FP), SI
+	MOVQ z+8(FP), DX
+	MOVQ n+16(FP), CX
+	VBROADCASTSS ·logConsts+0(SB), Y8
+	VBROADCASTSS ·logConsts+60(SB), Y9
+	VBROADCASTSS ·logConsts+12(SB), Y10
+	VBROADCASTSS ·logConsts+4(SB), Y11
+	VBROADCASTSS ·logConsts+8(SB), Y12
+	VBROADCASTSS ·logConsts+64(SB), Y13
+	VXORPS  Y14, Y14, Y14                // 0
+	SHRQ $3, CX
+	JZ   ldone
+lloop:
+	VMOVUPS (SI), Y0
+	VMAXPS  Y8, Y0, Y1                   // xc = max(x, min normal)
+	VPSRLD  $23, Y1, Y2                  // exponent field
+	VPSUBD  Y13, Y2, Y2                  // e = field - 126
+	VCVTDQ2PS Y2, Y2
+	VPAND   Y9, Y1, Y3                   // mantissa bits
+	VPOR    Y10, Y3, Y3                  // m in [0.5, 1)
+	VCMPPS  $1, Y11, Y3, Y4              // m < √½
+	VANDPS  Y4, Y3, Y5                   // m or 0
+	VANDPS  Y4, Y12, Y6                  // 1 or 0
+	VSUBPS  Y6, Y2, Y2                   // e -= 1 where m < √½
+	VSUBPS  Y12, Y3, Y3                  // m -= 1
+	VADDPS  Y5, Y3, Y3                   // m += m where m < √½
+	VMULPS  Y3, Y3, Y7                   // z = m²
+	VBROADCASTSS ·logConsts+16(SB), Y15
+	VBROADCASTSS ·logConsts+20(SB), Y4
+	VFMADD213PS Y4, Y3, Y15              // y = y·m + p1
+	VBROADCASTSS ·logConsts+24(SB), Y4
+	VFMADD213PS Y4, Y3, Y15
+	VBROADCASTSS ·logConsts+28(SB), Y4
+	VFMADD213PS Y4, Y3, Y15
+	VBROADCASTSS ·logConsts+32(SB), Y4
+	VFMADD213PS Y4, Y3, Y15
+	VBROADCASTSS ·logConsts+36(SB), Y4
+	VFMADD213PS Y4, Y3, Y15
+	VBROADCASTSS ·logConsts+40(SB), Y4
+	VFMADD213PS Y4, Y3, Y15
+	VBROADCASTSS ·logConsts+44(SB), Y4
+	VFMADD213PS Y4, Y3, Y15
+	VBROADCASTSS ·logConsts+48(SB), Y4
+	VFMADD213PS Y4, Y3, Y15
+	VMULPS  Y3, Y15, Y15                 // · m
+	VMULPS  Y7, Y15, Y15                 // · z
+	VBROADCASTSS ·logConsts+52(SB), Y4
+	VFMADD231PS Y4, Y2, Y15              // += e·ln2lo
+	VFNMADD231PS Y10, Y7, Y15            // -= ½z
+	VADDPS  Y3, Y15, Y15                 // + m
+	VBROADCASTSS ·logConsts+56(SB), Y4
+	VFMADD231PS Y4, Y2, Y15              // += e·ln2hi
+	VCMPPS  $0, Y14, Y0, Y4              // x == 0 → -Inf
+	VBROADCASTSS ·logConsts+72(SB), Y5
+	VBLENDVPS Y4, Y5, Y15, Y15
+	VCMPPS  $1, Y14, Y0, Y4              // x < 0 → NaN
+	VBROADCASTSS ·logConsts+76(SB), Y5
+	VBLENDVPS Y4, Y5, Y15, Y15
+	VBROADCASTSS ·logConsts+68(SB), Y5
+	VCMPPS  $0, Y5, Y0, Y4               // x == +Inf → +Inf
+	VBLENDVPS Y4, Y5, Y15, Y15
+	VMOVUPS Y15, (DX)
+	ADDQ $32, SI
+	ADDQ $32, DX
+	DECQ CX
+	JNZ  lloop
+ldone:
+	VZEROUPPER
+	RET

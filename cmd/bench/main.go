@@ -119,6 +119,8 @@ func benchElementwise() {
 			{"x * 2.5", 8 * float64(n), func() { x.MulScalar(2.5) }},
 			{"exp(x)", 8 * float64(n), func() { x.Exp() }},
 			{"tanh(x)", 8 * float64(n), func() { x.Tanh() }},
+			{"sigmoid(x)", 8 * float64(n), func() { x.Sigmoid() }},
+			{"gelu(x)", 8 * float64(n), func() { x.GELU() }},
 			{"relu(x)", 8 * float64(n), func() { x.ReLU() }},
 		}
 		for _, c := range cases {

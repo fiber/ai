@@ -22,6 +22,8 @@ var generic = impl{
 	sum:       genericSum,
 	max:       genericMax,
 	exp:       genericExp,
+	tanh:      genericTanh,
+	log:       genericLog,
 	gemm:      genericGemm,
 	mr:        genericMR,
 	nr:        genericNR,
@@ -233,5 +235,108 @@ func genericExp(x, z []float32) {
 		p = p*r*r + r + 1
 		e := int32(math.Float32bits(t)) - magicBits
 		z[i] = math.Float32frombits(math.Float32bits(p) + uint32(e<<23))
+	}
+}
+
+// genericTanh is Eigen's float tanh: after clamping to ±7.9988 (where the
+// approximation reaches exactly ±1), an odd degree-13 polynomial over an
+// even degree-6 one in x; below |x| < 4e-4 the result is x itself. The
+// SIMD kernels evaluate the same expression lane-wise.
+func genericTanh(x, z []float32) {
+	n := checkLen2(x, z)
+	x, z = x[:n], z[:n]
+	const (
+		clamp = 7.99881172180175781 // the rational is exactly 1 here
+		tiny  = 0.0004
+		a1    = 4.89352455891786e-03
+		a3    = 6.37261928875436e-04
+		a5    = 1.48572235717979e-05
+		a7    = 5.12229709037114e-08
+		a9    = -8.60467152213735e-11
+		a11   = 2.00018790482477e-13
+		a13   = -2.76076847742355e-16
+		b0    = 4.89352518554385e-03
+		b2    = 2.26843463243900e-03
+		b4    = 1.18534705686654e-04
+		b6    = 1.19825839466702e-06
+	)
+	for i, v := range x {
+		switch {
+		case v > -tiny && v < tiny:
+			z[i] = v
+			continue
+		case v >= 9: // tanh is exactly 1 in float32 from here on
+			z[i] = 1
+			continue
+		case v <= -9:
+			z[i] = -1
+			continue
+		}
+		v = min(max(v, -clamp), clamp)
+		v2 := v * v
+		p := float32(a13)
+		p = p*v2 + a11
+		p = p*v2 + a9
+		p = p*v2 + a7
+		p = p*v2 + a5
+		p = p*v2 + a3
+		p = p*v2 + a1
+		p *= v
+		q := float32(b6)
+		q = q*v2 + b4
+		q = q*v2 + b2
+		q = q*v2 + b0
+		z[i] = p / q
+	}
+}
+
+// genericLog is Cephes' logf: split x into mantissa m ∈ [√½, √2) and
+// exponent e, ln x = polynomial(m-1) + e·ln 2. The SIMD kernels evaluate
+// the same expression lane-wise.
+func genericLog(x, z []float32) {
+	n := checkLen2(x, z)
+	x, z = x[:n], z[:n]
+	const (
+		minNormal = 1.17549435e-38
+		sqrtHalf  = 0.707106781186547524
+		ln2lo     = -2.12194440e-4
+		ln2hi     = 0.693359375
+	)
+	for i, v := range x {
+		switch {
+		case v == 0:
+			z[i] = float32(math.Inf(-1))
+			continue
+		case v < 0 || v != v:
+			z[i] = float32(math.NaN())
+			continue
+		case math.IsInf(float64(v), 1):
+			z[i] = v
+			continue
+		}
+		v = max(v, minNormal)
+		bits := math.Float32bits(v)
+		e := float32(int32(bits>>23) - 126)
+		m := math.Float32frombits(bits&0x007fffff | 0x3f000000) // [0.5, 1)
+		if m < sqrtHalf {
+			e--
+			m = m + m - 1
+		} else {
+			m--
+		}
+		zz := m * m
+		y := float32(7.0376836292e-2)
+		y = y*m - 1.1514610310e-1
+		y = y*m + 1.1676998740e-1
+		y = y*m - 1.2420140846e-1
+		y = y*m + 1.4249322787e-1
+		y = y*m - 1.6668057665e-1
+		y = y*m + 2.0000714765e-1
+		y = y*m - 2.4999993993e-1
+		y = y*m + 3.3333331174e-1
+		y = y * m * zz
+		y += e * ln2lo
+		y -= 0.5 * zz
+		z[i] = m + y + e*ln2hi
 	}
 }

@@ -16,7 +16,9 @@ func axpyNEON(x, y *float32, alpha float32, n int)
 func dotNEON(x, y *float32, n int) float32
 func sumNEON(x *float32, n int) float32
 func maxNEON(x *float32, n int) float32
-func expNEON(x, z *float32, n int) // n % 4 == 0
+func expNEON(x, z *float32, n int)  // n % 4 == 0
+func tanhNEON(x, z *float32, n int) // n % 4 == 0
+func logNEON(x, z *float32, n int)  // n % 4 == 0
 func gemmNEON(k int, a, b, c *float32, ldc int)
 
 var neon = impl{
@@ -34,6 +36,8 @@ var neon = impl{
 	sum:       wrapSum(sumNEON),
 	max:       wrapMax(maxNEON),
 	exp:       wrapExp(expNEON, 4),
+	tanh:      wrapUnary(tanhNEON, 4, genericTanh),
+	log:       wrapUnary(logNEON, 4, genericLog),
 	gemm:      gemmNEON,
 	mr:        8,
 	nr:        12,

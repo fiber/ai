@@ -26,7 +26,14 @@ tensor  ──►  internal/blas  ──►  internal/kernel  ──►  CPU
   waiting for a helper to start (nested calls are safe). Panics stop the
   job and are re-raised in the caller.
 - `internal/kernel` — float32 kernels on contiguous slices, one
-  implementation table per ISA (`impl` struct), selected in `init`.
+  implementation table per ISA (`impl` struct), selected in `init`. The
+  transcendentals are polynomial kernels: `exp` by Cody–Waite range
+  reduction and a degree-6 polynomial, `tanh` by Eigen's rational
+  approximation (odd degree-13 over even degree-6 after clamping to
+  ±7.9988, exactly ±1 from |x| ≥ 9), `log` by Cephes' `logf`
+  (mantissa/exponent split with integer ops, degree-9 polynomial). The
+  Go fallbacks use the same arithmetic, so the start-up self-test can
+  hold the SIMD versions to 2e-6.
 - `internal/blas` — `Gemm(c, a, b Mat)` on strided `Mat` views.
 - `tensor` — everything user-facing.
 

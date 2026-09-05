@@ -61,6 +61,12 @@ var (
 	// approximation (relative error ≈ 1 ulp; inputs are clamped to the
 	// representable range, so there is no Inf/NaN for large |x|).
 	Exp func(x, z []float32)
+	// Tanh computes z[i] = tanh(x[i]) by a rational approximation
+	// (relative error ≈ 2e-6 or better over the whole range).
+	Tanh func(x, z []float32)
+	// Log computes z[i] = ln(x[i]) (Cephes logf; -Inf at 0, NaN below 0,
+	// denormals flushed to the smallest normal).
+	Log func(x, z []float32)
 
 	// Gemm is the active GEMM micro-kernel with tile size MR×NR.
 	Gemm   GemmFunc
@@ -82,7 +88,7 @@ type impl struct {
 	axpy                        func(alpha float32, x, y []float32)
 	dot                         func(x, y []float32) float32
 	sum, max                    func(x []float32) float32
-	exp                         func(x, z []float32)
+	exp, tanh, log              func(x, z []float32)
 	gemm                        GemmFunc
 	mr, nr                      int
 }
@@ -91,7 +97,7 @@ func use(i *impl) {
 	Add, Sub, Mul, Div, Maximum = i.add, i.sub, i.mul, i.div, i.maximum
 	AddScalar, Scale, MaxScalar = i.addScalar, i.scale, i.maxScalar
 	Axpy, Dot, Sum, Max = i.axpy, i.dot, i.sum, i.max
-	Exp = i.exp
+	Exp, Tanh, Log = i.exp, i.tanh, i.log
 	Gemm, MR, NR = i.gemm, i.mr, i.nr
 	Impl = i.name
 }
@@ -215,6 +221,26 @@ func verify(c *impl) error {
 				return fmt.Errorf("exp mismatch at n=%d i=%d: %v vs %v", n, i, got[i], want[i])
 			}
 		}
+		for i := range xe {
+			xe[i] = rng.Float32()*20 - 10
+		}
+		generic.tanh(xe, want)
+		c.tanh(xe, got)
+		for i := range got {
+			if math.Abs(float64(got[i]-want[i])) > 2e-6*math.Abs(float64(want[i]))+1e-7 {
+				return fmt.Errorf("tanh mismatch at n=%d i=%d: %v vs %v", n, i, got[i], want[i])
+			}
+		}
+		for i := range xe {
+			xe[i] = float32(math.Exp(float64(rng.Float32()*80 - 40)))
+		}
+		generic.log(xe, want)
+		c.log(xe, got)
+		for i := range got {
+			if math.Abs(float64(got[i]-want[i])) > 2e-6*math.Abs(float64(want[i]))+1e-6 {
+				return fmt.Errorf("log mismatch at n=%d i=%d: %v vs %v", n, i, got[i], want[i])
+			}
+		}
 	}
 
 	// GEMM micro-kernel: compare against a naive reference on the packed layout.
@@ -312,6 +338,10 @@ func wrapSum(f func(x *float32, n int) float32) func(x []float32) float32 {
 // wrapExp runs the vector routine on the largest multiple of width and
 // the portable code on the remainder.
 func wrapExp(f func(x, z *float32, n int), width int) func(x, z []float32) {
+	return wrapUnary(f, width, genericExp)
+}
+
+func wrapUnary(f func(x, z *float32, n int), width int, tail func(x, z []float32)) func(x, z []float32) {
 	return func(x, z []float32) {
 		n := checkLen2(x, z)
 		nv := n &^ (width - 1)
@@ -319,7 +349,7 @@ func wrapExp(f func(x, z *float32, n int), width int) func(x, z []float32) {
 			f(&x[0], &z[0], nv)
 		}
 		if nv < n {
-			genericExp(x[nv:], z[nv:])
+			tail(x[nv:], z[nv:])
 		}
 	}
 }
