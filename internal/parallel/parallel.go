@@ -24,7 +24,13 @@ import (
 
 var maxWorkers atomic.Int64
 
-func init() { maxWorkers.Store(int64(runtime.GOMAXPROCS(0))) }
+func init() {
+	n := defaultWorkers(runtime.GOMAXPROCS(0))
+	if v, err := strconv.Atoi(os.Getenv("FIBERAI_WORKERS")); err == nil && v > 0 {
+		n = v
+	}
+	maxWorkers.Store(int64(max(1, n)))
+}
 
 // SetWorkers sets the maximum number of goroutines used by For and Range.
 // A value <= 0 resets it to runtime.GOMAXPROCS(0).

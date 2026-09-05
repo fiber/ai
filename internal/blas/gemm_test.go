@@ -327,3 +327,51 @@ func TestGemmZeroOverwrites(t *testing.T) {
 		Strategy = old
 	}
 }
+
+func TestFewRowsMatchesPacked(t *testing.T) {
+	rng := rand.New(rand.NewPCG(11, 12))
+	k, n := 300, 2100
+	b := Mat{Data: make([]float32, k*n), Rows: k, Cols: n, RS: n, CS: 1}
+	for i := range b.Data {
+		b.Data[i] = rng.Float32() - 0.5
+	}
+	for m := 1; m <= 8; m++ {
+		a := Mat{Data: make([]float32, m*k), Rows: m, Cols: k, RS: k, CS: 1}
+		for i := range a.Data {
+			a.Data[i] = rng.Float32() - 0.5
+		}
+		at := Mat{Data: a.Data, Rows: m, Cols: k, RS: 1, CS: m} // transposed storage
+		for i := 0; i < m; i++ {
+			for p := 0; p < k; p++ {
+				at.Data[p*m+i] = a.Data[i*k+p]
+			}
+		}
+		for _, src := range []Mat{a, at} {
+			ldc := n + 5
+			c := Mat{Data: make([]float32, m*ldc), Rows: m, Cols: n, RS: ldc, CS: 1}
+			want := Mat{Data: make([]float32, m*ldc), Rows: m, Cols: n, RS: ldc, CS: 1}
+			for i := range c.Data {
+				c.Data[i] = 0.25
+				want.Data[i] = 0.25
+			}
+			saved := FewRows
+			FewRows = 0
+			Gemm(want, src, b) // packed path
+			FewRows = saved
+			Gemm(c, src, b)
+			for i := range c.Data {
+				if d := c.Data[i] - want.Data[i]; d > 1e-3 || d < -1e-3 {
+					t.Fatalf("m=%d: mismatch at %d: %v vs %v", m, i, c.Data[i], want.Data[i])
+				}
+			}
+			GemmZero(c, src, b)
+			for i := 0; i < m; i++ {
+				for j := 0; j < n; j++ {
+					if d := c.Data[i*ldc+j] - (want.Data[i*ldc+j] - 0.25); d > 1e-3 || d < -1e-3 {
+						t.Fatalf("m=%d zero: mismatch at %d,%d", m, i, j)
+					}
+				}
+			}
+		}
+	}
+}

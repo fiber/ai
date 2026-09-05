@@ -13,7 +13,9 @@ disabled and reported by `tensor.BackendWarnings()`.
 | `FIBERAI_KERNEL=generic\|avx2\|avx512\|neon\|amx` | select an implementation among those the CPU supports (benchmarking, debugging) |
 | `FIBERAI_AMX=0` / `=1` | Apple Silicon (macOS): matrix products on the AMX coprocessor, on by default for the M1–M4; `0` switches to NEON, `1` forces it on a newer chip (see below) |
 | `FIBERAI_KERNEL_FORCE=1` | skip CPU feature detection for the selected implementation — only for emulators such as Rosetta 2 that hide features from CPUID |
-| `GOMAXPROCS` | default goroutine limit |
+| `GOMAXPROCS` | default goroutine limit; on Linux the default worker count is the number of physical cores in the process's CPU affinity mask (hyperthreads counted once), elsewhere GOMAXPROCS |
+| `FIBERAI_WORKERS=n` | override the default worker count |
+| `FIBERAI_BLAS_THRESHOLD=n` | multiply-adds below which a matrix product runs on one core (default 1 048 576) |
 
 `tensor.SetThreads(n)` limits the goroutines used by tensor operations at
 run time; `tensor.Threads()` reads it back.

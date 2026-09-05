@@ -85,7 +85,7 @@ var (
 	// ParallelThreshold is the number of multiply-adds (m·n·k) below which
 	// Gemm runs on the calling goroutine only. Measured on Apple M2 Pro the
 	// parallel path wins from roughly 160³.
-	ParallelThreshold = 4 * 1024 * 1024
+	ParallelThreshold = 1024 * 1024
 )
 
 // tasksPerWorker sets the granularity of the compute grid (Xeon Gold 6130,
@@ -121,6 +121,12 @@ func init() {
 	}
 	if v, err := strconv.Atoi(os.Getenv("FIBERAI_BLAS_TASKS")); err == nil && v > 0 {
 		tasksPerWorker = v
+	}
+	if v, err := strconv.Atoi(os.Getenv("FIBERAI_BLAS_THRESHOLD")); err == nil && v >= 0 {
+		ParallelThreshold = v
+	}
+	if v, err := strconv.Atoi(os.Getenv("FIBERAI_BLAS_FEWROWS")); err == nil && v >= 0 {
+		FewRows = v
 	}
 	switch os.Getenv("FIBERAI_BLAS_STRATEGY") {
 	case "rows":
@@ -202,7 +208,40 @@ func gemmWorkers(c, a, b Mat, workers int, zero bool) {
 		}
 		zero = false
 	}
+	// A handful of rows against a large B: read B in place, once, instead
+	// of packing all of it to multiply eight rows.
+	if m <= FewRows && b.CS == 1 && k >= 64 && n >= 256 {
+		if zero {
+			clearC(c, workers)
+		}
+		fewRows(c, a, b, workers)
+		return
+	}
 	gemm(c, a, b, workers, zero)
+}
+
+// FewRows is the largest M that takes the B-in-place path (see fewRows).
+// Off by default: with one Axpy per output row and B row the path is
+// call-overhead bound (22 GFLOPS at [8×4096]·[4096×4096] on the M2 Pro
+// against 54 packed with NEON and 76 with AMX); it needs a register
+// kernel that keeps the rows of C in registers while B streams, which is
+// the follow-up. FIBERAI_BLAS_FEWROWS=8 enables it for experiments.
+var FewRows = 0
+
+// fewRows computes C[m×n] += A[m×k]·B[k×n] for small m with row-major B:
+// column blocks of 1 024 keep the m output rows in L1 while every row of
+// B streams through exactly once, one Axpy per output row and B row.
+func fewRows(c, a, b Mat, workers int) {
+	m, n, k := a.Rows, b.Cols, a.Cols
+	parallel.RangeWorkers(n, 1024, workers, func(lo, hi int) {
+		for p := 0; p < k; p++ {
+			brow := b.row(p)[lo:hi]
+			for i := 0; i < m; i++ {
+				crow := c.Data[i*c.RS+lo : i*c.RS+hi]
+				kernel.Axpy(a.at(i, p), brow, crow)
+			}
+		}
+	})
 }
 
 // clearC zeroes C row by row with all workers.

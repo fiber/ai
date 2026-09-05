@@ -2,6 +2,8 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-05 T-029 — Topology-aware defaults: worker count from the physical cores of the affinity set, one NUMA node by default on Linux (spec/done/T-029-topology-aware-defaults-worker-count-from-the-ph.md)
+- 2026-09-05 T-028 — Small GEMM shapes: B read in place for M below the tile, fewer rounds and lower fixed cost for n up to 256 (spec/done/T-028-small-gemm-shapes-b-read-in-place-for-m-below-th.md)
 - 2026-09-05 T-027 — Conv1D and Conv2D via im2col with padding and stride, nn modules, pooling (spec/done/T-027-conv1d-and-conv2d-via-im2col-with-padding-and-st.md)
 - 2026-09-05 T-026 — Fused attention for inference: per-row-block scores, softmax in cache, no materialised score matrix (spec/done/T-026-fused-attention-for-inference-per-row-block-scor.md)
 - 2026-09-05 T-024 — Attention building blocks: masked fill, scaled dot-product attention, multi-head attention, RMSNorm, causal and padding masks (spec/done/T-024-attention-building-blocks-masked-fill-scaled-dot.md)
