@@ -1,7 +1,7 @@
 ---
 id: T-017
 title: Owner-preferred chunk assignment in parallel.Range for cache locality of repeated element-wise operations
-status: open
+status: done
 scope:
   - internal/parallel/
   - tensor/
@@ -9,6 +9,7 @@ scope:
 manual:
   - docs/manual/performance.md
   - docs/manual/internals.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -60,3 +61,8 @@ released 70 → 59 µs; 16M released 1.39 → 1.40 ms; no row worse. The M2
 has enough bandwidth that locality matters little; the Xeon run decides.
 `go test -race ./internal/parallel/` takes ~200 s because the spin loops
 run under the race detector; it passes.
+Xeon, one socket, GOMAXPROCS 16: `x + y` 1M released 53 → 28.8 µs (437
+GB/s, that is L2 traffic; PyTorch 24.1 µs), 64K released 8.3 → 8.8 µs
+(PyTorch 17.8). Acceptance met. What remains at 1M is per-call overhead
+and AVX2 vector kernels; AVX-512 element-wise kernels are a follow-up
+(T-002 scope).

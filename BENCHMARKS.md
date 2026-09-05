@@ -247,17 +247,18 @@ OpenBLAS 0.3.34 (Haswell kernels), PyTorch 2.14.0+cpu links MKL 2024.2
 | SGEMM 2048², all cores (GFLOPS) | 732 → **1 285** after T-014/T-016 (blas bench) | – | 881 | 780 |
 | [1×4096]·[4096×4096] (GFLOPS) | **13.0** | 13.0 | 10.9 | 11.0 |
 | [256×768]·[768×3072] (GFLOPS) | 323 | 344 | **1 088** | 980 |
-| x + y, 1M | 1.49 ms | | 506 µs | **24 µs** |
-| x + y, 16M | 22.8 ms | | 26.7 ms | **17.5 ms** |
-| exp, 16M | 20.0 ms | | 24.6 ms | **13.8 ms** |
+| x + y, 64K | 194 µs → 49 µs, **8.8 µs** released (T-015/T-017) | | 16.3 µs | 17.8 µs |
+| x + y, 1M | 1.49 ms → 496 µs, 28.8 µs released (T-015/T-017) | | 506 µs | **24 µs** |
+| x + y, 16M | 22.8 ms → **13.9 ms** released (T-015) | | 26.7 ms | 17.5 ms |
+| exp, 16M | 20.0 ms → **10.7 ms** (T-015) | | 24.6 ms | 13.8 ms |
 | sum(), 4096² | 2.40 ms | | 4.79 ms | **2.42 ms** |
 | sum(dim=0), 4096² | **2.68 ms** | | 4.80 ms | 6.29 ms |
 | max(dim=1), 4096² | **2.40 ms** | | 5.03 ms | 2.46 ms |
-| softmax(dim=1), 4096² | 20.9 ms | | – | **14.4 ms** |
-| layernorm, 4096² | 36.1 ms | | – | **14.1 ms** |
+| softmax(dim=1), 4096² | 20.9 ms → **10.7 ms** (T-015) | | – | 14.4 ms |
+| layernorm, 4096² | 36.1 ms → 18.5 ms (T-015) | | – | **14.1 ms** |
 | transpose + copy, 4096² | **25.5 ms** | | 819 ms | 68.5 ms |
-| MLP forward, batch 256 (samples/s) | 59 K | | – | **361 K** |
-| MLP train step, batch 256 (samples/s) | 14 K | | – | **71 K** |
+| MLP forward, batch 256 (samples/s) | 59 K → 176 K (T-015) | | – | **361 K** |
+| MLP train step, batch 256 (samples/s) | 14 K → 42 K (T-014/T-015) | | – | **71 K** |
 
 What this says:
 
@@ -286,13 +287,23 @@ What this says:
 - **Two sockets are slower than one** (n=1024: 162 vs 530 GFLOPS with 64
   vs 16 threads). NUMA and hyperthreads are invisible to Go's scheduler;
   a topology-aware default thread count is TODO T-013.
-- **Element-wise operations are dominated by allocation and GC.** `sum()`
-  (no allocation) matches PyTorch exactly; `x + y` on 1M elements, which
-  allocates 4 MB, is 60× slower than PyTorch's cache-resident, buffer-
-  reusing 24 µs. With 16 Ps every GC cycle wakes 16 threads, and it
-  happens every few iterations at this allocation rate. Writing results
-  into reusable buffers (TODO T-003) is the single most valuable change
-  for x86.
+- **Element-wise operations were dominated by allocation.** A fresh
+  1M-float result cost 647 µs on this machine: Go zero-fills it on the
+  allocating thread and its pages fault in one at a time. Spec T-015 moved
+  results of 128 KiB and more off the Go heap (mmap, huge pages, first
+  touch inside the parallel kernels, cleanup-based reuse), which took
+  `x + y` 1M from 1.49 ms to ~500 µs and 16M from 22.8 to 15.3 ms. The
+  remaining gap to PyTorch's 24 µs at 1M is cache residency: its
+  reference counting hands the same buffer out again immediately, while a
+  collector-driven library rotates through cold buffers between
+  collections. `Release()` closes that (28.8 µs at 1M, 8.8 µs at 64K,
+  13.9 ms at 16M: two of three rows ahead of PyTorch), together with
+  owner-first chunk assignment in `parallel.Range` (T-017) so the same
+  core touches the same slice on every call. `nn` releases its
+  intermediates itself, which is what lifted MLP inference 59 K → 176 K
+  samples/s. This machine's memory sustains ~25 GB/s (`sum()` says so for
+  both libraries), so anything that leaves the caches costs the same for
+  everyone.
 - Where no allocation dominates we already win on this machine:
   matrix-vector, column sums, max, transposes.
 

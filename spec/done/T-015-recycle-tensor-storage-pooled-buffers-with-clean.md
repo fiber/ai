@@ -1,13 +1,14 @@
 ---
 id: T-015
 title: Recycle tensor storage: pooled buffers with cleanup-based reuse, no zero-fill where results are fully written
-status: open
+status: done
 scope:
   - tensor/
   - nn/
 manual:
   - docs/manual/performance.md
   - docs/manual/tensors.md
+done: 2026-09-05
 created: 2026-09-05
 ---
 
@@ -168,3 +169,16 @@ autograd holds the storage) and use it for intermediates in `nn.Linear`
 and `nn.Sequential`; the bench gains a "result released" row. M2: `x +
 y` 1M 92 → 70 µs released, 16M 1.72 → 1.39 ms; the M2's bandwidth hides
 most of the effect, the Xeon run will show it.
+
+Final Xeon numbers (one socket, GOMAXPROCS 16, `cmd/bench`): `x + y`
+64K 194 → 49 µs (8.8 µs with `Release()`; PyTorch 17.8), 1M 890 → 496 µs
+(28.8 µs released; PyTorch 24.1), 16M 22.8 → 15.3 ms (13.9 released;
+PyTorch 17.5); layer norm 36 → 18.5 ms (PyTorch 14.1); MLP forward
+NoGrad 79.7K → 176K samples/s (PyTorch 361K), forward+backward 15.6K →
+46.8K (PyTorch 124K); tensor-level SGEMM n=1024 one thread 122 → 148
+GFLOPS. Acceptance met with `Release()` for the 1M row; without it the
+collector-driven path stays at ~500 µs, which is memory bandwidth for a
+result that rotates through cold buffers. Follow-ups: the GEMM output
+should be written (beta = 0) rather than cleared and accumulated, and the
+bench releases GEMM results so C stays cache-warm as under PyTorch's
+caching allocator.

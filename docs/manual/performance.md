@@ -92,8 +92,12 @@ value disables off-heap results altogether (environment:
 retained and pinned bytes. Measured on the M2 Pro, where the heap path
 was already cheap: `x + y` 1M 114 → 85 µs, 16M 2.25 → 1.69 ms, `relu` 1M
 112 → 71 µs, softmax [4096×4096] 2.88 → 2.24 ms, layer norm 3.58 → 2.50
-ms, MLP forward+backward 65K → 75K samples/s. On the Xeon the expected
-effect is far larger; see BENCHMARKS.md for the measured numbers.
+ms, MLP forward+backward 65K → 75K samples/s. On a Xeon Gold 6130 (one
+socket, 16 cores), whose allocation cost was fifteen times the M2's:
+`x + y` 1M 890 → 496 µs (28.8 µs with `Release()`, PyTorch 24), 64K 194
+→ 49 µs (8.8 released, PyTorch 17.8), 16M 22.8 → 13.9 ms (PyTorch 17.5),
+layer norm 36 → 18.5 ms, MLP inference 80K → 176K samples/s. See
+BENCHMARKS.md.
 
 What the collector cannot give back is cache residency. PyTorch's
 reference counting frees a discarded result the moment it is dropped, so

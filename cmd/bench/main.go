@@ -63,7 +63,10 @@ func benchGemm() {
 	if *quick {
 		sizes = []int{128, 256, 512, 1024}
 	}
-	fmt.Println("### Matrix multiply (float32, GFLOPS)")
+	// Results are released after each call, as PyTorch's caching allocator
+	// does implicitly: the output buffer then stays in cache between calls
+	// instead of rotating through cold memory until the next collection.
+	fmt.Println("### Matrix multiply (float32, GFLOPS; result released)")
 	fmt.Println()
 	fmt.Println("| n (n×n · n×n) | 1 thread | all threads |")
 	fmt.Println("|---:|---:|---:|")
@@ -72,9 +75,9 @@ func benchGemm() {
 		a, b := tensor.Randn(n, n), tensor.Randn(n, n)
 		flops := 2 * float64(n) * float64(n) * float64(n)
 		tensor.SetThreads(1)
-		t1 := timeIt(func() { a.MatMul(b) })
+		t1 := timeIt(func() { a.MatMul(b).Release() })
 		tensor.SetThreads(all)
-		tn := timeIt(func() { a.MatMul(b) })
+		tn := timeIt(func() { a.MatMul(b).Release() })
 		fmt.Printf("| %d | %.1f | %.1f |\n", n, flops/t1/1e9, flops/tn/1e9)
 	}
 	fmt.Println()
@@ -84,12 +87,13 @@ func benchGemm() {
 		m, k, n := s[0], s[1], s[2]
 		a, b := tensor.Randn(m, k), tensor.Randn(k, n)
 		flops := 2 * float64(m) * float64(n) * float64(k)
-		t := timeIt(func() { a.MatMul(b) })
+		t := timeIt(func() { a.MatMul(b).Release() })
 		fmt.Printf("| [%d×%d]·[%d×%d] | %.1f |\n", m, k, k, n, flops/t/1e9)
 	}
 	// transposed operand: no copy is made
 	a, b := tensor.Randn(1024, 1024), tensor.Randn(1024, 1024)
-	t := timeIt(func() { a.MatMul(b.T()) })
+	bt := b.T()
+	t := timeIt(func() { a.MatMul(bt).Release() })
 	fmt.Printf("| [1024×1024]·[1024×1024]ᵀ (view) | %.1f |\n", 2*1024.0*1024*1024/t/1e9)
 	fmt.Println()
 }

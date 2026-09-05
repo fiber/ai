@@ -32,6 +32,7 @@ t.At(i, j)         // one element; negative indices allowed
 t.Item()           // the value of a single-element tensor
 t.Data()           // []float32 in row-major order: the storage itself if contiguous (pins it, see below), otherwise a copy
 t.Float32s()       // always a fresh copy
+t.Release()        // hand the storage back now; the tensor is dead afterwards (see below)
 t.IsContiguous()   // dense row-major storage?
 t.Strides()        // element strides per dimension
 ```
