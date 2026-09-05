@@ -44,6 +44,18 @@ func main() {
 	benchElementwise()
 	benchReductions()
 	benchMLP()
+	printAllocStats()
+}
+
+// printAllocStats shows how the off-heap result allocator behaved over
+// the run: reuse rate, retained memory and the number of GC cycles.
+func printAllocStats() {
+	hits, misses, retained, pinned := tensor.MappedStats()
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	fmt.Println()
+	fmt.Printf("allocator: mapped hits %d, misses %d, retained %d MiB, pinned %d MiB; GC cycles %d, forced %d\n",
+		hits, misses, retained>>20, pinned>>20, ms.NumGC, ms.NumForcedGC)
 }
 
 func benchGemm() {

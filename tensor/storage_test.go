@@ -315,6 +315,28 @@ func BenchmarkAllocateTouch(b *testing.B) {
 	}
 }
 
+// BenchmarkAllocateTouchWarm is BenchmarkAllocateTouch in steady state:
+// results are dropped and collected every 32 iterations, so most buffers
+// come back from the free list and the forced GC is included in the
+// figure.
+func BenchmarkAllocateTouchWarm(b *testing.B) {
+	if !mmapSupported {
+		b.Skip("no mmap on this platform")
+	}
+	for _, n := range []int{1 << 16, 1 << 20, 1 << 24} {
+		b.Run(fmtN(n), func(b *testing.B) {
+			b.SetBytes(int64(4 * n))
+			for i := 0; i < b.N; i++ {
+				t := newTensorUninit(Shape{n})
+				parallelClear(t.data)
+				if i%32 == 31 {
+					collectMapped()
+				}
+			}
+		})
+	}
+}
+
 func fmtN(n int) string {
 	if n >= 1<<20 {
 		return fmt.Sprintf("%dM", n>>20)
