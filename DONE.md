@@ -24,3 +24,4 @@ Finished work items and fixed bugs, newest first.
 - 2026-09-05 T-001 — Process gate: lists, specs and enforcement tool (spec/done/T-001-process-gate.md)
 - 2026-09-05 T-000 — Tensor foundation: SIMD kernels, blocked SGEMM, tensor/autograd, nn, optim, benchmarks (spec/done/T-000-tensor-foundation.md)
 - T-007 — Optional Accelerate BLAS backend behind a cgo build tag: dropped, superseded by the native AMX back-end (T-010)
+- T-030 — Few-rows GEMM register kernel: dropped. [8×4096]·[4096×4096] must read the 64 MB of B once, which caps it at ~51 GFLOPS on the M2 Pro's bandwidth; the packed path measures 54, PyTorch 68 by streaming B a little better. Not worth a kernel.

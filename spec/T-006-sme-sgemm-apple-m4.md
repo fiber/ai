@@ -78,3 +78,19 @@ as present up to M4 Max, but SME is the documented path there).
 - `docs/manual/performance.md` and `internals.md` describe the back-end.
 
 ## Notes
+
+Phase 0 prepared (8 September, night): `internal/kernel/smeprobe` is a
+stand-alone program for the M4 (`go run ./internal/kernel/smeprobe`)
+that checks `hw.optional.arm.FEAT_SME`, runs one `fmopa` outer product
+and verifies the ZA layout, measures the 32×32 tile body (four `fmopa`
+per k-step over the four f32 tiles) on 1–10 goroutines, and stresses
+outer products in 32 goroutines under forced collections. Instruction
+words come from the LLVM MC tests, not from guesswork: `smstart`
+D503477F, `smstop` D503467F, `zero {za}` C00800FF, `ptrue p0.s`
+2598E3E0, `ld1w {Zt.s}, p0/z, [Xn]` A540A000 | Rn<<5 | Zt, `st1w`
+E540E000 | Rn<<5 | Zt, `fmopa ZAda.s, p0/m, p0/m, Zn.s, Zm.s` 80800000 |
+Zm<<16 | Zn<<5 | ZAda, `mova Zd.s, p0/m, ZAn h.s[w12, imm]` C0820000 |
+imm<<5 | ZAn<<7 | Zd. The M2 Pro cannot run it (no SME); results from
+the M4 decide phase 1. Open question the probe answers first: whether
+macOS leaves streaming mode across signal delivery (Go's handler uses
+NEON), which the stress test would show as SIGILL or mismatches.
