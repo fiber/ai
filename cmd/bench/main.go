@@ -109,6 +109,7 @@ func benchElementwise() {
 			fn    func()
 		}{
 			{"x + y", 12 * float64(n), func() { x.Add(y) }},
+			{"x + y, result released", 12 * float64(n), func() { x.Add(y).Release() }},
 			{"x * y", 12 * float64(n), func() { x.Mul(y) }},
 			{"x + row (broadcast)", 8 * float64(n), func() { x2.Add(row) }},
 			{"x * 2.5", 8 * float64(n), func() { x.MulScalar(2.5) }},

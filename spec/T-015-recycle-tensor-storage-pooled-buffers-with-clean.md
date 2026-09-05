@@ -152,3 +152,19 @@ tiny-allocated and its cleanup never runs (the sentinel now carries a
 pointer), and a free list filled by one phase of a program (16 MiB GEMM
 operands) starved the next phase's size class until least-recently-used
 eviction across classes was added. Xeon numbers pending.
+
+Xeon (unpinned, 32 threads, so only indicative): `x + y` 64K 194 → 47
+µs, 1M 890 → 510 µs, 16M 22.8 → 15.3 ms (PyTorch 17.5: first win there),
+layer norm 36 → 19 ms, MLP forward+backward 35K → 47K samples/s.
+Allocator over the run: 137 695 hits, 4 146 misses, 498 forced GCs. THP
+is in `madvise` mode with `defrag=madvise`, so our `MADV_HUGEPAGE`
+mappings get huge pages but may stall on compaction: a fresh 4 MiB
+mapping touched by 16 threads costs 1.1 ms (once per buffer; steady
+state reuses). The remaining gap to PyTorch at 64K–1M is cache
+residency: its refcounting reuses the same buffer immediately while we
+rotate through up to 256 MiB of garbage between collections. Added
+`Tensor.Release()` (immediate return; no-op when a view, `Data()` or
+autograd holds the storage) and use it for intermediates in `nn.Linear`
+and `nn.Sequential`; the bench gains a "result released" row. M2: `x +
+y` 1M 92 → 70 µs released, 16M 1.72 → 1.39 ms; the M2's bandwidth hides
+most of the effect, the Xeon run will show it.

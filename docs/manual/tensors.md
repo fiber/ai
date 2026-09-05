@@ -121,6 +121,11 @@ modifies the underlying tensor.
 
 ## In-place operations
 
+`t.Release()` hands a tensor's storage back for immediate reuse when you
+know the result is dead; see
+[performance.md](performance.md#off-heap-results). It refuses silently
+when a view, a `Data()` slice or autograd may still need the storage.
+
 `Fill Zero CopyFrom AddInPlace SubInPlace MulInPlace DivInPlace
 MulScalarInPlace AddScaledInPlace(u, alpha)` modify the tensor. They are
 not recorded in the autograd graph and refuse to run on a tensor that

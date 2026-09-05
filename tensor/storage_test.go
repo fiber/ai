@@ -343,3 +343,55 @@ func fmtN(n int) string {
 	}
 	return fmt.Sprintf("%dK", n>>10)
 }
+
+func TestReleaseReusesImmediately(t *testing.T) {
+	if !mmapSupported {
+		t.Skip("no mmap on this platform")
+	}
+	x := Randn(1 << 18)
+	p := &x.data[0]
+	x.Release()
+	if x.data != nil {
+		t.Fatal("released tensor still holds data")
+	}
+	y := Zeros(1 << 18)
+	if &y.data[0] != p {
+		t.Fatal("next allocation of the same size did not get the released buffer")
+	}
+	if s := y.Sum().Item(); s != 0 {
+		t.Fatalf("Zeros over a released buffer sums to %v", s)
+	}
+	y.Release()
+	y.Release() // second call is a no-op
+}
+
+func TestReleaseRefusedWhenShared(t *testing.T) {
+	if !mmapSupported {
+		t.Skip("no mmap on this platform")
+	}
+	// a view keeps the storage
+	x := Arange(0, 1<<18, 1)
+	v := x.Narrow(0, 0, 4)
+	x.Release()
+	if x.data == nil || v.At(3) != 3 {
+		t.Fatal("storage released although a view exists")
+	}
+	// Data() pins it
+	d := Ones(1 << 18)
+	_ = d.Data()
+	d.Release()
+	if d.data == nil {
+		t.Fatal("storage released although Data() escaped")
+	}
+	// autograd holds it
+	w := Randn(1 << 18).SetRequiresGrad(true)
+	h := w.MulScalar(2)
+	h.Release()
+	if h.data == nil {
+		t.Fatal("storage released although autograd recorded it")
+	}
+	w.Release()
+	if w.data == nil {
+		t.Fatal("storage released although the tensor requires grad")
+	}
+}

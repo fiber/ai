@@ -41,7 +41,9 @@ func NewLinearNoBias(in, out int) *Linear {
 func (l *Linear) Forward(x *tensor.Tensor) *tensor.Tensor {
 	y := x.MatMul(l.W)
 	if l.B != nil {
+		h := y
 		y = y.Add(l.B)
+		h.Release() // no-op when autograd needs it
 	}
 	return y
 }
@@ -57,10 +59,15 @@ func (l *Linear) Params() []*tensor.Tensor {
 type Sequential []Module
 
 func (s Sequential) Forward(x *tensor.Tensor) *tensor.Tensor {
+	prev := x
 	for _, m := range s {
-		x = m.Forward(x)
+		y := m.Forward(prev)
+		if prev != x && y != prev {
+			prev.Release() // intermediate result; a no-op when autograd or a view holds it
+		}
+		prev = y
 	}
-	return x
+	return prev
 }
 
 func (s Sequential) Params() []*tensor.Tensor {

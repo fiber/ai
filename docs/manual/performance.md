@@ -95,6 +95,21 @@ was already cheap: `x + y` 1M 114 → 85 µs, 16M 2.25 → 1.69 ms, `relu` 1M
 ms, MLP forward+backward 65K → 75K samples/s. On the Xeon the expected
 effect is far larger; see BENCHMARKS.md for the measured numbers.
 
+What the collector cannot give back is cache residency. PyTorch's
+reference counting frees a discarded result the moment it is dropped, so
+a loop like `z = x + y` keeps writing the same buffer and, for tensors up
+to a few megabytes, never leaves the L2/L3 cache: 24 µs for 1M elements
+on a Xeon whose memory sustains 25 GB/s (that would be 500 µs from
+DRAM). Between two collections we rotate through tens of buffers and pay
+the memory round trip. `t.Release()` closes that gap where it matters:
+it hands the storage back immediately, and the next result of that size
+gets it while it is still in cache. Release is a no-op whenever the
+storage might still be needed (a view exists, `Data()` was taken,
+autograd recorded the tensor), so library code calls it on every
+intermediate it produces (`nn.Linear`, `nn.Sequential`), which pays off
+in `NoGrad` inference; call it yourself on discarded results in hot
+loops. The tensor must not be used after `Release()`.
+
 Two things to know. `Data()` on a contiguous tensor hands out the mapped
 slice, so its storage is pinned for good (never unmapped, never reused).
 And a slice obtained from a mapped tensor is not a Go pointer: it keeps

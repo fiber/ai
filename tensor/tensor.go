@@ -3,7 +3,6 @@ package tensor
 import (
 	"math"
 	"runtime"
-	"sync/atomic"
 
 	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/internal/parallel"
@@ -42,13 +41,14 @@ func alloc(shape Shape, zero bool) *Tensor {
 // wrap builds a contiguous tensor over caller-owned data without copying;
 // the storage is never pooled.
 func wrap(data []float32, shape Shape) *Tensor {
-	st := &storage{buf: data, escaped: new(atomic.Bool)}
+	st := &storage{buf: data, state: newState()}
 	return &Tensor{data: data, store: st, shape: shape, strides: contiguousStrides(shape), size: shape.Size()}
 }
 
 // view creates a tensor sharing t's storage with a new data offset, shape
 // and strides.
 func view(t *Tensor, data []float32, shape Shape, strides []int) *Tensor {
+	t.store.shared.Store(true) // Release must refuse from now on
 	return &Tensor{data: data, store: t.store, shape: shape, strides: strides, size: shape.Size()}
 }
 
@@ -179,7 +179,7 @@ func (t *Tensor) IsContiguous() bool { return isContiguous(t.shape, t.strides) }
 // prefer Float32s or At when you only need to read.
 func (t *Tensor) Data() []float32 {
 	if t.IsContiguous() {
-		t.store.escaped.Store(true) // the caller may keep the slice: never recycle it
+		t.store.state.CompareAndSwap(stateLive, stateEscaped) // the caller may keep the slice: never recycle it
 		return t.data[:t.size]
 	}
 	return t.Contiguous().data

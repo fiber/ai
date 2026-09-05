@@ -19,10 +19,56 @@ import (
 // page faults that follow once the GC has returned earlier results to
 // the operating system. Recycled memory stays mapped and cache-warm.
 type storage struct {
-	buf     []float32
-	pooled  bool         // heap buffer from the (opt-in) heap pool
-	mapped  bool         // off-heap buffer from mapFloats
-	escaped *atomic.Bool // Data() handed the slice to a caller: never recycle
+	buf    []float32
+	pooled bool // heap buffer from the (opt-in) heap pool
+	mapped bool // off-heap buffer from mapFloats
+	shared atomic.Bool
+	// state lives in its own allocation because the cleanup must not
+	// reference the storage (see cleanupArg).
+	state *atomic.Int32
+}
+
+// Storage states. Escaped: Data() handed the slice to a caller, never
+// recycle. Released: Release() already returned the buffer, the cleanup
+// must not touch it again.
+const (
+	stateLive int32 = iota
+	stateEscaped
+	stateReleased
+)
+
+func newState() *atomic.Int32 { return new(atomic.Int32) }
+
+// Release hands the tensor's storage back for immediate reuse, without
+// waiting for the garbage collector to notice that the tensor is dead.
+// The tensor must not be used afterwards. It does nothing when the
+// storage may still be in use elsewhere: a view of the tensor exists,
+// Data() was taken, or autograd recorded the tensor; so it is safe to
+// call on any intermediate result.
+//
+// The point is cache residency. A hot loop that discards a 4 MB result
+// per step otherwise rotates through tens of buffers until a collection
+// brings them back, and every step streams from memory; released
+// storage is handed out again by the next allocation of that size, still
+// in cache.
+func (t *Tensor) Release() {
+	st := t.store
+	if st == nil || t.node != nil || t.requiresGrad || st.shared.Load() {
+		return
+	}
+	if !st.state.CompareAndSwap(stateLive, stateReleased) {
+		return
+	}
+	buf := st.buf[:cap(st.buf)]
+	st.buf, t.data = nil, nil
+	switch {
+	case st.mapped:
+		mapPool.mu.Lock()
+		putMappedLocked(buf)
+		mapPool.mu.Unlock()
+	case st.pooled:
+		release(buf)
+	}
 }
 
 // Pool size classes: powers of two with four quarter steps in between
@@ -252,14 +298,14 @@ func getMapped(n int, zero bool) *storage {
 			mapPool.mu.Lock()
 			mapPool.live -= capacity * 4
 			mapPool.mu.Unlock()
-			return &storage{buf: make([]float32, n), escaped: new(atomic.Bool)}
+			return &storage{buf: make([]float32, n), state: newState()}
 		}
 		buf = m // fresh pages are zero
 	} else if zero {
 		parallelClear(buf[:n])
 	}
-	st := &storage{buf: buf[:n], mapped: true, escaped: new(atomic.Bool)}
-	runtime.AddCleanup(st, releaseMapped, cleanupArg{buf: buf[:cap(buf)], escaped: st.escaped})
+	st := &storage{buf: buf[:n], mapped: true, state: newState()}
+	runtime.AddCleanup(st, releaseMapped, cleanupArg{buf: buf[:cap(buf)], state: st.state})
 	return st
 }
 
@@ -305,24 +351,36 @@ func armSentinel(done chan struct{}) {
 }
 
 func releaseMapped(a cleanupArg) {
-	size := cap(a.buf) * 4
-	mapPool.mu.Lock()
-	defer mapPool.mu.Unlock()
-	mapPool.live -= size
-	if a.escaped.Load() {
-		mapPool.pinned += size // the caller may still hold the slice
+	switch a.state.Load() {
+	case stateReleased:
+		return // Release already returned it
+	case stateEscaped:
+		mapPool.mu.Lock()
+		mapPool.live -= cap(a.buf) * 4
+		mapPool.pinned += cap(a.buf) * 4 // the caller may still hold the slice
+		mapPool.mu.Unlock()
 		return
 	}
-	class, _ := sizeClass(cap(a.buf))
+	mapPool.mu.Lock()
+	putMappedLocked(a.buf)
+	mapPool.mu.Unlock()
+}
+
+// putMappedLocked returns a mapping to the free list, or unmaps it when
+// the retention limit leaves no room even after evicting other classes.
+func putMappedLocked(buf []float32) {
+	size := cap(buf) * 4
+	mapPool.live -= size
+	class, _ := sizeClass(cap(buf))
 	if mapPool.enabled {
 		trimMappedLocked(size, class)
 		if mapPool.retained+size <= mapPool.limit {
-			mapPool.free[class] = append(mapPool.free[class], a.buf)
+			mapPool.free[class] = append(mapPool.free[class], buf)
 			mapPool.retained += size
 			return
 		}
 	}
-	unmapFloats(a.buf)
+	unmapFloats(buf)
 }
 
 // getStorage returns storage for n floats; zero requests cleared memory.
@@ -331,7 +389,7 @@ func getStorage(n int, zero bool) *storage {
 		return getMapped(n, zero)
 	}
 	if n < minPooled || n > maxPooled {
-		return &storage{buf: make([]float32, n), escaped: new(atomic.Bool)}
+		return &storage{buf: make([]float32, n), state: newState()}
 	}
 	class, capacity := sizeClass(n)
 	var buf []float32
@@ -354,11 +412,11 @@ func getStorage(n int, zero bool) *storage {
 	} else if zero {
 		clear(buf[:n])
 	}
-	st := &storage{buf: buf[:n], pooled: pooled, escaped: new(atomic.Bool)}
+	st := &storage{buf: buf[:n], pooled: pooled, state: newState()}
 	if pooled {
 		// The cleanup argument must not reference st, or st would never
 		// become unreachable; the buffer and the flag are separate objects.
-		runtime.AddCleanup(st, releaseUnlessEscaped, cleanupArg{buf: buf[:cap(buf)], escaped: st.escaped})
+		runtime.AddCleanup(st, releaseUnlessEscaped, cleanupArg{buf: buf[:cap(buf)], state: st.state})
 	}
 	return st
 }
@@ -367,12 +425,12 @@ func getStorage(n int, zero bool) *storage {
 // alive: the buffer and the escape flag (a pointer into the storage would
 // keep it reachable, so the flag lives in its own allocation).
 type cleanupArg struct {
-	buf     []float32
-	escaped *atomic.Bool
+	buf   []float32
+	state *atomic.Int32
 }
 
 func releaseUnlessEscaped(a cleanupArg) {
-	if a.escaped.Load() {
+	if a.state.Load() != stateLive {
 		return
 	}
 	release(a.buf)
