@@ -121,17 +121,7 @@ func (d *Dropout) Forward(x *tensor.Tensor) *tensor.Tensor {
 	if !d.Training || d.P <= 0 {
 		return x
 	}
-	keep := 1 / (1 - d.P)
-	mask := tensor.Rand(x.Shape()...)
-	md := mask.Data()
-	for i, u := range md {
-		if u < d.P {
-			md[i] = 0
-		} else {
-			md[i] = keep
-		}
-	}
-	return x.Mul(mask)
+	return x.Dropout(d.P)
 }
 
 func (d *Dropout) Params() []*tensor.Tensor { return nil }

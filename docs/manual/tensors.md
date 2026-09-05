@@ -39,8 +39,9 @@ t.Strides()        // element strides per dimension
 `Data()` on a contiguous tensor returns the backing slice, so writes
 through it are visible in the tensor. Because the caller may keep that
 slice, the tensor's storage is excluded from buffer reuse from then on
-(see [performance.md](performance.md#storage-reuse)); read with
-`Float32s()` or `At` when you do not need the live slice.
+and, for results of 128 KiB and more, stays mapped for the life of the
+process (see [performance.md](performance.md#off-heap-results)); read
+with `Float32s()` or `At` when you do not need the live slice.
 
 `fmt.Println(t)` prints a NumPy-style nested layout; dimensions longer
 than `tensor.PrintOptions.Threshold` (8) are elided to the first and last
@@ -62,7 +63,10 @@ a.Add(tensor.Randn(2, 1, 3)) // result [2 4 3]
 
 Scalar variants avoid allocating a tensor: `AddScalar SubScalar MulScalar
 DivScalar`. Unary functions: `Neg Exp Log Sqrt Square Abs Pow(p) Tanh
-Sigmoid ReLU GELU Clamp(lo, hi)`.
+Sigmoid ReLU GELU Clamp(lo, hi)`. `Dropout(p)` zeroes each element with
+probability `p` and scales the rest by `1/(1-p)`; the mask is drawn from
+the package random source (`tensor.Seed`) and used again in the backward
+pass.
 
 ## Reductions
 

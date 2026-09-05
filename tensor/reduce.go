@@ -1,6 +1,7 @@
 package tensor
 
 import (
+	"runtime"
 	"sync"
 
 	"github.com/fiber/ai/internal/kernel"
@@ -103,6 +104,7 @@ func reduceAll(t *Tensor, kind reduceKind) *Tensor {
 		}
 		mu.Unlock()
 	})
+	runtime.KeepAlive(t)
 	return out
 }
 

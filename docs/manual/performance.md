@@ -65,14 +65,52 @@ variable `FIBERAI_HEAP_BALLAST` overrides the default before start-up);
 `tensor.HeapBallast()` reads it. Raise it for services that churn many
 medium-sized tensors, remove it in memory-constrained processes.
 
-## Storage reuse (opt-in)
+## Off-heap results
 
-`tensor.SetPoolLimit(bytes)` turns on recycling of freed tensor storage:
-when a tensor and all its views become unreachable, a GC cleanup returns
-buffers between 4 KiB and 4 MiB to a pool, and the next result of similar
-size reuses memory that is still mapped and cache-warm instead of paying
-for a zero-filled allocation and fresh page faults. `tensor.PoolStats()`
-reports hits, misses and the bytes held.
+Go zero-fills every allocation on the allocating goroutine, and fresh
+pages fault in one at a time. On a 16-core Xeon a 1M-element result cost
+647 µs that way (16M: 10 ms, about 6.5 GB/s) while the addition itself
+takes a few tens of microseconds across the cores; `x + y` on 1M elements
+was three quarters allocation. Results of 128 KiB and more therefore do
+not live on the Go heap: they are mapped with `mmap` (on Linux with a
+request for transparent huge pages). Nothing zero-fills them; the kernel
+hands out pages on first touch, which happens inside the parallel
+kernels, spread over all cores.
+
+Mappings of results that became unreachable come back through a GC
+cleanup into a size-classed free list and are reused for the next result
+of that size — still mapped, already faulted in, cache-warm. Because
+off-heap memory does not count toward Go's heap goal, the library runs a
+collection itself when the free list is empty and the outstanding mapped
+memory has doubled since the last one (at least 256 MiB), and waits for
+its cleanups before mapping more. The free list keeps at most 512 MiB
+(least recently used size classes are unmapped first).
+
+`tensor.SetMappedLimit(bytes)` changes that retention limit; a negative
+value disables off-heap results altogether (environment:
+`FIBERAI_MAPPED_LIMIT`). `tensor.MappedStats()` reports hits, misses,
+retained and pinned bytes. Measured on the M2 Pro, where the heap path
+was already cheap: `x + y` 1M 114 → 85 µs, 16M 2.25 → 1.69 ms, `relu` 1M
+112 → 71 µs, softmax [4096×4096] 2.88 → 2.24 ms, layer norm 3.58 → 2.50
+ms, MLP forward+backward 65K → 75K samples/s. On the Xeon the expected
+effect is far larger; see BENCHMARKS.md for the measured numbers.
+
+Two things to know. `Data()` on a contiguous tensor hands out the mapped
+slice, so its storage is pinned for good (never unmapped, never reused).
+And a slice obtained from a mapped tensor is not a Go pointer: it keeps
+nothing alive. Inside the library every operation keeps its input tensors
+reachable until it is done with their data; user code that holds a slice
+from `Data()` is safe because of the pinning, but code that reaches into
+`tensor` internals must follow the same rule.
+
+## Heap storage reuse (opt-in, small results)
+
+Below 128 KiB results stay on the Go heap. `tensor.SetPoolLimit(bytes)`
+turns on recycling for them: when a tensor and all its views become
+unreachable, a GC cleanup returns buffers between 4 KiB and 128 KiB to a
+pool, and the next result of similar size reuses memory instead of paying
+for a zero-filled allocation. `tensor.PoolStats()` reports hits, misses
+and the bytes held.
 
 It is off by default because the measured effect depends on the workload:
 on the M2 Pro it halves the time of element-wise operations on 64K–1M
@@ -84,7 +122,7 @@ training. Regardless of the pool, results that an operation writes
 completely are no longer zero-filled.
 
 `Data()` on a contiguous tensor hands out the backing slice and therefore
-pins its storage for good — it is never recycled while the program runs.
+pins its storage for good; it is never recycled while the program runs.
 Use `Float32s()` (copy) or `At` when you only read.
 
 ## Advice
@@ -93,8 +131,8 @@ Use `Float32s()` (copy) or `At` when you only read.
    allocates its result; below ~64K elements the fixed cost (allocation,
    goroutine wake-up) dominates.
 2. On hot paths the in-place family (`AddInPlace`, `AddScaledInPlace`,
-   `CopyFrom`) avoids even the pooled allocation; results of tens of MB
-   still cost a pass over memory when the pool has nothing of that size.
+   `CopyFrom`) avoids any allocation; a fresh result of tens of MB costs
+   its page faults once, after that the mapping is reused.
 3. Keep batch dimensions leading and the reduction dimension last where you
    can; that is the layout the fused kernels are written for.
 4. For matrix–vector shapes (`[1×k]·[k×n]`) the library takes a dedicated

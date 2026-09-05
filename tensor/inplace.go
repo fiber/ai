@@ -3,6 +3,7 @@ package tensor
 import (
 	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/internal/parallel"
+	"runtime"
 )
 
 // In-place operations modify a tensor's storage directly. They are not
@@ -91,5 +92,6 @@ func (t *Tensor) AddScaledInPlace(u *Tensor, alpha float32) *Tensor {
 	}
 	td, ud := t.data[:t.size], u.values()
 	parallel.Range(t.size, minChunk, func(lo, hi int) { kernel.Axpy(alpha, ud[lo:hi], td[lo:hi]) })
+	runtime.KeepAlive(u)
 	return t
 }

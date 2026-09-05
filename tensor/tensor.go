@@ -2,6 +2,7 @@ package tensor
 
 import (
 	"math"
+	"runtime"
 	"sync/atomic"
 
 	"github.com/fiber/ai/internal/kernel"
@@ -195,7 +196,9 @@ func (t *Tensor) values() []float32 {
 
 // Float32s always returns a fresh copy of the elements in row-major order.
 func (t *Tensor) Float32s() []float32 {
-	return append([]float32(nil), t.values()...)
+	out := append([]float32(nil), t.values()...)
+	runtime.KeepAlive(t)
+	return out
 }
 
 // offset returns the storage offset of the element at idx.
@@ -367,6 +370,8 @@ func (t *Tensor) Equal(u *Tensor) bool {
 		return false
 	}
 	a, b := t.values(), u.values()
+	defer runtime.KeepAlive(t)
+	defer runtime.KeepAlive(u)
 	for i := range a {
 		if a[i] != b[i] {
 			return false
@@ -382,6 +387,8 @@ func (t *Tensor) AllClose(u *Tensor, rtol, atol float64) bool {
 		return false
 	}
 	a, b := t.values(), u.values()
+	defer runtime.KeepAlive(t)
+	defer runtime.KeepAlive(u)
 	for i := range a {
 		x, y := float64(a[i]), float64(b[i])
 		if math.IsNaN(x) || math.IsNaN(y) || math.Abs(x-y) > atol+rtol*math.Abs(y) {

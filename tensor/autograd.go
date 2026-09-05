@@ -1,6 +1,7 @@
 package tensor
 
 import (
+	"runtime"
 	"sync/atomic"
 
 	"github.com/fiber/ai/internal/kernel"
@@ -103,6 +104,7 @@ func (t *Tensor) accumGrad(g *Tensor) {
 		return
 	}
 	kernel.Add(t.grad.data, g.values(), t.grad.data)
+	runtime.KeepAlive(g)
 }
 
 // Backward computes gradients of t (which must hold a single element) with

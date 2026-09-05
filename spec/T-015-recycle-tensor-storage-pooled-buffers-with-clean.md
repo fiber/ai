@@ -4,6 +4,7 @@ title: Recycle tensor storage: pooled buffers with cleanup-based reuse, no zero-
 status: open
 scope:
   - tensor/
+  - nn/
 manual:
   - docs/manual/performance.md
   - docs/manual/tensors.md
@@ -125,3 +126,29 @@ fresh memory that sixteen threads then fault in at once. Fix applied:
 MatMul allocates its output uninitialised and clears it in parallel
 (M2 Pro tensor-level n=1024: 501 → 568, n=512: 350 → 463). Ballast stays
 the default; Xeon re-measurement of the GEMM and 1M rows pending.
+
+Third attempt: off-heap buffers. `BenchmarkAllocate` on the Xeon: a
+fresh 1M-float result costs 647 µs (16M: 10 ms; 6.5 GB/s), against 42 µs
+on the M2 Pro. Go zero-fills every allocation on the allocating goroutine
+and the pages fault in serially, so `x + y` on 1M elements (890 µs) is
+three quarters allocation. Design: results of 128 KiB and more are
+mapped with mmap (anonymous; MADV_HUGEPAGE on Linux) instead of make: no
+zero-fill by Go, first touch happens in the parallel kernels, 2 MB pages
+where available. Mapped buffers return to a size-classed free list
+through a cleanup and are unmapped beyond a retained-bytes limit; a GC is
+forced when the outstanding mapped memory exceeds a budget, because
+off-heap memory does not drive Go's collector. `Data()` pins a mapped
+buffer permanently (never unmapped); `nn.Dropout` therefore uses a new
+`Tensor.Dropout` op instead of writing a mask through `Data()`. Scope
+extended to `nn/` for that change.
+
+Implementation of the third attempt (M2 Pro, `cmd/bench -d 400ms`,
+before → after): `x + y` 64K 9.4 → 9.1 µs, 1M 114 → 85 µs, 16M 2.25 →
+1.69 ms; `relu` 1M 112 → 71 µs, 16M 1.64 → 1.10 ms; `exp` 1M 172 → 127
+µs; softmax [4096×4096] 2.88 → 2.24 ms; layer norm 3.58 → 2.50 ms; MLP
+forward+backward 65.0K → 74.8K samples/s. GEMM rows within noise. Two
+pitfalls found on the way: a 16-byte pointer-free sentinel object is
+tiny-allocated and its cleanup never runs (the sentinel now carries a
+pointer), and a free list filled by one phase of a program (16 MiB GEMM
+operands) starved the next phase's size class until least-recently-used
+eviction across classes was added. Xeon numbers pending.

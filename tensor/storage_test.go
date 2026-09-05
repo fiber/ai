@@ -32,6 +32,8 @@ func TestSizeClass(t *testing.T) {
 }
 
 func TestPoolReusesBuffers(t *testing.T) {
+	SetMappedLimit(-1)
+	defer SetMappedLimit(512 << 20)
 	SetPoolLimit(64 << 20)
 	defer SetPoolLimit(0)
 	hits0, _, _ := PoolStats()
@@ -50,6 +52,8 @@ func TestPoolReusesBuffers(t *testing.T) {
 }
 
 func TestViewKeepsStorageAlive(t *testing.T) {
+	SetMappedLimit(-1)
+	defer SetMappedLimit(512 << 20)
 	SetPoolLimit(64 << 20)
 	defer SetPoolLimit(0)
 	var v *Tensor
@@ -70,6 +74,8 @@ func TestViewKeepsStorageAlive(t *testing.T) {
 }
 
 func TestDataEscapesStorage(t *testing.T) {
+	SetMappedLimit(-1)
+	defer SetMappedLimit(512 << 20)
 	SetPoolLimit(64 << 20)
 	defer SetPoolLimit(0)
 	var d []float32
@@ -90,6 +96,8 @@ func TestDataEscapesStorage(t *testing.T) {
 }
 
 func TestUninitPathsProduceCorrectValues(t *testing.T) {
+	SetMappedLimit(-1)
+	defer SetMappedLimit(512 << 20)
 	SetPoolLimit(64 << 20)
 	defer SetPoolLimit(0)
 	// churn the pool with garbage, then check ops that use uninitialised
@@ -169,12 +177,139 @@ func TestHeapBallast(t *testing.T) {
 
 // BenchmarkAllocate measures what a fresh result costs before any
 // arithmetic happens: Go zero-fills every make on the allocating thread.
+func TestMappedReusesBuffers(t *testing.T) {
+	if !mmapSupported {
+		t.Skip("no mmap on this platform")
+	}
+	hits0, _, _, _ := MappedStats()
+	for i := 0; i < 40; i++ {
+		x := Randn(1 << 18) // 1 MiB: off-heap
+		if !x.store.mapped {
+			t.Fatal("1 MiB result is not mapped")
+		}
+		_ = x.Add(x)
+		if i%5 == 4 {
+			settle()
+		}
+	}
+	settle()
+	hits1, _, retained, _ := MappedStats()
+	if hits1 <= hits0 {
+		t.Fatalf("no mapped hits after churning allocations (hits %d -> %d)", hits0, hits1)
+	}
+	if retained == 0 {
+		t.Fatal("no mappings retained for reuse")
+	}
+}
+
+func TestMappedViewKeepsStorageAlive(t *testing.T) {
+	if !mmapSupported {
+		t.Skip("no mmap on this platform")
+	}
+	var v *Tensor
+	var want []float32
+	func() {
+		base := Arange(0, 1<<18, 1)
+		v = base.Narrow(0, 100, 16)
+		want = v.Float32s()
+	}()
+	settle()
+	for i := 0; i < 20; i++ {
+		_ = Full(-1, 1<<18)
+	}
+	settle()
+	if got := v.Float32s(); !Equalf(got, want) {
+		t.Fatalf("view content changed after base became unreachable: %v", got[:4])
+	}
+}
+
+func TestMappedDataEscapes(t *testing.T) {
+	if !mmapSupported {
+		t.Skip("no mmap on this platform")
+	}
+	_, _, _, pinned0 := MappedStats()
+	var d []float32
+	func() {
+		z := Zeros(1 << 18)
+		d = z.Data()
+	}()
+	settle()
+	for i := 0; i < 20; i++ {
+		_ = Full(7, 1<<18)
+	}
+	settle()
+	for i, x := range d {
+		if x != 0 {
+			t.Fatalf("escaped mapping was recycled: d[%d] = %v", i, x)
+		}
+	}
+	if _, _, _, pinned := MappedStats(); pinned <= pinned0 {
+		t.Fatalf("escaped mapping not accounted as pinned (%d -> %d)", pinned0, pinned)
+	}
+}
+
+func TestMappedZeroedAfterReuse(t *testing.T) {
+	if !mmapSupported {
+		t.Skip("no mmap on this platform")
+	}
+	for i := 0; i < 10; i++ {
+		_ = Full(123, 1<<18)
+	}
+	settle()
+	z := Zeros(1 << 18)
+	if s := z.Sum().Item(); s != 0 {
+		t.Fatalf("Zeros from a reused mapping sums to %v", s)
+	}
+	x := Arange(0, 1<<18, 1)
+	if !x.Add(x).Equal(x.MulScalar(2)) {
+		t.Fatal("Add on mapped buffers")
+	}
+	sm := Randn(256, 1024).Softmax(1).Sum(1)
+	if !sm.AllClose(Ones(256), 1e-5, 1e-5) {
+		t.Fatal("Softmax on mapped buffers")
+	}
+}
+
+func TestSetMappedLimit(t *testing.T) {
+	if !mmapSupported {
+		t.Skip("no mmap on this platform")
+	}
+	defer SetMappedLimit(512 << 20)
+	for i := 0; i < 8; i++ {
+		_ = Full(1, 1<<20)
+	}
+	settle()
+	SetMappedLimit(1 << 20)
+	if _, _, retained, _ := MappedStats(); retained > 1<<20 {
+		t.Fatalf("retained %d bytes above the limit", retained)
+	}
+	SetMappedLimit(-1)
+	if x := Randn(1 << 18); x.store.mapped {
+		t.Fatal("mapping still used after disabling it")
+	}
+}
+
+// BenchmarkAllocate measures a fresh result buffer as handed to a kernel
+// (untouched); BenchmarkAllocateTouch includes the first write, done in
+// parallel as the kernels do it.
 func BenchmarkAllocate(b *testing.B) {
 	for _, n := range []int{1 << 16, 1 << 20, 1 << 24} {
 		b.Run(fmtN(n), func(b *testing.B) {
 			b.SetBytes(int64(4 * n))
 			for i := 0; i < b.N; i++ {
 				_ = newTensorUninit(Shape{n})
+			}
+		})
+	}
+}
+
+func BenchmarkAllocateTouch(b *testing.B) {
+	for _, n := range []int{1 << 16, 1 << 20, 1 << 24} {
+		b.Run(fmtN(n), func(b *testing.B) {
+			b.SetBytes(int64(4 * n))
+			for i := 0; i < b.N; i++ {
+				t := newTensorUninit(Shape{n})
+				parallelClear(t.data)
 			}
 		})
 	}

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // storage is the backing array of a tensor and of every view derived from
@@ -19,7 +20,8 @@ import (
 // the operating system. Recycled memory stays mapped and cache-warm.
 type storage struct {
 	buf     []float32
-	pooled  bool         // buffer came from the pool and may go back
+	pooled  bool         // heap buffer from the (opt-in) heap pool
+	mapped  bool         // off-heap buffer from mapFloats
 	escaped *atomic.Bool // Data() handed the slice to a caller: never recycle
 }
 
@@ -54,6 +56,11 @@ func init() {
 	if v := os.Getenv("FIBERAI_HEAP_BALLAST"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			SetHeapBallast(n)
+		}
+	}
+	if v := os.Getenv("FIBERAI_MAPPED_LIMIT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			SetMappedLimit(n)
 		}
 	}
 }
@@ -135,8 +142,194 @@ func sizeClass(n int) (class int, capacity int) {
 	return k*4 + frac, base + frac*quarter
 }
 
+// Off-heap buffers. Go zero-fills every make on the allocating goroutine
+// and fresh pages fault in serially; on a 16-core Xeon a 1M-float result
+// cost 647 µs that way, three quarters of an element-wise operation.
+// Results of mapMin floats and more are therefore mmapped: the kernel
+// provides zero pages on first touch, which happens in the parallel
+// kernels, and Linux gets huge pages. Freed mappings are kept in size
+// classes for reuse (mapping is not free either) up to a retained limit.
+// Off-heap memory does not drive Go's collector, so when the free list is
+// empty and the outstanding mapped bytes have doubled since the last
+// collection (at least DefaultMapBudget), a GC is run and its cleanups
+// awaited before mapping more: garbage results then come back as hits
+// instead of fresh, page-faulting mappings.
+//
+// A slice into a mapping keeps nothing alive for the GC. Operations must
+// therefore keep the tensor (not just its slice) reachable while they read
+// it; ending with record(out, op, inputs, ...) does that, the few
+// functions that do not use runtime.KeepAlive.
+const (
+	mapMin           = 32 << 10  // 128 KiB
+	DefaultMapBudget = 256 << 20 // outstanding mapped bytes before the first forced GC
+)
+
+var mapPool = struct {
+	mu       sync.Mutex
+	free     [numClass][][]float32
+	lastUse  [numClass]uint64 // pop counter at the class's last hit, for eviction
+	clock    uint64
+	retained int // bytes held in free
+	live     int // bytes mapped and not yet released
+	gcAt     int // forced GC once live reaches this and the free list is empty
+	limit    int // retained bytes we are willing to hold
+	enabled  bool
+	hits     uint64
+	misses   uint64
+	pinned   int // bytes kept mapped for good because Data() escaped them
+}{limit: 512 << 20, gcAt: DefaultMapBudget, enabled: mmapSupported}
+
+// SetMappedLimit caps the off-heap buffers kept for reuse (default 512
+// MiB). A negative limit disables off-heap allocation; results then come
+// from the Go heap. FIBERAI_MAPPED_LIMIT sets it from the environment.
+func SetMappedLimit(bytes int) {
+	mapPool.mu.Lock()
+	defer mapPool.mu.Unlock()
+	mapPool.limit = max(bytes, 0)
+	mapPool.enabled = mmapSupported && bytes >= 0
+	trimMappedLocked(0, -1)
+}
+
+// trimMappedLocked unmaps retained buffers until retained+need fits the
+// limit, taking from the least recently used size classes first and
+// sparing class keep, so that a class in steady use is not starved by
+// buffers left over from an earlier phase of the program.
+func trimMappedLocked(need, keep int) {
+	for mapPool.retained+need > mapPool.limit {
+		victim := -1
+		for class := range mapPool.free {
+			if class == keep || len(mapPool.free[class]) == 0 {
+				continue
+			}
+			if victim < 0 || mapPool.lastUse[class] < mapPool.lastUse[victim] {
+				victim = class
+			}
+		}
+		if victim < 0 {
+			return
+		}
+		l := mapPool.free[victim]
+		for len(l) > 0 && mapPool.retained+need > mapPool.limit {
+			b := l[len(l)-1]
+			l = l[:len(l)-1]
+			mapPool.retained -= cap(b) * 4
+			unmapFloats(b)
+		}
+		mapPool.free[victim] = l
+	}
+}
+
+// MappedStats reports off-heap allocations served from the free list
+// (hits) or freshly mapped (misses), the bytes retained for reuse, and
+// the bytes pinned by Data().
+func MappedStats() (hits, misses uint64, retainedBytes, pinnedBytes int) {
+	mapPool.mu.Lock()
+	defer mapPool.mu.Unlock()
+	return mapPool.hits, mapPool.misses, mapPool.retained, mapPool.pinned
+}
+
+func getMapped(n int, zero bool) *storage {
+	class, capacity := sizeClass(n)
+	mapPool.mu.Lock()
+	buf := popMappedLocked(class)
+	if buf == nil && mapPool.live >= mapPool.gcAt {
+		mapPool.mu.Unlock()
+		collectMapped()
+		mapPool.mu.Lock()
+		buf = popMappedLocked(class)
+		mapPool.gcAt = max(2*mapPool.live, DefaultMapBudget)
+	}
+	if buf != nil {
+		mapPool.hits++
+	} else {
+		mapPool.misses++
+	}
+	mapPool.live += capacity * 4
+	mapPool.mu.Unlock()
+	if buf == nil {
+		m, err := mapFloats(capacity)
+		if err != nil {
+			mapPool.mu.Lock()
+			mapPool.live -= capacity * 4
+			mapPool.mu.Unlock()
+			return &storage{buf: make([]float32, n), escaped: new(atomic.Bool)}
+		}
+		buf = m // fresh pages are zero
+	} else if zero {
+		parallelClear(buf[:n])
+	}
+	st := &storage{buf: buf[:n], mapped: true, escaped: new(atomic.Bool)}
+	runtime.AddCleanup(st, releaseMapped, cleanupArg{buf: buf[:cap(buf)], escaped: st.escaped})
+	return st
+}
+
+func popMappedLocked(class int) []float32 {
+	l := mapPool.free[class]
+	if len(l) == 0 {
+		return nil
+	}
+	buf := l[len(l)-1]
+	l[len(l)-1] = nil
+	mapPool.free[class] = l[:len(l)-1]
+	mapPool.retained -= cap(buf) * 4
+	mapPool.clock++
+	mapPool.lastUse[class] = mapPool.clock
+	return buf
+}
+
+// collectMapped runs a GC and waits until its cleanups have been
+// dispatched, so that mappings of unreachable results are back on the
+// free list when it returns. A sentinel object's cleanup marks the point.
+func collectMapped() {
+	done := make(chan struct{})
+	armSentinel(done)
+	runtime.GC()
+	select {
+	case <-done:
+		runtime.Gosched() // let concurrently running cleanups finish
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+// sentinel must not be tiny-allocated (pointer-free objects of 16 bytes
+// or less share blocks and are never individually unreachable), hence the
+// pointer field.
+type sentinel struct {
+	ch chan struct{}
+	_  [48]byte
+}
+
+func armSentinel(done chan struct{}) {
+	s := &sentinel{ch: done}
+	runtime.AddCleanup(s, func(ch chan struct{}) { close(ch) }, done)
+}
+
+func releaseMapped(a cleanupArg) {
+	size := cap(a.buf) * 4
+	mapPool.mu.Lock()
+	defer mapPool.mu.Unlock()
+	mapPool.live -= size
+	if a.escaped.Load() {
+		mapPool.pinned += size // the caller may still hold the slice
+		return
+	}
+	class, _ := sizeClass(cap(a.buf))
+	if mapPool.enabled {
+		trimMappedLocked(size, class)
+		if mapPool.retained+size <= mapPool.limit {
+			mapPool.free[class] = append(mapPool.free[class], a.buf)
+			mapPool.retained += size
+			return
+		}
+	}
+	unmapFloats(a.buf)
+}
+
 // getStorage returns storage for n floats; zero requests cleared memory.
 func getStorage(n int, zero bool) *storage {
+	if n >= mapMin && mapPool.enabled {
+		return getMapped(n, zero)
+	}
 	if n < minPooled || n > maxPooled {
 		return &storage{buf: make([]float32, n), escaped: new(atomic.Bool)}
 	}

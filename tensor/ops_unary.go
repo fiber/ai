@@ -1,6 +1,8 @@
 package tensor
 
 import (
+	"math/rand/v2"
+
 	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/internal/parallel"
 )
@@ -174,4 +176,27 @@ func (t *Tensor) Clamp(lo, hi float32) *Tensor {
 			}
 		}))
 	})
+}
+
+// Dropout zeroes each element with probability p and scales the others by
+// 1/(1-p). The mask comes from the package random source (see Seed) and
+// is kept for the backward pass.
+func (t *Tensor) Dropout(p float32) *Tensor {
+	if p <= 0 {
+		return t
+	}
+	if p >= 1 {
+		fail("Dropout", "probability %v must be below 1", p)
+	}
+	tc := t.Contiguous()
+	mask := newTensorUninit(tc.shape)
+	keep := 1 / (1 - p)
+	fillRandom(mask, nil, func(r *rand.Rand) float32 {
+		if r.Float32() < p {
+			return 0
+		}
+		return keep
+	})
+	out := zipMap(tc, mask, func(x, m, z []float32) { kernel.Mul(x, m, z) })
+	return record(out, "Dropout", []*Tensor{tc}, func(gy *Tensor) { tc.accumGrad(gy.Mul(mask)) })
 }
