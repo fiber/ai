@@ -1,0 +1,33 @@
+== CPU ==
+ Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz
+cores: 32
+Model name:                              Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz
+Thread(s) per core:                      2
+Socket(s):                               2
+NUMA node(s):                            2
+virt: none
+unknown
+== Flags ==
+  avx2: yes
+  fma: yes
+  avx512f: yes
+  avx512bw: yes
+  avx512vl: yes
+  avx512dq: yes
+  avx512_vnni: NO
+  avx512_bf16: NO
+  amx_tile: NO
+  amx_bf16: NO
+  amx_int8: NO
+  avx_vnni: NO
+== Caches ==
+L1d cache:                               1 MiB (32 instances)
+L2 cache:                                32 MiB (32 instances)
+L3 cache:                                44 MiB (2 instances)
+== Frequency ==
+cpu MHz		: 999.941
+== Kernel ==
+Linux 6.8.0-138-generic x86_64
+== Toolchain ==
+go version go1.27.1 linux/amd64
+Python 3.12.3

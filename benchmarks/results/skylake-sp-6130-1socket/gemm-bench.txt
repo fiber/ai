@@ -1,0 +1,18 @@
+goos: linux
+goarch: amd64
+pkg: github.com/fiber/ai/internal/blas
+cpu: Intel(R) Xeon(R) Gold 6130 CPU @ 2.10GHz
+BenchmarkGemm/avx512/n=64/workers=1-16         	   92377	     13413 ns/op	        39.09 GFLOPS
+BenchmarkGemm/avx512/n=64/workers=16-16        	   77782	     12979 ns/op	        40.39 GFLOPS
+BenchmarkGemm/avx512/n=128/workers=1-16        	   26698	     45908 ns/op	        91.36 GFLOPS
+BenchmarkGemm/avx512/n=128/workers=16-16       	   26323	     44330 ns/op	        94.62 GFLOPS
+BenchmarkGemm/avx512/n=256/workers=1-16        	    4890	    259429 ns/op	       129.3 GFLOPS
+BenchmarkGemm/avx512/n=256/workers=16-16       	    5096	    230650 ns/op	       145.5 GFLOPS
+BenchmarkGemm/avx512/n=512/workers=1-16        	     693	   1702323 ns/op	       157.7 GFLOPS
+BenchmarkGemm/avx512/n=512/workers=16-16       	    1652	    706809 ns/op	       379.8 GFLOPS
+BenchmarkGemm/avx512/n=1024/workers=1-16       	      82	  13231501 ns/op	       162.3 GFLOPS
+BenchmarkGemm/avx512/n=1024/workers=16-16      	     403	   2936338 ns/op	       731.3 GFLOPS
+BenchmarkGemm/avx512/n=2048/workers=1-16       	       9	 126653727 ns/op	       135.6 GFLOPS
+BenchmarkGemm/avx512/n=2048/workers=16-16      	      67	  16872938 ns/op	      1018 GFLOPS
+PASS
+ok  	github.com/fiber/ai/internal/blas	20.390s

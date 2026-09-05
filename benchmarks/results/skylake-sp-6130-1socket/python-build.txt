@@ -1,0 +1,27 @@
+== numpy build ==
+/home/sengelhardt/ai/benchmarks/python/.venv/lib/python3.12/site-packages/numpy/__config__.py:155: UserWarning: Install `pyyaml` for better output
+  warnings.warn("Install `pyyaml` for better output", stacklevel=1)
+      "name": "gcc",
+      "name": "cython",
+      "name": "gcc",
+    "blas": {
+      "name": "scipy-openblas",
+      "include directory": "/opt/_internal/cpython-3.12.13/lib/python3.12/site-packages/scipy_openblas64/include",
+      "lib directory": "/opt/_internal/cpython-3.12.13/lib/python3.12/site-packages/scipy_openblas64/lib",
+      "openblas configuration": "OpenBLAS 0.3.34.106.0  USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=64",
+== torch build ==
+2.14.0+cpu
+ATen/Parallel:
+	at::get_num_threads() : 32
+	at::get_num_interop_threads() : 32
+OpenMP 201511 (a.k.a. OpenMP 4.5)
+	omp_get_max_threads() : 32
+Intel(R) oneAPI Math Kernel Library Version 2024.2-Product Build 20240605 for Intel(R) 64 architecture applications
+	mkl_get_max_threads() : 32
+Intel(R) MKL-DNN v3.12.0 (Git Hash 80afa71049cd69a3df32adcccb623b12cd7baa22)
+std::thread::hardware_concurrency() : 64
+Environment variables:
+	OMP_NUM_THREADS : [not set]
+	MKL_NUM_THREADS : [not set]
+ATen parallel backend: OpenMP
+
