@@ -18,6 +18,7 @@ import (
 
 func outer(x, y, z *float32)
 func tile(k int, a, b *float32)
+func tile2(k int, a, b *float32)
 
 func main() {
 	if v, err := syscall.SysctlUint32("hw.optional.arm.FEAT_SME"); err != nil || v == 0 {
@@ -52,7 +53,7 @@ func main() {
 	a := make([]float32, k*32)
 	b := make([]float32, k*32)
 	iters := 4000
-	bench := func(threads int) float64 {
+	bench := func(threads int, body func(k int, a, b *float32)) float64 {
 		var wg sync.WaitGroup
 		start := time.Now()
 		for t := 0; t < threads; t++ {
@@ -60,7 +61,7 @@ func main() {
 			go func() {
 				defer wg.Done()
 				for i := 0; i < iters; i++ {
-					tile(k, &a[0], &b[0])
+					body(k, &a[0], &b[0])
 				}
 			}()
 		}
@@ -68,12 +69,17 @@ func main() {
 		el := time.Since(start).Seconds()
 		return 2.0 * 32 * 32 * float64(k) * float64(iters) * float64(threads) / el / 1e9
 	}
-	for _, t := range []int{1, 2, 4, 6, 10} {
-		best := 0.0
-		for r := 0; r < 3; r++ {
-			best = max(best, bench(t))
+	for _, v := range []struct {
+		name string
+		body func(k int, a, b *float32)
+	}{{"plain", tile}, {"pipelined", tile2}} {
+		for _, t := range []int{1, 2, 4, 6} {
+			best := 0.0
+			for r := 0; r < 3; r++ {
+				best = max(best, bench(t, v.body))
+			}
+			fmt.Printf("%-9s threads %d: %6.0f GFLOPS (%.0f per thread)\n", v.name, t, best, best/float64(t))
 		}
-		fmt.Printf("threads %2d: %6.0f GFLOPS (%.0f per thread)\n", t, best, best/float64(t))
 	}
 
 	// 3. state under GC and preemption: outer products in many goroutines

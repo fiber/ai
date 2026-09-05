@@ -82,3 +82,69 @@ loop:
 done:
 	SMSTOP
 	RET
+
+// func tile2(k int, a, b *float32)
+// The same body software-pipelined: the loads of step k+1 go into z4..z7
+// while the outer products of step k run from z0..z3.
+TEXT ·tile2(SB), NOSPLIT, $0-24
+	MOVD k+0(FP), R0
+	MOVD a+8(FP), R1
+	MOVD b+16(FP), R2
+	SMSTART
+	PTRUE_P0_S
+	ZERO_ZA
+	ADD  $64, R1, R3
+	ADD  $64, R2, R4
+	CMP  $2, R0
+	BLT  done2
+	LD1W(0, 1)
+	LD1W(1, 3)
+	LD1W(2, 2)
+	LD1W(3, 4)
+	ADD  $128, R1, R1
+	ADD  $128, R3, R3
+	ADD  $128, R2, R2
+	ADD  $128, R4, R4
+	SUB  $1, R0, R0
+loop2:
+	LD1W(4, 1)                 // next step's operands
+	LD1W(5, 3)
+	LD1W(6, 2)
+	LD1W(7, 4)
+	FMOPA(0, 0, 2)             // this step's products
+	FMOPA(1, 0, 3)
+	FMOPA(2, 1, 2)
+	FMOPA(3, 1, 3)
+	ADD  $128, R1, R1
+	ADD  $128, R3, R3
+	ADD  $128, R2, R2
+	ADD  $128, R4, R4
+	SUBS $1, R0, R0
+	BEQ  drain
+	LD1W(0, 1)
+	LD1W(1, 3)
+	LD1W(2, 2)
+	LD1W(3, 4)
+	FMOPA(0, 4, 6)
+	FMOPA(1, 4, 7)
+	FMOPA(2, 5, 6)
+	FMOPA(3, 5, 7)
+	ADD  $128, R1, R1
+	ADD  $128, R3, R3
+	ADD  $128, R2, R2
+	ADD  $128, R4, R4
+	SUBS $1, R0, R0
+	BNE  loop2
+	FMOPA(0, 0, 2)
+	FMOPA(1, 0, 3)
+	FMOPA(2, 1, 2)
+	FMOPA(3, 1, 3)
+	B    done2
+drain:
+	FMOPA(0, 4, 6)
+	FMOPA(1, 4, 7)
+	FMOPA(2, 5, 6)
+	FMOPA(3, 5, 7)
+done2:
+	SMSTOP
+	RET
