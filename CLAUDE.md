@@ -10,8 +10,9 @@ fun to use. Implement extensive testing and example applications.
 - No code change without an open spec in `spec/` whose `scope` covers the
   file. Create one first: `go run ./cmd/gate new -scope <dirs> -manual <pages|none> "title"`,
   then fill in Goal / Design / Acceptance before implementing.
-- Track work in `TODO.md`, bugs in `BUGS.md`, finished items in `DONE.md`.
-  Record a bug in `BUGS.md` as soon as it is found.
+- Track work in `TODO.md`, bugs in `BUGS.md`, finished items in `DONE.md`,
+  fixed bugs in `BUGS-FIXED.md`. Record a bug in `BUGS.md` as soon as it
+  is found; fixing it needs a `B-` spec.
 - When a spec is implemented and tested: `go run ./cmd/gate done <id>`
   (moves it to `spec/done/`, updates the lists), update the manual pages
   the spec declared, run `go run ./cmd/gate check`, then commit.

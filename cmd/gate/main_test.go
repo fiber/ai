@@ -25,7 +25,7 @@ g
 ## Design
 d
 ## Acceptance
-a
+a, no performance impact
 `
 
 func TestParseSpec(t *testing.T) {
@@ -124,29 +124,73 @@ func TestBashWriteTargets(t *testing.T) {
 		}
 		return false
 	}
-	if tg := bashWriteTargets(root, "cat > tensor/ops.go <<'EOF'\npackage tensor\nEOF"); !has(tg, "tensor/ops.go") {
-		t.Errorf("heredoc redirect not detected: %v", tg)
+	detected := []string{
+		"cat > tensor/ops.go <<'EOF'\npackage tensor\nEOF",
+		"cat > tensor/new.go <<'EOF'\nEOF",
+		"echo x >> tensor/ops.go",
+		"echo x 2>tensor/ops.go",
+		"sed -i '' 's/a/b/' tensor/ops.go",
+		"mv other.go tensor/ops.go",
+		"cp x tensor/ops.go && go test",
+		"rm -f tensor/ops.go",
+		"gofmt -w tensor/ops.go",
+		"go test ./... | tee tensor/ops.go",
+		"git rm tensor/ops.go",
+		"python3 - <<'PY'\np='tensor/ops.go'; s=open(p).read()\nopen(p,'w').write(s)\nPY",
+		"python3 -c \"open('tensor/ops.go', 'w').write('x')\"",
+		"python3 - <<'PY'\nfrom pathlib import Path\nPath('tensor/ops.go').write_text('x')\nPY",
 	}
-	if tg := bashWriteTargets(root, "cat > tensor/new.go <<'EOF'\nEOF"); !has(tg, "tensor/new.go") {
-		t.Errorf("new file in existing dir not detected: %v", tg)
+	for _, cmd := range detected {
+		tg, err := bashWriteTargets(root, cmd)
+		if err != nil || !has(tg, "tensor/ops.go") && !has(tg, "tensor/new.go") {
+			t.Errorf("not detected: %q -> %v, %v", cmd, tg, err)
+		}
 	}
-	if tg := bashWriteTargets(root, "sed -i '' 's/a/b/' tensor/ops.go"); !has(tg, "tensor/ops.go") {
-		t.Errorf("sed -i not detected: %v", tg)
+	notDetected := []string{
+		"go test ./tensor/ && cat tensor/ops.go",
+		"grep -n foo tensor/ops.go | head",
+		"cat > NOTES.md <<'EOF'\nrun bench.py and see tensor/ops.go\nEOF",                 // heredoc text is not a target
+		"python3 - <<'PY'\np='NOTES.md'\nopen(p,'w').write('mentions tensor/ops.go')\nPY", // markdown target only
+		"echo hi > /tmp/elsewhere/x.go",
+		"cat > nonexistent/dir/x.go",
+		"git commit -m 'touch tensor/ops.go'",
 	}
-	if tg := bashWriteTargets(root, "python3 - <<'PY'\np='tensor/ops.go'; open(p,'w').write('x')\nPY"); !has(tg, "tensor/ops.go") {
-		t.Errorf("python write not detected: %v", tg)
+	for _, cmd := range notDetected {
+		tg, err := bashWriteTargets(root, cmd)
+		if err != nil || len(tg) != 0 {
+			t.Errorf("false positive: %q -> %v, %v", cmd, tg, err)
+		}
 	}
-	if tg := bashWriteTargets(root, "go test ./tensor/ && cat tensor/ops.go"); len(tg) != 0 {
-		t.Errorf("read-only command flagged: %v", tg)
+	unknown := []string{
+		"for f in tensor/*.go; do sed -i '' s/a/b/ $f; done",
+		"python3 - <<'PY'\nimport sys\nopen(sys.argv[1], 'w')\nPY",
 	}
-	if tg := bashWriteTargets(root, "echo hi > /tmp/elsewhere/x.go"); len(tg) != 0 {
-		t.Errorf("path outside repo flagged: %v", tg)
-	}
-	if tg := bashWriteTargets(root, "cat > nonexistent/dir/x.go"); len(tg) != 0 {
-		t.Errorf("path in missing dir flagged: %v", tg)
+	for _, cmd := range unknown {
+		if _, err := bashWriteTargets(root, cmd); err != errUnknownTarget {
+			t.Errorf("variable target must be refused: %q -> %v", cmd, err)
+		}
 	}
 	if !noVerifyRe.MatchString("git commit --no-verify -m x") || !noVerifyRe.MatchString("git commit -n -m x") || noVerifyRe.MatchString("git commit -m 'no-verify text'") {
 		t.Error("no-verify detection")
+	}
+	// the no-verify check ignores heredoc bodies (documentation may quote it)
+	if shell, _ := splitHeredocs("cat > NOTES.md <<'EOF'\ngit commit --no-verify is forbidden\nEOF"); noVerifyRe.MatchString(shell) {
+		t.Error("heredoc body must not trigger the no-verify rule")
+	}
+}
+
+func TestPythonBaselineRule(t *testing.T) {
+	perf := strings.Replace(validSpec, "## Acceptance\na, no performance impact\n", "## Acceptance\nfast enough\n", 1)
+	if _, err := parseSpec("spec/T-001-x.md", []byte(perf)); err == nil || !strings.Contains(err.Error(), "Python baseline") {
+		t.Errorf("performance scope without baseline must fail, got %v", err)
+	}
+	ok := strings.Replace(validSpec, "## Acceptance\na, no performance impact\n", "## Acceptance\nmatches PyTorch at n=1024\n", 1)
+	if _, err := parseSpec("spec/T-001-x.md", []byte(ok)); err != nil {
+		t.Errorf("baseline given: %v", err)
+	}
+	nonPerf := strings.Replace(perf, "  - tensor/\n  - cmd/bench/main.go\n", "  - cmd/gate/\n", 1)
+	if _, err := parseSpec("spec/T-001-x.md", []byte(nonPerf)); err != nil {
+		t.Errorf("non-performance scope needs no baseline: %v", err)
 	}
 }
 
@@ -181,6 +225,7 @@ func TestRepoRoundTrip(t *testing.T) {
 	write("TODO.md", "# TODO\n\n")
 	write("BUGS.md", "# BUGS\n\n(none open)\n")
 	write("DONE.md", "# DONE\n\nnewest first\n\n")
+	write("BUGS-FIXED.md", "# BUGS-FIXED\n\nnewest first\n\n")
 	write("README.md", "docs\n")
 	write("docs/manual/README.md", "# Manual\n\n- [Usage](usage.md)\n")
 	write("docs/manual/usage.md", "# Usage\n")
@@ -266,6 +311,13 @@ func TestRepoRoundTrip(t *testing.T) {
 	bugs, _ = os.ReadFile(filepath.Join(root, "BUGS.md"))
 	if !strings.Contains(string(bugs), "(none open)") {
 		t.Fatalf("placeholder not restored:\n%s", bugs)
+	}
+	fixedList, _ := os.ReadFile(filepath.Join(root, "BUGS-FIXED.md"))
+	if !strings.Contains(string(fixedList), "B-001 — Crash on empty input (spec/done/B-001-crash-on-empty-input.md)") {
+		t.Fatalf("BUGS-FIXED.md:\n%s", fixedList)
+	}
+	if done, _ = os.ReadFile(filepath.Join(root, "DONE.md")); strings.Contains(string(done), "B-001") {
+		t.Fatal("fixed bug must not be listed in DONE.md")
 	}
 	// once committed, a done spec no longer covers new edits
 	run("add", "-A")

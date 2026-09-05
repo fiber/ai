@@ -1,6 +1,6 @@
 # Development process
 
-Three lists, one spec per change, and a gate that refuses work outside the
+Four lists, one spec per change, and a gate that refuses work outside the
 rules. `go run ./cmd/gate` is the tool; a git pre-commit hook and a
 Claude Code hook run it automatically.
 
@@ -10,7 +10,8 @@ Claude Code hook run it automatically.
 |---|---|---|
 | `TODO.md` | open work items | `- [ ] T-042 — title (spec/T-042-slug.md)` — the spec reference may be missing while the item is only an idea |
 | `BUGS.md` | open bugs | `- [ ] B-007 — title (spec/B-007-slug.md)` |
-| `DONE.md` | finished items and fixed bugs, newest first | `- 2026-09-05 T-042 — title (spec/done/T-042-slug.md)` |
+| `DONE.md` | finished work items, newest first | `- 2026-09-05 T-042 — title (spec/done/T-042-slug.md)` |
+| `BUGS-FIXED.md` | fixed bugs, newest first | `- 2026-09-05 B-007 — title (spec/done/B-007-slug.md)` |
 
 IDs are `T-nnn` for work items and `B-nnn` for bugs and are never reused.
 
@@ -28,7 +29,7 @@ IDs are `T-nnn` for work items and `B-nnn` for bugs and are never reused.
    unchecked item.
 4. **Finishing moves the spec** to `spec/done/` with `status: done` and a
    `done:` date, removes the item from `TODO.md`/`BUGS.md` and adds a line
-   to `DONE.md`. The commit that completes a spec may still touch files in
+   to `DONE.md` (work items) or `BUGS-FIXED.md` (bugs). The commit that completes a spec may still touch files in
    its scope (the gate treats a done spec that is part of the change set as
    covering).
 5. **Bugs are recorded first** in `BUGS.md`; fixing one needs a `B-` spec
@@ -61,5 +62,9 @@ time.
   with `go run ./cmd/gate install`).
 - `.claude/settings.json` runs `gate hook` before every Edit/Write and
   every Bash command; edits to uncovered code files are refused with the
-  spec that is missing, and shell commands that redirect into, move, copy
-  or delete code files are checked the same way.
+  spec that is missing, and shell commands are checked by their write
+  targets: redirections, `tee`, `sed -i`, `mv`/`cp`/`rm`, `gofmt -w`,
+  `git mv`/`rm` arguments and Python file writes (`open` in write mode,
+  `Path.write_*`, `shutil.copy/move`, `os.rename/remove`). Words that
+  merely appear in heredoc text are not targets. A write whose target is
+  a variable is refused ("use a literal path").

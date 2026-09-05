@@ -10,7 +10,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -22,7 +21,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -214,10 +212,44 @@ func parseSpec(rel string, content []byte) (Spec, error) {
 			errs = append(errs, "section "+section+" missing")
 		}
 	}
+	if performanceScope(s.Scope) && !hasPythonBaseline(body) {
+		errs = append(errs, "performance spec without a Python baseline: the Acceptance section must name the NumPy/PyTorch figure and target, or state 'no performance impact' (PROCESS.md rule 7)")
+	}
 	if len(errs) > 0 {
 		return s, fmt.Errorf("%s: %s", rel, strings.Join(errs, "; "))
 	}
 	return s, nil
+}
+
+// performanceDirs are the parts of the tree where changes can move
+// benchmark numbers; specs touching them must state a Python baseline.
+var performanceDirs = []string{"internal/", "tensor/", "nn/", "optim/"}
+
+func performanceScope(scope []string) bool {
+	for _, p := range scope {
+		p = strings.TrimPrefix(strings.TrimSpace(p), "./")
+		for _, d := range performanceDirs {
+			if strings.HasPrefix(p, d) || p+"/" == d {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasPythonBaseline checks the Acceptance section for a NumPy/PyTorch
+// reference or an explicit no-impact statement.
+func hasPythonBaseline(body string) bool {
+	i := strings.Index(body, "## Acceptance")
+	if i < 0 {
+		return false
+	}
+	sec := body[i+len("## Acceptance"):]
+	if j := strings.Index(sec, "\n## "); j >= 0 {
+		sec = sec[:j]
+	}
+	lower := strings.ToLower(sec)
+	return strings.Contains(lower, "pytorch") || strings.Contains(lower, "numpy") || strings.Contains(lower, "no performance impact")
 }
 
 // loadSpecs reads spec/*.md and spec/done/*.md.
@@ -376,13 +408,19 @@ func checkLists(root string, specs []Spec) []error {
 	if err != nil {
 		errs = append(errs, err)
 	}
+	fixed, err := readLines(root, "BUGS-FIXED.md")
+	if err != nil {
+		errs = append(errs, err)
+	}
 	if len(errs) > 0 {
 		return errs
 	}
 	for _, s := range specs {
 		list, name := todo, "TODO.md"
+		doneList, doneName := done, "DONE.md"
 		if strings.HasPrefix(s.ID, "B-") {
 			list, name = bugs, "BUGS.md"
+			doneList, doneName = fixed, "BUGS-FIXED.md"
 		}
 		switch s.Status {
 		case "open":
@@ -390,8 +428,8 @@ func checkLists(root string, specs []Spec) []error {
 				errs = append(errs, fmt.Errorf("%s: open spec %s has no '- [ ] %s — ...' entry in %s", s.Path, s.ID, s.ID, name))
 			}
 		case "done":
-			if !mentions(done, s.ID) {
-				errs = append(errs, fmt.Errorf("%s: done spec %s is not listed in DONE.md", s.Path, s.ID))
+			if !mentions(doneList, s.ID) {
+				errs = append(errs, fmt.Errorf("%s: done spec %s is not listed in %s", s.Path, s.ID, doneName))
 			}
 			if hasOpenItem(todo, s.ID) || hasOpenItem(bugs, s.ID) {
 				errs = append(errs, fmt.Errorf("%s: done spec %s is still an open item in TODO.md/BUGS.md", s.Path, s.ID))
@@ -567,10 +605,14 @@ func runHook(root string, stdin io.Reader) error {
 		}
 	case "Bash":
 		cmd := in.ToolInput.Command
-		if noVerifyRe.MatchString(cmd) {
+		shell, _ := splitHeredocs(cmd)
+		if noVerifyRe.MatchString(shell) {
 			return errors.New("git commit --no-verify bypasses the process gate and is not allowed (PROCESS.md rule 6)")
 		}
-		targets = bashWriteTargets(root, cmd)
+		var err error
+		if targets, err = bashWriteTargets(root, cmd); err != nil {
+			return fmt.Errorf("blocked by the process gate: %v", err)
+		}
 	default:
 		return nil
 	}
@@ -634,42 +676,215 @@ func canonical(p string) string {
 
 var (
 	noVerifyRe = regexp.MustCompile(`git\s+commit[^\n|;&]*(--no-verify|\s-n\b)`)
-	// mutation indicators in a shell command
-	mutationRe = regexp.MustCompile(`(^|[\s;&|(])(>|>>|tee|sed\s+-i|mv|cp|rm|gofmt\s+-w|goimports\s+-w|install|truncate|dd|patch|git\s+mv|git\s+rm)(\s|$)|open\([^)]*['"]\s*[wax]|\bWrite\b|writeFile|write_text|shutil\.|os\.rename|os\.remove|Path\([^)]*\)\.write`)
-	// tokens that look like source or build files
-	pathRe = regexp.MustCompile(`[A-Za-z0-9_./~-]+\.(go|s|S|c|h|py|sh|mod|sum|json|ya?ml|toml|txt|csv)\b|(^|[\s"'/])go\.mod\b`)
+	heredocRe  = regexp.MustCompile(`<<-?\s*['"]?(\w+)['"]?`)
+	// files the gate cares about when they are written
+	codeFileRe = regexp.MustCompile(`\.(go|s|S|c|h|py|sh|mod|sum|json|ya?ml|toml|txt|csv)$`)
+	// shell commands whose arguments are written, moved or deleted
+	writeCmds  = map[string]bool{"tee": true, "mv": true, "cp": true, "rm": true, "truncate": true, "install": true, "patch": true}
+	pyAssignRe = regexp.MustCompile(`(?m)^\s*(\w+)\s*=\s*['"]([^'"\n]+)['"]`)
+	pyWriteRes = []*regexp.Regexp{
+		regexp.MustCompile(`open\(\s*([^,()]+?)\s*,\s*['"][wax]`),
+		regexp.MustCompile(`Path\(\s*([^()]+?)\s*\)\.write_`),
+		regexp.MustCompile(`shutil\.(?:copy|copy2|copyfile|move)\([^,()]+,\s*([^,()]+?)\s*\)`),
+		regexp.MustCompile(`os\.(?:rename|replace)\([^,()]+,\s*([^,()]+?)\s*\)`),
+		regexp.MustCompile(`os\.remove\(\s*([^()]+?)\s*\)`),
+	}
 )
 
-// bashWriteTargets returns candidate files a shell command may write. It
-// is deliberately conservative: any path-like token with a code extension
-// in a command that contains a mutation indicator counts, provided the
-// file or its directory exists in the repository.
-func bashWriteTargets(root, cmd string) []string {
-	if !mutationRe.MatchString(cmd) {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	for _, m := range pathRe.FindAllString(cmd, -1) {
-		m = strings.Trim(m, ` "'`)
-		m = strings.TrimPrefix(m, "/")
-		if m == "" || strings.HasPrefix(m, "http") || seen[m] {
+// errUnknownTarget is returned when a write goes to a path the gate
+// cannot see (a shell or Python variable).
+var errUnknownTarget = errors.New("cannot determine the write target; use a literal path")
+
+// splitHeredocs separates heredoc bodies from the shell text so that
+// words inside documentation or code being written are not mistaken for
+// shell arguments.
+func splitHeredocs(cmd string) (shell string, bodies string) {
+	var sh, bd []string
+	var marker string
+	for _, line := range strings.Split(cmd, "\n") {
+		if marker != "" {
+			if strings.TrimSpace(line) == marker {
+				marker = ""
+			} else {
+				bd = append(bd, line)
+			}
 			continue
 		}
-		seen[m] = true
-		rel, ok := relPath(root, m)
+		sh = append(sh, line)
+		if m := heredocRe.FindStringSubmatch(line); m != nil {
+			marker = m[1]
+		}
+	}
+	return strings.Join(sh, "\n"), strings.Join(bd, "\n")
+}
+
+// shellTokens splits shell text into words, keeping operators separate
+// and dropping quotes.
+func shellTokens(text string) []string {
+	var toks []string
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() > 0 {
+			toks = append(toks, cur.String())
+			cur.Reset()
+		}
+	}
+	var quote rune
+	rs := []rune(text)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == ' ' || r == '\t' || r == '\n':
+			flush()
+		case r == '|' || r == ';' || r == '&':
+			flush()
+			if i+1 < len(rs) && rs[i+1] == r {
+				toks = append(toks, string(r)+string(r))
+				i++
+			} else {
+				toks = append(toks, string(r))
+			}
+		case r == '>':
+			// redirection, possibly prefixed by a file descriptor or &
+			if prev := cur.String(); prev == "1" || prev == "2" || prev == "&" {
+				cur.Reset()
+			} else {
+				flush()
+			}
+			if i+1 < len(rs) && rs[i+1] == '>' {
+				toks = append(toks, ">>")
+				i++
+			} else {
+				toks = append(toks, ">")
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush()
+	return toks
+}
+
+func isOperator(t string) bool {
+	return t == "|" || t == "||" || t == ";" || t == "&" || t == "&&" || t == ">" || t == ">>"
+}
+
+// shellTargets returns the tokens a shell command writes to. An error is
+// returned when a target is a variable.
+func shellTargets(shell string) ([]string, error) {
+	toks := shellTokens(shell)
+	var out []string
+	add := func(t string) error {
+		if strings.HasPrefix(t, "$") || strings.Contains(t, "${") {
+			return errUnknownTarget
+		}
+		out = append(out, t)
+		return nil
+	}
+	for i := 0; i < len(toks); i++ {
+		t := toks[i]
+		switch {
+		case t == ">" || t == ">>":
+			if i+1 < len(toks) && !isOperator(toks[i+1]) {
+				if err := add(toks[i+1]); err != nil {
+					return nil, err
+				}
+				i++
+			}
+		case writeCmds[t],
+			t == "sed" && i+1 < len(toks) && strings.HasPrefix(toks[i+1], "-i"),
+			(t == "gofmt" || t == "goimports") && i+1 < len(toks) && toks[i+1] == "-w",
+			t == "git" && i+1 < len(toks) && (toks[i+1] == "mv" || toks[i+1] == "rm"):
+			if t == "git" {
+				i++
+			}
+			for j := i + 1; j < len(toks) && !isOperator(toks[j]); j++ {
+				a := toks[j]
+				if strings.HasPrefix(a, "-") {
+					continue
+				}
+				if err := add(a); err != nil {
+					return nil, err
+				}
+				i = j
+			}
+		}
+	}
+	return out, nil
+}
+
+// pythonTargets returns paths written by Python snippets in text.
+func pythonTargets(text string) ([]string, error) {
+	vars := map[string]string{}
+	for _, m := range pyAssignRe.FindAllStringSubmatch(text, -1) {
+		vars[m[1]] = m[2]
+	}
+	var out []string
+	for _, re := range pyWriteRes {
+		for _, m := range re.FindAllStringSubmatch(text, -1) {
+			arg := strings.TrimSpace(m[1])
+			if (strings.HasPrefix(arg, "'") || strings.HasPrefix(arg, `"`)) && len(arg) >= 2 {
+				out = append(out, arg[1:len(arg)-1])
+				continue
+			}
+			if v, ok := vars[arg]; ok {
+				out = append(out, v)
+				continue
+			}
+			return nil, errUnknownTarget
+		}
+	}
+	return out, nil
+}
+
+// bashWriteTargets returns the repository files a shell command writes,
+// moves or deletes: redirection and write-command arguments in the shell
+// text plus Python write calls in the command and its heredoc bodies.
+// Words that merely appear in heredoc text are not targets. Paths outside
+// the repository or in directories that do not exist are ignored.
+func bashWriteTargets(root, cmd string) ([]string, error) {
+	shell, bodies := splitHeredocs(cmd)
+	targets, err := shellTargets(shell)
+	if err != nil {
+		return nil, err
+	}
+	py, err := pythonTargets(shell + "\n" + bodies)
+	if err != nil {
+		return nil, err
+	}
+	targets = append(targets, py...)
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range targets {
+		t = strings.TrimSpace(t)
+		if t == "" || t == "/dev/null" || strings.HasPrefix(t, "http") || seen[t] {
+			continue
+		}
+		seen[t] = true
+		if !codeFileRe.MatchString(t) {
+			continue // documentation and other exempt files need no check
+		}
+		rel, ok := relPath(root, t)
 		if !ok {
 			continue
 		}
 		abs := filepath.Join(root, rel)
 		if _, err := os.Stat(abs); err != nil {
 			if _, err := os.Stat(filepath.Dir(abs)); err != nil {
-				continue // neither file nor directory exists: not a repo path
+				continue
 			}
 		}
 		out = append(out, abs)
 	}
-	return out
+	return out, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -771,6 +986,9 @@ func runNew(root string, bug bool, scope, manual, title string) error {
 		return err
 	}
 	fmt.Printf("created %s and added to %s\n", rel, list)
+	if performanceScope(strings.Split(scope, ",")) {
+		fmt.Println("performance-relevant scope: the Acceptance section must name the NumPy/PyTorch baseline and target (PROCESS.md rule 7)")
+	}
 	return nil
 }
 
@@ -862,14 +1080,14 @@ func runDone(root, id string) error {
 	// git may not know the file yet; ignore errors from the rename bookkeeping
 	exec.Command("git", "-C", root, "add", "-A", "--", spec.Path, newRel).Run()
 
-	list := "TODO.md"
+	list, doneName := "TODO.md", "DONE.md"
 	if strings.HasPrefix(id, "B-") {
-		list = "BUGS.md"
+		list, doneName = "BUGS.md", "BUGS-FIXED.md"
 	}
 	if _, err := removeListItem(root, list, id); err != nil {
 		return err
 	}
-	lines, err := readLines(root, "DONE.md")
+	lines, err := readLines(root, doneName)
 	if err != nil {
 		return err
 	}
@@ -887,10 +1105,10 @@ func runDone(root, id string) error {
 	if !inserted {
 		out = append(out, "", entry)
 	}
-	if err := os.WriteFile(filepath.Join(root, "DONE.md"), []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, doneName), []byte(strings.Join(out, "\n")+"\n"), 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("%s -> %s; %s updated, DONE.md updated\n", spec.Path, newRel, list)
+	fmt.Printf("%s -> %s; %s updated, %s updated\n", spec.Path, newRel, list, doneName)
 	return nil
 }
 
@@ -910,15 +1128,3 @@ func runInstall(root string) error {
 	fmt.Println("git core.hooksPath = .githooks")
 	return nil
 }
-
-// sortedKeys is a small helper for deterministic output in tests.
-func sortedKeys(m map[string]bool) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-var _ = bufio.NewReader // keep bufio available for future streaming input

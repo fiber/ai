@@ -168,6 +168,50 @@ in fiber/ai, the theoretical 3× for the GEMMs involved. And the optimiser
 step is where Python overhead shows — PyTorch spends 1.04 ms on Adam for
 668 K parameters, fiber/ai 0.26 ms.
 
+## Apple M4 (4 performance + 6 efficiency cores)
+
+Same workloads, run by hand on an M4 with Go 1.27.0, NumPy 2.5.3 and
+PyTorch 2.14.0 (raw: [results/go-m4.md](benchmarks/results/go-m4.md),
+[results/python-m4.md](benchmarks/results/python-m4.md)).
+
+| Workload | fiber/ai | NumPy | PyTorch | ratio |
+|---|---:|---:|---:|---:|
+| SGEMM 128², all cores (GFLOPS) | 93.8 | 913 | 953 | 10× behind |
+| SGEMM 2048², 1 core (GFLOPS) | **120.7** | – | 1 878 (SME) | 15× behind |
+| SGEMM 2048², all cores (GFLOPS) | 614 | 1 884 | 1 881 | 3.1× behind |
+| [1×4096]·[4096×4096] (GFLOPS) | 30.4 | 34.8 | 33.2 | par |
+| [8×4096]·[4096×4096] (GFLOPS) | 72.9 | 93.0 | 93.1 | 1.3× behind |
+| exp, 16M | **2.09 ms** | 24.9 ms | 3.57 ms | 1.7× ahead |
+| softmax(dim=1), 4096² | **2.74 ms** | – | 6.02 ms | 2.2× ahead |
+| sum(dim=0), 4096² | **0.62 ms** | 1.24 ms | 2.79 ms | 4.5× ahead |
+| max(dim=1), 4096² | **0.57 ms** | 1.03 ms | 2.38 ms | 4.2× ahead |
+| layernorm, 4096² | 4.66 ms | – | **1.94 ms** | 2.4× behind |
+| transpose + copy, 4096² | 10.8 ms | 51.2 ms | 11.2 ms | par |
+| x + y, 16M | 2.84 ms | 2.23 ms | **2.14 ms** | 1.3× behind |
+| MLP forward, batch 256 (samples/s) | 189 K | – | **835 K** | 4.4× behind |
+| MLP train step, batch 256 (samples/s) | 64.7 K | – | **117 K** | 1.8× behind |
+
+Observations:
+
+- The NEON single-core figure is 86 % of the M4 performance core's FMA
+  peak, the same efficiency as on the M2 Pro. The M4 (4P+6E) scales to 5×
+  one core.
+- Accelerate on the M4 goes through **SME** and delivers 1.9 TFLOPS — less
+  than the M2 Pro's 2.7 TFLOPS on AMX, because the base M4 has one matrix
+  unit for its single performance cluster. SME is a documented ISA on the
+  M4, so an SME kernel in Go assembly (TODO T-006) can target the same
+  unit; the M4 numbers above are its acceptance baseline.
+- Everything that is not a GEMM is where it was on the M2 Pro: ahead on
+  exp, softmax, column reductions and max; behind on layernorm (five
+  passes per row instead of one fused pass) and on tanh.
+
+## Production platform
+
+Production runs on Intel/AMD Linux. There NumPy and PyTorch use OpenBLAS
+or MKL on the same AVX2/AVX-512 units our kernels use, so the comparison
+is like for like. Those measurements are TODO T-008 and will decide the
+priorities; the macOS numbers above are development feedback.
+
 ## What the numbers say
 
 - The NEON kernels are close to the hardware limits: 87 % of FMA peak for
