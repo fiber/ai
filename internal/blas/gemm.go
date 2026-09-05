@@ -292,7 +292,23 @@ var bufs struct {
 // the core that used it, which on a machine with slow memory is worth
 // more than a tighter size fit (choosing the smallest fit cost a 16-core
 // Xeon 20 % of an MLP forward pass).
+// Experiment switches (FIBERAI_BLAS_PACKA=stream, FIBERAI_BLAS_BUF=pool).
+var (
+	packStream = os.Getenv("FIBERAI_BLAS_PACKA") == "stream"
+	bufSync    = os.Getenv("FIBERAI_BLAS_BUF") == "pool"
+	bufPool    sync.Pool
+)
+
 func getBuf(n int) []float32 {
+	if bufSync {
+		if v := bufPool.Get(); v != nil {
+			s := *(v.(*[]float32))
+			if cap(s) >= n {
+				return s[:n]
+			}
+		}
+		return make([]float32, n)
+	}
 	bufs.Lock()
 	for i := len(bufs.free) - 1; i >= 0; i-- {
 		s := bufs.free[i]
@@ -307,6 +323,10 @@ func getBuf(n int) []float32 {
 }
 
 func putBuf(s []float32) {
+	if bufSync {
+		bufPool.Put(&s)
+		return
+	}
 	bufs.Lock()
 	defer bufs.Unlock()
 	if len(bufs.free) >= bufKeep {
@@ -366,8 +386,10 @@ func gemm(c, a, b Mat, workers int, zero bool) {
 			nJ = (nPanels + panelsPerTask - 1) / panelsPerTask
 
 			parallel.ForWorkers(nIc*nJ, workers, func(task int) {
-				kernel.GemmBegin()
-				defer kernel.GemmEnd()
+				if kernel.GemmHooks {
+					kernel.GemmBegin()
+					defer kernel.GemmEnd()
+				}
 				ic := (task / nJ) * mc
 				jt := task % nJ
 				ib := min(mc, m-ic)
@@ -458,8 +480,10 @@ func computeRows(c, a Mat, bp []float32, starts []int, jc, pc, pb, jb, mr, nr, w
 		ap := getBuf(roundUp(ib, mr) * pb)
 		defer putBuf(ap)
 		packA(ap, a, ic, pc, ib, pb, mr)
-		kernel.GemmBegin()
-		defer kernel.GemmEnd()
+		if kernel.GemmHooks {
+			kernel.GemmBegin()
+			defer kernel.GemmEnd()
+		}
 		var tmp []float32
 		for jr := 0; jr < nPanels; jr++ {
 			j := jr * nr
@@ -525,6 +549,13 @@ func packA(dst []float32, a Mat, i0, p0, ib, pb, mr int) {
 		rows := min(mr, ib-ir)
 		panel := dst[ir*pb : (ir+mr)*pb]
 		switch {
+		case a.CS == 1 && packStream: // experiment: the former per-row streaming loop
+			for i := 0; i < rows; i++ {
+				src := a.Data[(i0+ir+i)*a.RS+p0:][:pb]
+				for p, v := range src {
+					panel[p*mr+i] = v
+				}
+			}
 		case a.CS == 1: // rows of A are contiguous: 4×4 register transposes, scalar tails
 			i := 0
 			pb4 := pb &^ 3

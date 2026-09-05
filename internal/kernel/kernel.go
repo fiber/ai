@@ -82,6 +82,9 @@ var (
 	// enable per-thread state; callers keep the goroutine on its thread
 	// between them (the AMX hooks lock it themselves).
 	GemmBegin, GemmEnd func()
+	// GemmHooks reports whether GemmBegin/GemmEnd do anything; drivers skip
+	// the calls (and the deferred End) when they do not.
+	GemmHooks bool
 	// GemmHints carries the back-end's preferences for the blocked driver;
 	// zero fields mean "use the architecture default".
 	GemmHints Hints
@@ -138,7 +141,8 @@ func use(i *impl) {
 	Gemm, MR, NR = i.gemm, i.mr, i.nr
 	GemmZero = i.gemmZero
 	GemmBegin, GemmEnd = noop, noop
-	if i.gemmBegin != nil {
+	GemmHooks = i.gemmBegin != nil
+	if GemmHooks {
 		GemmBegin, GemmEnd = i.gemmBegin, i.gemmEnd
 	}
 	GemmHints = i.hints
