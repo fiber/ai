@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-05 T-026 — Fused attention for inference: per-row-block scores, softmax in cache, no materialised score matrix (spec/done/T-026-fused-attention-for-inference-per-row-block-scor.md)
 - 2026-09-05 T-024 — Attention building blocks: masked fill, scaled dot-product attention, multi-head attention, RMSNorm, causal and padding masks (spec/done/T-024-attention-building-blocks-masked-fill-scaled-dot.md)
 - 2026-09-05 T-023 — Data preparation and metrics: counter deltas, windows, time split, standardiser, batches; confusion matrix; class-weighted cross-entropy (spec/done/T-023-data-preparation-and-metrics-counter-deltas-wind.md)
 - 2026-09-05 T-022 — Syslog building blocks: log template mining at 50M lines a day, k-means and nearest-centre search over embeddings (spec/done/T-022-syslog-building-blocks-log-template-mining-at-50.md)

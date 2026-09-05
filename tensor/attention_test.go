@@ -155,3 +155,43 @@ func TestRMSNormAndGradient(t *testing.T) {
 		}
 	}
 }
+
+func TestFusedAttentionMatchesComposed(t *testing.T) {
+	rng := rand.New(rand.NewPCG(5, 6))
+	B, H, T, S, D := 2, 3, 70, 45, 16 // T not a multiple of the block
+	q := RandnFrom(rng, B, H, T, D)
+	k := RandnFrom(rng, B, H, S, D)
+	v := RandnFrom(rng, B, H, S, D)
+	causal := CausalMask(T) // only valid when S == T; use a padding mask and a [T×S] random mask here
+	_ = causal
+	tsMask := RandnFrom(rng, T, S)
+	pad := PaddingMask([]int{S, 20}, S)
+	both := tsMask.Add(pad) // [B×1×T×S]
+	cases := map[string]*Tensor{"none": nil, "TxS": tsMask, "padding": pad, "sum": both}
+	for name, mask := range cases {
+		fused := attentionFused(q, k, v, mask)
+		if fused == nil {
+			t.Fatalf("%s: fused path declined", name)
+		}
+		composed := attentionComposed(q, k, v, mask)
+		if !fused.AllClose(composed, 1e-4, 1e-5) {
+			t.Fatalf("%s: fused and composed differ", name)
+		}
+	}
+	// strided inputs: head split through Permute, and 3-D inputs
+	x := RandnFrom(rng, B, T, H*D)
+	split := x.Reshape(B, T, H, D).Permute(0, 2, 1, 3)
+	if !attentionFused(split, split, split, nil).AllClose(attentionComposed(split, split, split, nil), 1e-4, 1e-5) {
+		t.Fatal("permuted inputs differ")
+	}
+	q3, k3, v3 := RandnFrom(rng, 4, 9, 8), RandnFrom(rng, 4, 9, 8), RandnFrom(rng, 4, 9, 8)
+	if !attentionFused(q3, k3, v3, CausalMask(9)).AllClose(attentionComposed(q3, k3, v3, CausalMask(9)), 1e-4, 1e-5) {
+		t.Fatal("3-D causal differs")
+	}
+	// under grad recording the composed path is taken and gradients flow
+	qg := RandnFrom(rng, 1, 1, 5, 4).SetRequiresGrad(true)
+	Attention(qg, k3.Narrow(0, 0, 1).Narrow(1, 0, 5).Unsqueeze(0).Narrow(3, 0, 4), v3.Narrow(0, 0, 1).Narrow(1, 0, 5).Unsqueeze(0).Narrow(3, 0, 4), nil).Sum().Backward()
+	if qg.Grad() == nil {
+		t.Fatal("no gradient through Attention")
+	}
+}

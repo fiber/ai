@@ -108,6 +108,13 @@ above the diagonal) and `PaddingMask(lengths, n)` ([batch×1×1×n]).
 `tensor.RMSNorm(x, g, eps)` normalises the last dimension by its root
 mean square.
 
+`Attention` has two implementations behind one call. While a gradient is
+being recorded it is composed from two products and a softmax, whose
+backward passes autograd provides. Under `NoGrad`, or when none of the
+inputs needs a gradient, a fused path computes 64 query rows at a time,
+runs their softmax in cache and never materialises the [T×S] score
+matrix; results agree to float32 precision.
+
 ## Views
 
 These return tensors sharing the same storage, in O(1):

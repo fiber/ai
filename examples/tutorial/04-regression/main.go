@@ -22,12 +22,12 @@ func main() {
 	lr := float32(0.1)
 
 	for step := 0; step <= 60; step++ {
-		pred := x.MatMul(w).Add(b)          // [200×1]: the model's guess for every example
-		loss := tensor.MSELoss(pred, y)     // mean of (guess − truth)²
+		pred := x.MatMul(w).Add(b)      // [200×1]: the model's guess for every example
+		loss := tensor.MSELoss(pred, y) // mean of (guess − truth)²
 		w.ZeroGrad()
 		b.ZeroGrad()
-		loss.Backward()                     // gradients for w and b
-		tensor.NoGrad(func() {              // the update is not part of the model
+		loss.Backward()        // gradients for w and b
+		tensor.NoGrad(func() { // the update is not part of the model
 			w.AddScaledInPlace(w.Grad(), -lr)
 			b.AddScaledInPlace(b.Grad(), -lr)
 		})

@@ -292,6 +292,14 @@ var bufs struct {
 // the core that used it, which on a machine with slow memory is worth
 // more than a tighter size fit (choosing the smallest fit cost a 16-core
 // Xeon 20 % of an MLP forward pass).
+// GetBuf and PutBuf expose the packing-buffer free list to callers that
+// need short-lived scratch of a few hundred KiB per task (fused
+// attention): warm, never zero-filled, no garbage.
+func GetBuf(n int) []float32 { return getBuf(n) }
+
+// PutBuf returns a buffer obtained from GetBuf.
+func PutBuf(s []float32) { putBuf(s) }
+
 func getBuf(n int) []float32 {
 	bufs.Lock()
 	for i := len(bufs.free) - 1; i >= 0; i-- {

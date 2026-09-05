@@ -56,8 +56,8 @@ func main() {
 
 	fmt.Printf("before training: accuracy %.1f%% (guessing would be 33.3%%)\n", accuracy(model, x, labels))
 	for epoch := 1; epoch <= 200; epoch++ {
-		logits := model.Forward(x)                    // [900×3]: a score per class
-		loss := tensor.CrossEntropy(logits, labels)   // how far the scores are from the right answer
+		logits := model.Forward(x)                  // [900×3]: a score per class
+		loss := tensor.CrossEntropy(logits, labels) // how far the scores are from the right answer
 		opt.ZeroGrad()
 		loss.Backward()
 		opt.Step()
