@@ -76,7 +76,11 @@ if [ $python -eq 1 ]; then
   venv="benchmarks/python/.venv"
   if [ ! -x "$venv/bin/python" ]; then
     log "creating $venv and installing numpy + torch (CPU)"
-    python3 -m venv "$venv"
+    if ! python3 -m venv "$venv" 2> "$out/venv.err"; then
+      log "  python3 -m venv failed (Debian/Ubuntu: sudo apt install python3-venv); rerun, or use -nopython"
+      log "  details in $out/venv.err"
+      exit 1
+    fi
     "$venv/bin/pip" install -q --upgrade pip
     "$venv/bin/pip" install -q numpy torch --index-url https://download.pytorch.org/whl/cpu \
       || "$venv/bin/pip" install -q numpy torch
