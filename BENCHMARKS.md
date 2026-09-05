@@ -30,65 +30,75 @@ Raw output: [results/go.md](benchmarks/results/go.md),
 
 ## Headline
 
-| Workload | fiber/ai | pure Go | NumPy | PyTorch |
+Apple M2 Pro, `go run ./cmd/bench` with the defaults of 8 September 2026
+(GEMM on the AMX coprocessor, everything else NEON; results released
+after each call as PyTorch's caching allocator does implicitly):
+
+| Workload | fiber/ai | pure Go¹ | NumPy | PyTorch |
 |---|---:|---:|---:|---:|
-| SGEMM 2048², 1 core (GFLOPS) | **99.8** | 7.9 | – | 2 209 (AMX) |
-| SGEMM 2048², all cores (GFLOPS) | **594.7** | 48.6 | 2 241 (AMX) | 2 243 (AMX) |
-| [1×4096]·[4096×4096] (GFLOPS) | **14.6** | 12.4 | 11.1 | 11.3 |
-| exp, 16M elements | **2.05 ms** | 6.51 ms | 26.3 ms | 3.01 ms |
-| softmax(dim=1), 4096² | **2.91 ms** | 14.4 ms | – | 6.47 ms |
-| sum(), 4096² | **0.61 ms** | 0.75 ms | 2.76 ms | 0.59 ms |
-| sum(dim=0), 4096² | **0.65 ms** | 1.22 ms | 1.32 ms | 2.14 ms |
-| transpose + copy, 4096² | **11.0 ms** | 10.9 ms | 60.2 ms | 22.7 ms |
-| x + y, 16M elements | 2.02 ms | 2.11 ms | 2.25 ms | **1.37 ms** |
-| MLP train step, batch 256 (samples/s) | 56.8 K | 11.4 K | – | **116 K** |
+| SGEMM 2048², 1 core (GFLOPS) | 1 038 (AMX) | 7.9 | – | 2 209 (AMX, Accelerate ignores the thread limit) |
+| SGEMM 2048², all cores (GFLOPS) | **2 301** (AMX) | 48.6 | 2 241 | 2 243 |
+| SGEMM 1024², all cores (GFLOPS) | 2 183 | 48.6 | **2 693** | 2 665 |
+| [1×4096]·[4096×4096] (GFLOPS) | **13.8** | 12.4 | 11.1 | 11.3 |
+| exp, 16M elements | **1.47 ms** | 6.51 ms | 26.3 ms | 3.01 ms |
+| softmax(dim=1), 4096² | **2.10 ms** | 14.4 ms | – | 6.47 ms |
+| layernorm, 4096² | **1.79 ms** | – | – | 2.35 ms |
+| sum(), 4096² | 0.60 ms | 0.75 ms | 2.76 ms | **0.59 ms** |
+| sum(dim=0), 4096² | **0.71 ms** | 1.22 ms | 1.32 ms | 2.14 ms |
+| transpose + copy, 4096² | **10.6 ms** | 10.9 ms | 60.2 ms | 22.7 ms |
+| x + y, 16M elements | 1.80 ms (1.50 released) | 2.11 ms | 2.25 ms | **1.37 ms** |
+| MLP inference, batch 256 (samples/s) | **733 K** | – | – | 532 K |
+| MLP train step, batch 256 (samples/s) | **164 K** | 11.4 K | – | 116 K |
 
-The assembly kernels are worth 2–13× over the same Go code (GEMM 12×,
-relu 7×, exp 3×, max 5×), and on everything that is not a large matrix
-product fiber/ai is on par with or ahead of NumPy and PyTorch.
+¹ The generic Go kernels, measured before the allocator work (T-015);
+they show what the assembly is worth (GEMM 12×, relu 7×, exp 3×, max 5×),
+not the current state of that path.
 
-**The one caveat is the big GEMM.** On Apple Silicon, Accelerate does not
-run SGEMM on the NEON units at all — it uses the AMX matrix coprocessor,
-which is undocumented and only reachable through Apple's library. 2.2–2.7
-TFLOPS is what that coprocessor delivers; 600 GFLOPS is roughly the ceiling
-of ten NEON cores (4 FMA pipes × 4 lanes × 2 × ~3.5 GHz ≈ 112 GFLOPS per
-performance core, less on efficiency cores). Our single-core figure of ~100
-GFLOPS is 87 % of that peak, i.e. the NEON kernel itself is close to
-optimal; the gap to Python on this machine is hardware, not code. On x86
-(OpenBLAS / MKL on AVX2 / AVX-512) the same comparison would be like for
-like; those numbers are pending an AVX-512 machine.
+**The big GEMM caveat is gone on Apple Silicon.** Accelerate runs SGEMM
+on the AMX matrix coprocessor, which is what made NumPy and PyTorch 3–4×
+faster than ten NEON cores on the first day of this project (595
+GFLOPS against 2 241 at n=2048). Spec T-010 put fiber/ai's GEMM tile on
+the same unit; at n=2048 the two are level, at n=1024 Accelerate is 20 %
+ahead. `FIBERAI_AMX=0` measures the NEON path (622 GFLOPS at n=2048,
+87 % of the NEON peak of ten cores). On x86 the comparison was always
+like for like; see the Xeon section.
 
 ## Matrix multiply
 
-n×n · n×n, float32, GFLOPS (higher is better):
+n×n · n×n, float32, GFLOPS (higher is better), M2 Pro:
 
-| n | fiber/ai 1 thread | fiber/ai 10 threads | pure Go 10 threads | NumPy | PyTorch |
-|---:|---:|---:|---:|---:|---:|
-| 128 | 67.5 | 71.7 | 7.5 | 754 | 783 |
-| 256 | 86.1 | 146.8 | 37.7 | 1 134 | 1 133 |
-| 512 | 97.0 | 364.5 | 47.0 | 2 142 | 2 131 |
-| 1024 | 97.7 | 525.5 | 48.6 | 2 693 | 2 665 |
-| 2048 | 99.8 | 594.7 | – | 2 241 | 2 243 |
+| n | AMX 1 thread | AMX all cores | NEON 1 thread | NEON 10 threads | pure Go 10 threads | NumPy | PyTorch |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 357 | 376 | 70 | 73 | 7.5 | 754 | 783 |
+| 256 | 770 | 1 003 | 90 | 280 | 37.7 | 1 134 | 1 133 |
+| 512 | 1 091 | 1 550 | 99 | 487 | 47.0 | 2 142 | 2 131 |
+| 1024 | 1 195 | 2 183 | 100 | 592 | 48.6 | 2 693 | 2 665 |
+| 2048 | 1 038 | **2 301** | 99 | 622 | – | 2 241 | 2 243 |
 
 Other shapes, all threads:
 
-| shape | fiber/ai | NumPy | PyTorch |
-|---|---:|---:|---:|
-| [1×4096]·[4096×4096] (matrix–vector, memory-bound) | **14.6** | 11.1 | 11.3 |
-| [8×4096]·[4096×4096] | 42.6 | 69.5 | 68.0 |
-| [64×1024]·[1024×1024] | 212.5 | 1 292 | 1 275 |
-| [256×768]·[768×3072] (transformer FFN) | 374.9 | 2 389 | 2 357 |
-| [1024×1024]·[1024×1024]ᵀ (transposed view, no copy) | 464.9 | 2 431 | 2 398 |
+| shape | AMX | NEON | NumPy | PyTorch |
+|---|---:|---:|---:|---:|
+| [1×4096]·[4096×4096] (matrix–vector, memory-bound) | **13.8** | 13.8 | 11.1 | 11.3 |
+| [8×4096]·[4096×4096] | **75.6** | 55 | 69.5 | 68.0 |
+| [64×1024]·[1024×1024] | 1 004 | 332 | **1 292** | 1 275 |
+| [256×768]·[768×3072] (transformer FFN) | 1 835 | 519 | **2 389** | 2 357 |
+| [1024×1024]·[1024×1024]ᵀ (transposed view, no copy) | 2 158 | 574 | **2 431** | 2 398 |
 
 Notes:
 
-- Scaling from 1 to 10 threads reaches 6× at n=2048. The four efficiency
-  cores contribute maybe 1.5 performance-core equivalents, so ~7× is the
-  realistic maximum; the rest is packing and synchronisation overhead.
-- The matrix–vector case beats Accelerate: it is pure memory bandwidth and
-  the `axpy` path streams B once with all cores.
-- Small M (8 rows) loses because the packed algorithm still packs the whole
-  B matrix; reading B in place for M ≤ MR is on the roadmap.
+- The AMX tile alone reaches 1.55 TFLOPS on one thread and 3.3 TFLOPS on
+  the six performance cores; the driver (packing, one barrier per K
+  block) is what separates 2.3 from that at n=2048 and more at small n.
+  The M4, with a single performance cluster, reaches 1.4 TFLOPS on one
+  thread and 1.7 on all (PyTorch there uses SME: 1.9).
+- NEON scaling from 1 to 10 threads reaches 6× at n=2048; the four
+  efficiency cores are worth about 1.5 performance cores.
+- The matrix–vector case is pure memory bandwidth and the `axpy` path
+  streams B once with all cores; both back-ends beat Accelerate there.
+- Small M (8 rows) with NEON still packs the whole B matrix; reading B
+  in place for M ≤ MR is on the roadmap (T-005). AMX is ahead of
+  Accelerate on that shape anyway.
 
 ## Element-wise operations
 

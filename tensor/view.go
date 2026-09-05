@@ -1,5 +1,7 @@
 package tensor
 
+import "github.com/fiber/ai/internal/kernel"
+
 // Reshape returns a tensor with the same elements and a new shape. One
 // dimension may be -1 and is inferred. Contiguous tensors are viewed
 // without copying; others are copied.
@@ -220,6 +222,36 @@ func (t *Tensor) Select(dim, index int) *Tensor {
 
 // Row returns row i of a tensor as a view of its remaining dimensions.
 func (t *Tensor) Row(i int) *Tensor { return t.Select(0, i) }
+
+// Rows gathers the rows t[i] for every i in indices (which may repeat)
+// into a new tensor of shape [len(indices), t.shape[1:]...]: the way to
+// assemble a mini-batch from a shuffled index list. The gradient scatters
+// back, adding where an index appears more than once.
+func (t *Tensor) Rows(indices []int) *Tensor {
+	if len(t.shape) == 0 {
+		fail("Rows", "cannot take rows of a scalar")
+	}
+	tc := t.Contiguous()
+	rowLen := tc.size / max(1, tc.shape[0])
+	shape := append(Shape{len(indices)}, tc.shape[1:]...)
+	out := newTensorUninit(shape)
+	src := tc.values()
+	for k, i := range indices {
+		if i < 0 || i >= tc.shape[0] {
+			fail("Rows", "index %d out of range for %d rows", i, tc.shape[0])
+		}
+		copy(out.data[k*rowLen:(k+1)*rowLen], src[i*rowLen:(i+1)*rowLen])
+	}
+	idx := append([]int(nil), indices...)
+	return record(out, "Rows", []*Tensor{tc}, func(gy *Tensor) {
+		g := newTensor(tc.shape) // zero, then scatter-add the row gradients
+		gd := gy.Contiguous().values()
+		for k, i := range idx {
+			kernel.Add(g.data[i*rowLen:(i+1)*rowLen], gd[k*rowLen:(k+1)*rowLen], g.data[i*rowLen:(i+1)*rowLen])
+		}
+		tc.accumGrad(g)
+	})
+}
 
 // Cat concatenates tensors along dim. All other dimensions must match.
 func Cat(dim int, tensors ...*Tensor) *Tensor {

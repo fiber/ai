@@ -558,3 +558,20 @@ func TestTry(t *testing.T) {
 	}()
 	_ = Try(func() { panic("other") })
 }
+
+func TestRowsGatherAndGradient(t *testing.T) {
+	x := Arange(0, 12, 1).Reshape(4, 3).SetRequiresGrad(true)
+	r := x.Rows([]int{3, 0, 3})
+	if !r.Shape().Equal(Shape{3, 3}) || r.At(0, 1) != 10 || r.At(1, 2) != 2 {
+		t.Fatalf("Rows gathered %v", r)
+	}
+	r.Sum().Backward()
+	// row 3 taken twice, row 0 once, rows 1 and 2 never
+	want := []float32{1, 1, 1, 0, 0, 0, 0, 0, 0, 2, 2, 2}
+	if got := x.Grad().Float32s(); !Equalf(got, want) {
+		t.Fatalf("Rows gradient %v, want %v", got, want)
+	}
+	if err := Try(func() { x.Rows([]int{4}) }); err == nil {
+		t.Fatal("out-of-range index accepted")
+	}
+}
