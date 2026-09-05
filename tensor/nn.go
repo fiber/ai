@@ -37,7 +37,7 @@ func forRows(size, n int, fn func(lo, hi int)) {
 func (t *Tensor) Softmax(dim int) *Tensor {
 	x, undo := lastDimRows("Softmax", t, dim)
 	n := x.shape[len(x.shape)-1]
-	out := newTensor(x.shape)
+	out := newTensorUninit(x.shape)
 	forRows(x.size, n, func(lo, hi int) {
 		for r := lo; r < hi; r++ {
 			row, o := x.data[r*n:(r+1)*n], out.data[r*n:(r+1)*n]
@@ -50,7 +50,7 @@ func (t *Tensor) Softmax(dim int) *Tensor {
 	out = record(out, "Softmax", []*Tensor{x}, func(gy *Tensor) {
 		// dx = y ⊙ (g − ⟨g, y⟩) per row
 		g := gy.Contiguous()
-		gx := newTensor(x.shape)
+		gx := newTensorUninit(x.shape)
 		forRows(x.size, n, func(lo, hi int) {
 			for r := lo; r < hi; r++ {
 				y, gr, o := od.data[r*n:(r+1)*n], g.data[r*n:(r+1)*n], gx.data[r*n:(r+1)*n]
@@ -68,7 +68,7 @@ func (t *Tensor) Softmax(dim int) *Tensor {
 func (t *Tensor) LogSoftmax(dim int) *Tensor {
 	x, undo := lastDimRows("LogSoftmax", t, dim)
 	n := x.shape[len(x.shape)-1]
-	out := newTensor(x.shape)
+	out := newTensorUninit(x.shape)
 	forRows(x.size, n, func(lo, hi int) {
 		for r := lo; r < hi; r++ {
 			row, o := x.data[r*n:(r+1)*n], out.data[r*n:(r+1)*n]
@@ -79,7 +79,7 @@ func (t *Tensor) LogSoftmax(dim int) *Tensor {
 	out = record(out, "LogSoftmax", []*Tensor{x}, func(gy *Tensor) {
 		// dx = g − softmax(x) · Σg per row
 		g := gy.Contiguous()
-		gx := newTensor(x.shape)
+		gx := newTensorUninit(x.shape)
 		forRows(x.size, n, func(lo, hi int) {
 			for r := lo; r < hi; r++ {
 				y, gr, o := od.data[r*n:(r+1)*n], g.data[r*n:(r+1)*n], gx.data[r*n:(r+1)*n]
@@ -113,7 +113,7 @@ func MSELoss(pred, target *Tensor) *Tensor {
 	if n == 0 {
 		fail("MSELoss", "empty tensors")
 	}
-	diff := newTensor(p.shape)
+	diff := newTensorUninit(p.shape)
 	kernel.Sub(p.data[:n], tg.data[:n], diff.data)
 	out := Scalar(kernel.Dot(diff.data, diff.data) / float32(n))
 	return record(out, "MSELoss", []*Tensor{p, tg}, func(gy *Tensor) {
@@ -143,7 +143,7 @@ func CrossEntropy(logits *Tensor, targets []int) *Tensor {
 			fail("CrossEntropy", "target %d out of range [0, %d)", t, c)
 		}
 	}
-	probs := newTensor(x.shape) // softmax, kept for backward
+	probs := newTensorUninit(x.shape) // softmax, kept for backward
 	losses := make([]float64, m)
 	forRows(x.size, c, func(lo, hi int) {
 		for r := lo; r < hi; r++ {
@@ -183,13 +183,13 @@ func LayerNorm(x, gamma, beta *Tensor, eps float32) *Tensor {
 		fail("LayerNorm", "gamma and beta must have %d elements, got %d and %d", n, gamma.size, beta.size)
 	}
 	xc, gc, bc := x.Contiguous(), gamma.Contiguous(), beta.Contiguous()
-	xhat := newTensor(x.shape) // normalised input, needed by backward
+	xhat := newTensorUninit(x.shape) // normalised input, needed by backward
 	rows := 0
 	if n > 0 {
 		rows = xc.size / n
 	}
 	rstd := make([]float32, rows)
-	out := newTensor(x.shape)
+	out := newTensorUninit(x.shape)
 	gd, bd := gc.data[:n], bc.data[:n]
 	forRows(xc.size, n, func(lo, hi int) {
 		for r := lo; r < hi; r++ {
@@ -215,7 +215,7 @@ func LayerNorm(x, gamma, beta *Tensor, eps float32) *Tensor {
 		}
 		if xc.requiresGrad {
 			// dx = rstd · (gy − mean(gy) − x̂ · mean(gy ⊙ x̂)),  gy = g ⊙ γ
-			gx := newTensor(x.shape)
+			gx := newTensorUninit(x.shape)
 			forRows(xc.size, n, func(lo, hi int) {
 				buf := make([]float32, n)
 				for r := lo; r < hi; r++ {

@@ -30,11 +30,17 @@ t.Size()           // number of elements
 t.Dim(-1)          // size of a dimension, negative counts from the end
 t.At(i, j)         // one element; negative indices allowed
 t.Item()           // the value of a single-element tensor
-t.Data()           // []float32 in row-major order: the storage itself if contiguous, otherwise a copy
+t.Data()           // []float32 in row-major order: the storage itself if contiguous (pins it, see below), otherwise a copy
 t.Float32s()       // always a fresh copy
 t.IsContiguous()   // dense row-major storage?
 t.Strides()        // element strides per dimension
 ```
+
+`Data()` on a contiguous tensor returns the backing slice, so writes
+through it are visible in the tensor. Because the caller may keep that
+slice, the tensor's storage is excluded from buffer reuse from then on
+(see [performance.md](performance.md#storage-reuse)); read with
+`Float32s()` or `At` when you do not need the live slice.
 
 `fmt.Println(t)` prints a NumPy-style nested layout; dimensions longer
 than `tensor.PrintOptions.Threshold` (8) are elided to the first and last

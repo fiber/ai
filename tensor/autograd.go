@@ -69,7 +69,7 @@ func (t *Tensor) RetainGrad() *Tensor {
 // Detach returns a tensor that shares t's storage but is not connected to
 // the autograd graph and does not require grad.
 func (t *Tensor) Detach() *Tensor {
-	return view(t.data, t.shape, t.strides)
+	return view(t, t.data, t.shape, t.strides)
 }
 
 // record attaches a backward node to out if any input requires grad and
@@ -98,15 +98,11 @@ func (t *Tensor) accumGrad(g *Tensor) {
 		fail("Backward", "internal: gradient shape %v does not match tensor shape %v", g.shape, t.shape)
 	}
 	if t.grad == nil {
-		t.grad = newTensor(t.shape)
+		t.grad = newTensorUninit(t.shape)
 		copyStrided(t.grad.data, g)
 		return
 	}
-	if g.IsContiguous() {
-		kernel.Add(t.grad.data, g.data[:g.size], t.grad.data)
-	} else {
-		kernel.Add(t.grad.data, g.Data(), t.grad.data)
-	}
+	kernel.Add(t.grad.data, g.values(), t.grad.data)
 }
 
 // Backward computes gradients of t (which must hold a single element) with

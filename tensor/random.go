@@ -35,7 +35,7 @@ func Rand(shape ...int) *Tensor { return RandFrom(nil, shape...) }
 // RandFrom is Rand drawing from r (nil uses the package generator).
 func RandFrom(r *rand.Rand, shape ...int) *Tensor {
 	checkShape("Rand", shape)
-	t := newTensor(shape)
+	t := newTensorUninit(shape)
 	fillRandom(t, r, func(r *rand.Rand) float32 { return r.Float32() })
 	return t
 }
@@ -46,7 +46,7 @@ func Randn(shape ...int) *Tensor { return RandnFrom(nil, shape...) }
 // RandnFrom is Randn drawing from r (nil uses the package generator).
 func RandnFrom(r *rand.Rand, shape ...int) *Tensor {
 	checkShape("Randn", shape)
-	t := newTensor(shape)
+	t := newTensorUninit(shape)
 	fillRandom(t, r, func(r *rand.Rand) float32 { return float32(r.NormFloat64()) })
 	return t
 }
@@ -57,7 +57,7 @@ func Uniform(lo, hi float32, shape ...int) *Tensor { return UniformFrom(nil, lo,
 // UniformFrom is Uniform drawing from r (nil uses the package generator).
 func UniformFrom(r *rand.Rand, lo, hi float32, shape ...int) *Tensor {
 	checkShape("Uniform", shape)
-	t := newTensor(shape)
+	t := newTensorUninit(shape)
 	fillRandom(t, r, func(r *rand.Rand) float32 { return lo + (hi-lo)*r.Float32() })
 	return t
 }

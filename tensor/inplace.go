@@ -71,7 +71,7 @@ func (t *Tensor) DivInPlace(u *Tensor) *Tensor {
 // MulScalarInPlace computes t *= s.
 func (t *Tensor) MulScalarInPlace(s float32) *Tensor {
 	t.checkInPlace("MulScalarInPlace")
-	d := t.Data()
+	d := t.values()
 	parallel.Range(len(d), minChunk, func(lo, hi int) { kernel.Scale(d[lo:hi], s, d[lo:hi]) })
 	if !t.IsContiguous() {
 		assign(t, wrap(d, t.shape))
@@ -89,7 +89,7 @@ func (t *Tensor) AddScaledInPlace(u *Tensor, alpha float32) *Tensor {
 	if !t.IsContiguous() {
 		fail("AddScaledInPlace", "in-place operation requires a contiguous tensor")
 	}
-	td, ud := t.data[:t.size], u.Data()
+	td, ud := t.data[:t.size], u.values()
 	parallel.Range(t.size, minChunk, func(lo, hi int) { kernel.Axpy(alpha, ud[lo:hi], td[lo:hi]) })
 	return t
 }

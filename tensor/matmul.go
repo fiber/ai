@@ -73,8 +73,8 @@ func matmulBatched(x, y *Tensor) *Tensor {
 	nb := batch.Size()
 	if out.size > 0 && k > 0 && nb > 0 {
 		// per-batch offsets via broadcast strides over the batch dims
-		xb := view(x.data, x.shape[:nx-2], x.strides[:nx-2])
-		yb := view(y.data, y.shape[:ny-2], y.strides[:ny-2])
+		xb := view(x, x.data, x.shape[:nx-2], x.strides[:nx-2])
+		yb := view(y, y.data, y.shape[:ny-2], y.strides[:ny-2])
 		sx, sy := broadcastStrides(xb, batch), broadcastStrides(yb, batch)
 		xoff, yoff := make([]int, nb), make([]int, nb)
 		walkRows(append(batch.clone(), 1), [][]int{append(sx, 0), append(sy, 0)}, 0, nb, func(b int, offs []int) {

@@ -74,7 +74,9 @@ It runs automatically in two places:
   freely; Python write calls are recognised inside heredocs, because that
   is where scripts live, so documentation should not spell one out
   verbatim. A target the gate cannot resolve (a shell or Python variable)
-  is refused with "use a literal path". `--no-verify` commits are refused. The hook builds the gate into
+  is refused with "use a literal path". `--no-verify` commits are refused. The hook is independent of the shell's
+  current directory: it changes to the repository root itself and
+  resolves relative paths against the directory the tool call runs in. The hook builds the gate into
   the ignored binary `.claude/gate-bin` and runs that, because a `go run`
   wrapper would turn the blocking exit code 2 into a 1. A settings file
   created during a session becomes active after `/hooks` or a restart.

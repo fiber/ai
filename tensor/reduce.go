@@ -70,7 +70,7 @@ func reduceDims(t *Tensor, dims []int, keep bool, kind reduceKind) *Tensor {
 			shape = append(shape, s)
 		}
 	}
-	return view(r.data, shape, contiguousStrides(shape))
+	return view(r, r.data, shape, contiguousStrides(shape))
 }
 
 // reduceAll reduces every element of a contiguous, non-empty tensor into a
@@ -111,10 +111,10 @@ func reduceOne(t *Tensor, dim int, kind reduceKind) *Tensor {
 	shape := t.shape.clone()
 	d := shape[dim]
 	shape[dim] = 1
-	out := newTensor(shape)
 	if t.size == 0 {
-		return out
+		return newTensor(shape)
 	}
+	out := newTensorUninit(shape) // every element is written below
 	outer, inner := 1, 1
 	for i := 0; i < dim; i++ {
 		outer *= t.shape[i]

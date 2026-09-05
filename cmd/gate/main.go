@@ -577,6 +577,7 @@ func runCheck(root string, staged bool) error {
 
 type hookInput struct {
 	ToolName  string `json:"tool_name"`
+	Cwd       string `json:"cwd"` // directory the tool call runs in
 	ToolInput struct {
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
@@ -592,6 +593,10 @@ func runHook(root string, stdin io.Reader) error {
 	var in hookInput
 	if err := json.Unmarshal(data, &in); err != nil {
 		return nil // not a tool payload we understand; never block on that
+	}
+	base := in.Cwd
+	if base == "" {
+		base, _ = os.Getwd()
 	}
 	var targets []string
 	switch in.ToolName {
@@ -610,7 +615,7 @@ func runHook(root string, stdin io.Reader) error {
 			return errors.New("git commit --no-verify bypasses the process gate and is not allowed (PROCESS.md rule 6)")
 		}
 		var err error
-		if targets, err = bashWriteTargets(root, cmd); err != nil {
+		if targets, err = bashWriteTargets(root, base, cmd); err != nil {
 			return fmt.Errorf("blocked by the process gate: %v", err)
 		}
 	default:
@@ -633,7 +638,7 @@ func runHook(root string, stdin io.Reader) error {
 		changed[f] = true
 	}
 	for _, t := range targets {
-		rel, ok := relPath(root, t)
+		rel, ok := relPath(root, base, t)
 		if !ok || exempt(rel) {
 			continue
 		}
@@ -644,15 +649,11 @@ func runHook(root string, stdin io.Reader) error {
 	return nil
 }
 
-// relPath converts an absolute or cwd-relative path into a repo-relative
-// one; ok is false for paths outside the repository.
-func relPath(root, p string) (string, bool) {
+// relPath converts an absolute path, or one relative to base, into a
+// repo-relative one; ok is false for paths outside the repository.
+func relPath(root, base, p string) (string, bool) {
 	if !filepath.IsAbs(p) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", false
-		}
-		p = filepath.Join(cwd, p)
+		p = filepath.Join(base, p)
 	}
 	rel, err := filepath.Rel(canonical(root), canonical(p))
 	if err != nil || strings.HasPrefix(rel, "..") {
@@ -850,7 +851,7 @@ func pythonTargets(text string) ([]string, error) {
 // text plus Python write calls in the command and its heredoc bodies.
 // Words that merely appear in heredoc text are not targets. Paths outside
 // the repository or in directories that do not exist are ignored.
-func bashWriteTargets(root, cmd string) ([]string, error) {
+func bashWriteTargets(root, base, cmd string) ([]string, error) {
 	shell, bodies := splitHeredocs(cmd)
 	targets, err := shellTargets(shell)
 	if err != nil {
@@ -872,7 +873,7 @@ func bashWriteTargets(root, cmd string) ([]string, error) {
 		if !codeFileRe.MatchString(t) {
 			continue // documentation and other exempt files need no check
 		}
-		rel, ok := relPath(root, t)
+		rel, ok := relPath(root, base, t)
 		if !ok {
 			continue
 		}

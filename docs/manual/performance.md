@@ -32,14 +32,36 @@ comparison in [BENCHMARKS.md](../../BENCHMARKS.md).
 - **Reductions** along the last dimension run at memory bandwidth; along
   other dimensions they fold rows with per-goroutine partial results.
 
+## Storage reuse (opt-in)
+
+`tensor.SetPoolLimit(bytes)` turns on recycling of freed tensor storage:
+when a tensor and all its views become unreachable, a GC cleanup returns
+buffers between 4 KiB and 4 MiB to a pool, and the next result of similar
+size reuses memory that is still mapped and cache-warm instead of paying
+for a zero-filled allocation and fresh page faults. `tensor.PoolStats()`
+reports hits, misses and the bytes held.
+
+It is off by default because the measured effect depends on the workload:
+on the M2 Pro it halves the time of element-wise operations on 64K–1M
+elements (`x + y` 64K: 26 → 12 µs) but slowed a training step of
+medium-sized layers by ~10 %, because the retained memory raises the
+garbage collector's heap goal and buffers only come back after a GC
+cycle. Enable it for inference over many small tensors; leave it off for
+training. Regardless of the pool, results that an operation writes
+completely are no longer zero-filled.
+
+`Data()` on a contiguous tensor hands out the backing slice and therefore
+pins its storage for good — it is never recycled while the program runs.
+Use `Float32s()` (copy) or `At` when you only read.
+
 ## Advice
 
 1. Prefer one big operation over many small ones. Every operation
    allocates its result; below ~64K elements the fixed cost (allocation,
    goroutine wake-up) dominates.
-2. Reuse buffers on hot paths with the in-place family
-   (`AddInPlace`, `AddScaledInPlace`, `CopyFrom`) — a fresh 64 MB result
-   costs a zero-fill pass and page faults on top of the computation.
+2. On hot paths the in-place family (`AddInPlace`, `AddScaledInPlace`,
+   `CopyFrom`) avoids even the pooled allocation; results of tens of MB
+   still cost a pass over memory when the pool has nothing of that size.
 3. Keep batch dimensions leading and the reduction dimension last where you
    can; that is the layout the fused kernels are written for.
 4. For matrix–vector shapes (`[1×k]·[k×n]`) the library takes a dedicated

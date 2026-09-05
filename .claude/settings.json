@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "go build -o .claude/gate-bin ./cmd/gate || exit 2; exec .claude/gate-bin hook",
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && { go build -o .claude/gate-bin ./cmd/gate || exit 2; } && exec .claude/gate-bin hook",
             "timeout": 60,
             "statusMessage": "process gate"
           }

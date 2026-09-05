@@ -141,7 +141,7 @@ func TestBashWriteTargets(t *testing.T) {
 		"python3 - <<'PY'\nfrom pathlib import Path\nPath('tensor/ops.go').write_text('x')\nPY",
 	}
 	for _, cmd := range detected {
-		tg, err := bashWriteTargets(root, cmd)
+		tg, err := bashWriteTargets(root, root, cmd)
 		if err != nil || !has(tg, "tensor/ops.go") && !has(tg, "tensor/new.go") {
 			t.Errorf("not detected: %q -> %v, %v", cmd, tg, err)
 		}
@@ -156,7 +156,7 @@ func TestBashWriteTargets(t *testing.T) {
 		"git commit -m 'touch tensor/ops.go'",
 	}
 	for _, cmd := range notDetected {
-		tg, err := bashWriteTargets(root, cmd)
+		tg, err := bashWriteTargets(root, root, cmd)
 		if err != nil || len(tg) != 0 {
 			t.Errorf("false positive: %q -> %v, %v", cmd, tg, err)
 		}
@@ -166,12 +166,16 @@ func TestBashWriteTargets(t *testing.T) {
 		"python3 - <<'PY'\nimport sys\nopen(sys.argv[1], 'w')\nPY",
 	}
 	for _, cmd := range unknown {
-		if _, err := bashWriteTargets(root, cmd); err != errUnknownTarget {
+		if _, err := bashWriteTargets(root, root, cmd); err != errUnknownTarget {
 			t.Errorf("variable target must be refused: %q -> %v", cmd, err)
 		}
 	}
 	if !noVerifyRe.MatchString("git commit --no-verify -m x") || !noVerifyRe.MatchString("git commit -n -m x") || noVerifyRe.MatchString("git commit -m 'no-verify text'") {
 		t.Error("no-verify detection")
+	}
+	// relative targets resolve against the tool's working directory
+	if tg, err := bashWriteTargets(root, filepath.Join(root, "tensor"), "cat > ops.go <<'EOF'\nEOF"); err != nil || !has(tg, "tensor/ops.go") {
+		t.Errorf("cwd-relative target: %v, %v", tg, err)
 	}
 	// the no-verify check ignores heredoc bodies (documentation may quote it)
 	if shell, _ := splitHeredocs("cat > NOTES.md <<'EOF'\ngit commit --no-verify is forbidden\nEOF"); noVerifyRe.MatchString(shell) {
@@ -242,7 +246,7 @@ func TestRepoRoundTrip(t *testing.T) {
 	}
 	// hook blocks the same file, allows docs
 	hook := func(tool, file, command string) error {
-		in := `{"tool_name":"` + tool + `","tool_input":{"file_path":"` + file + `","command":` + jsonString(command) + `}}`
+		in := `{"tool_name":"` + tool + `","cwd":` + jsonString(root) + `,"tool_input":{"file_path":"` + file + `","command":` + jsonString(command) + `}}`
 		return runHook(root, strings.NewReader(in))
 	}
 	wd, _ := os.Getwd()

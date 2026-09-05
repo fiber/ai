@@ -2,6 +2,7 @@ package tensor
 
 import (
 	"math"
+	"sync/atomic"
 
 	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/internal/parallel"
@@ -11,6 +12,7 @@ import (
 // create tensors with the constructors in this package.
 type Tensor struct {
 	data    []float32 // data[0] is the first element of this (possibly strided) view
+	store   *storage  // backing array, shared with views
 	shape   Shape
 	strides []int // element strides per dimension
 	size    int   // cached shape.Size()
@@ -21,25 +23,32 @@ type Tensor struct {
 	node         *node
 }
 
-// newTensor allocates a zero-filled contiguous tensor.
-func newTensor(shape Shape) *Tensor {
+// newTensor allocates a zero-filled contiguous tensor from pooled storage.
+func newTensor(shape Shape) *Tensor { return alloc(shape, true) }
+
+// newTensorUninit allocates a contiguous tensor whose contents are
+// undefined. Only for results that the operation writes completely before
+// anything reads them.
+func newTensorUninit(shape Shape) *Tensor { return alloc(shape, false) }
+
+func alloc(shape Shape, zero bool) *Tensor {
 	shape = shape.clone()
-	return &Tensor{
-		data:    make([]float32, shape.Size()),
-		shape:   shape,
-		strides: contiguousStrides(shape),
-		size:    shape.Size(),
-	}
+	n := shape.Size()
+	st := getStorage(n, zero)
+	return &Tensor{data: st.buf, store: st, shape: shape, strides: contiguousStrides(shape), size: n}
 }
 
-// wrap builds a contiguous tensor over data without copying.
+// wrap builds a contiguous tensor over caller-owned data without copying;
+// the storage is never pooled.
 func wrap(data []float32, shape Shape) *Tensor {
-	return &Tensor{data: data, shape: shape, strides: contiguousStrides(shape), size: shape.Size()}
+	st := &storage{buf: data, escaped: new(atomic.Bool)}
+	return &Tensor{data: data, store: st, shape: shape, strides: contiguousStrides(shape), size: shape.Size()}
 }
 
-// view creates a tensor sharing t's storage with new shape and strides.
-func view(data []float32, shape Shape, strides []int) *Tensor {
-	return &Tensor{data: data, shape: shape, strides: strides, size: shape.Size()}
+// view creates a tensor sharing t's storage with a new data offset, shape
+// and strides.
+func view(t *Tensor, data []float32, shape Shape, strides []int) *Tensor {
+	return &Tensor{data: data, store: t.store, shape: shape, strides: strides, size: shape.Size()}
 }
 
 // New returns a tensor of the given shape holding a copy of data.
@@ -49,7 +58,9 @@ func New(data []float32, shape ...int) *Tensor {
 	if len(data) != Shape(shape).Size() {
 		fail("New", "%d elements do not fit shape %v", len(data), Shape(shape))
 	}
-	return wrap(append([]float32(nil), data...), Shape(shape).clone())
+	t := newTensorUninit(shape)
+	copy(t.data, data)
+	return t
 }
 
 // FromSlice returns a tensor that uses data as its storage without copying.
@@ -74,7 +85,7 @@ func Ones(shape ...int) *Tensor { return Full(1, shape...) }
 // Full returns a tensor filled with v.
 func Full(v float32, shape ...int) *Tensor {
 	checkShape("Full", shape)
-	t := newTensor(shape)
+	t := newTensorUninit(shape)
 	for i := range t.data {
 		t.data[i] = v
 	}
@@ -108,7 +119,7 @@ func Arange(start, stop, step float32) *Tensor {
 	if n < 0 {
 		n = 0
 	}
-	t := Zeros(n)
+	t := newTensorUninit(Shape{n})
 	for i := range t.data {
 		t.data[i] = start + float32(i)*step
 	}
@@ -117,7 +128,8 @@ func Arange(start, stop, step float32) *Tensor {
 
 // Linspace returns n evenly spaced values from start to stop inclusive.
 func Linspace(start, stop float32, n int) *Tensor {
-	t := Zeros(n)
+	checkShape("Linspace", []int{n})
+	t := newTensorUninit(Shape{n})
 	if n == 1 {
 		t.data[0] = start
 		return t
@@ -161,8 +173,20 @@ func (t *Tensor) IsContiguous() bool { return isContiguous(t.shape, t.strides) }
 
 // Data returns the tensor's elements in row-major order. For a contiguous
 // tensor this is the backing slice itself (writes are visible in the
-// tensor); otherwise it is a copy.
+// tensor); otherwise it is a copy. Handing out the backing slice pins its
+// storage: it is excluded from buffer reuse for the rest of its life, so
+// prefer Float32s or At when you only need to read.
 func (t *Tensor) Data() []float32 {
+	if t.IsContiguous() {
+		t.store.escaped.Store(true) // the caller may keep the slice: never recycle it
+		return t.data[:t.size]
+	}
+	return t.Contiguous().data
+}
+
+// values is Data for internal use: the same slice, without pinning the
+// storage.
+func (t *Tensor) values() []float32 {
 	if t.IsContiguous() {
 		return t.data[:t.size]
 	}
@@ -171,7 +195,7 @@ func (t *Tensor) Data() []float32 {
 
 // Float32s always returns a fresh copy of the elements in row-major order.
 func (t *Tensor) Float32s() []float32 {
-	return append([]float32(nil), t.Data()...)
+	return append([]float32(nil), t.values()...)
 }
 
 // offset returns the storage offset of the element at idx.
@@ -215,7 +239,7 @@ func (t *Tensor) Contiguous() *Tensor {
 	if t.IsContiguous() {
 		return t
 	}
-	out := newTensor(t.shape)
+	out := newTensorUninit(t.shape)
 	copyStrided(out.data, t)
 	return record(out, "Contiguous", []*Tensor{t}, func(gy *Tensor) { t.accumGrad(gy) })
 }
@@ -223,7 +247,7 @@ func (t *Tensor) Contiguous() *Tensor {
 // Clone returns a dense copy of t. The copy is differentiable (gradients
 // flow back to t); use Detach for a graph-free copy.
 func (t *Tensor) Clone() *Tensor {
-	out := newTensor(t.shape)
+	out := newTensorUninit(t.shape)
 	copyStrided(out.data, t)
 	return record(out, "Clone", []*Tensor{t}, func(gy *Tensor) { t.accumGrad(gy) })
 }
@@ -271,7 +295,7 @@ func copyTransposed(dst []float32, t *Tensor) {
 	rows, cols := t.shape[nd-2], t.shape[nd-1]
 	cs := t.strides[nd-1] // source column stride (rows are unit stride)
 	outer := t.size / (rows * cols)
-	lead := view(t.data, t.shape[:nd-2], t.strides[:nd-2])
+	lead := view(t, t.data, t.shape[:nd-2], t.strides[:nd-2])
 	offs := make([]int, outer)
 	walkRows(append(lead.shape.clone(), 1), [][]int{append(append([]int(nil), lead.strides...), 0)}, 0, outer, func(o int, off []int) {
 		offs[o] = off[0]
@@ -342,7 +366,7 @@ func (t *Tensor) Equal(u *Tensor) bool {
 	if !t.shape.Equal(u.shape) {
 		return false
 	}
-	a, b := t.Data(), u.Data()
+	a, b := t.values(), u.values()
 	for i := range a {
 		if a[i] != b[i] {
 			return false
@@ -357,7 +381,7 @@ func (t *Tensor) AllClose(u *Tensor, rtol, atol float64) bool {
 	if !t.shape.Equal(u.shape) {
 		return false
 	}
-	a, b := t.Data(), u.Data()
+	a, b := t.values(), u.values()
 	for i := range a {
 		x, y := float64(a[i]), float64(b[i])
 		if math.IsNaN(x) || math.IsNaN(y) || math.Abs(x-y) > atol+rtol*math.Abs(y) {

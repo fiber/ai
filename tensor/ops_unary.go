@@ -14,12 +14,12 @@ func unaryOp(x *Tensor, f func(x, z []float32)) *Tensor { return unaryOpChunk(x,
 func unaryOpMath(x *Tensor, f func(x, z []float32)) *Tensor { return unaryOpChunk(x, minChunkMath, f) }
 
 func unaryOpChunk(x *Tensor, chunk int, f func(x, z []float32)) *Tensor {
-	out := newTensor(x.shape)
+	out := newTensorUninit(x.shape)
 	n := out.size
 	if n == 0 {
 		return out
 	}
-	xd := x.Data()
+	xd := x.values()
 	parallel.Range(n, chunk, func(lo, hi int) { f(xd[lo:hi], out.data[lo:hi]) })
 	return out
 }
@@ -29,12 +29,12 @@ func zipMap(a, b *Tensor, f func(a, b, z []float32)) *Tensor {
 	if !a.shape.Equal(b.shape) {
 		fail("zipMap", "internal: shape mismatch %v vs %v", a.shape, b.shape)
 	}
-	out := newTensor(a.shape)
+	out := newTensorUninit(a.shape)
 	n := out.size
 	if n == 0 {
 		return out
 	}
-	ad, bd := a.Data(), b.Data()
+	ad, bd := a.values(), b.values()
 	parallel.Range(n, minChunk, func(lo, hi int) { f(ad[lo:hi], bd[lo:hi], out.data[lo:hi]) })
 	return out
 }

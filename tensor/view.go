@@ -33,7 +33,7 @@ func (t *Tensor) Reshape(shape ...int) *Tensor {
 	if !t.IsContiguous() {
 		src = t.Contiguous()
 	}
-	out := view(src.data, newShape, contiguousStrides(newShape))
+	out := view(src, src.data, newShape, contiguousStrides(newShape))
 	old := src.shape
 	return record(out, "Reshape", []*Tensor{src}, func(gy *Tensor) { src.accumGrad(gy.Reshape(old...)) })
 }
@@ -58,7 +58,7 @@ func (t *Tensor) Transpose(d0, d1 int) *Tensor {
 	strides := append([]int(nil), t.strides...)
 	shape[d0], shape[d1] = shape[d1], shape[d0]
 	strides[d0], strides[d1] = strides[d1], strides[d0]
-	out := view(t.data, shape, strides)
+	out := view(t, t.data, shape, strides)
 	return record(out, "Transpose", []*Tensor{t}, func(gy *Tensor) { t.accumGrad(gy.Transpose(d0, d1)) })
 }
 
@@ -82,7 +82,7 @@ func (t *Tensor) Permute(dims ...int) *Tensor {
 		shape[i], strides[i] = t.shape[d], t.strides[d]
 		inverse[d] = i
 	}
-	out := view(t.data, shape, strides)
+	out := view(t, t.data, shape, strides)
 	return record(out, "Permute", []*Tensor{t}, func(gy *Tensor) { t.accumGrad(gy.Permute(inverse...)) })
 }
 
@@ -111,7 +111,7 @@ func (t *Tensor) Squeeze(dims ...int) *Tensor {
 			strides = append(strides, t.strides[d])
 		}
 	}
-	out := view(t.data, shape, strides)
+	out := view(t, t.data, shape, strides)
 	old := t.shape
 	return record(out, "Squeeze", []*Tensor{t}, func(gy *Tensor) { t.accumGrad(gy.Reshape(old...)) })
 }
@@ -138,7 +138,7 @@ func (t *Tensor) Unsqueeze(dim int) *Tensor {
 	strides = append(strides, stride)
 	shape = append(shape, t.shape[dim:]...)
 	strides = append(strides, t.strides[dim:]...)
-	out := view(t.data, shape, strides)
+	out := view(t, t.data, shape, strides)
 	old := t.shape
 	return record(out, "Unsqueeze", []*Tensor{t}, func(gy *Tensor) { t.accumGrad(gy.Reshape(old...)) })
 }
@@ -173,7 +173,7 @@ func (t *Tensor) Expand(shape ...int) *Tensor {
 			fail("Expand", "cannot expand %v to %v", t.shape, Shape(shape))
 		}
 	}
-	out := view(t.data, newShape, strides)
+	out := view(t, t.data, newShape, strides)
 	return record(out, "Expand", []*Tensor{t}, func(gy *Tensor) { t.accumGrad(sumTo(gy, t.shape)) })
 }
 
@@ -189,7 +189,7 @@ func (t *Tensor) Narrow(dim, start, length int) *Tensor {
 	if length > 0 && start > 0 {
 		data = t.data[start*t.strides[dim]:]
 	}
-	out := view(data, shape, append([]int(nil), t.strides...))
+	out := view(t, data, shape, append([]int(nil), t.strides...))
 	return record(out, "Narrow", []*Tensor{t}, func(gy *Tensor) {
 		g := newTensor(t.shape)
 		assign(g.Narrow(dim, start, length), gy)
@@ -243,7 +243,7 @@ func Cat(dim int, tensors ...*Tensor) *Tensor {
 		total += u.shape[dim]
 	}
 	shape[dim] = total
-	out := newTensor(shape)
+	out := newTensorUninit(shape) // every part is assigned below
 	off := 0
 	for _, u := range tensors {
 		assign(out.Narrow(dim, off, u.shape[dim]), u)

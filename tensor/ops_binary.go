@@ -21,7 +21,7 @@ const minChunkMath = 1 << 12
 // path. commutative allows sc to be used when the scalar is on the left.
 func binaryOp(op string, x, y *Tensor, vec kernel.BinaryFunc, sc kernel.ScalarFunc, commutative bool, f func(a, b float32) float32) *Tensor {
 	shape := broadcastShapes(op, x.shape, y.shape)
-	out := newTensor(shape)
+	out := newTensorUninit(shape) // binaryInto writes every element
 	binaryInto(out, x, y, vec, sc, commutative, f)
 	return out
 }
