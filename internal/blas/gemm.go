@@ -14,9 +14,11 @@
 // through L1. Packing removes all strides from the inner kernel, so
 // transposed or otherwise strided inputs cost nothing extra.
 //
-// Work is distributed over goroutines as a 2-D grid of (A row block ×
-// B panel range) tasks, which keeps all cores busy both for tall (large M)
-// and for wide/short (small M, e.g. batch-1 inference) products.
+// Per K block the driver packs B (into NR panels) and all of A (into MR
+// panels) with every worker, then runs a 2-D grid of pure compute tasks
+// (A row block × B panel range). Nothing is packed inside a task, and the
+// grid keeps all cores busy both for tall (large M) and for wide/short
+// (small M, e.g. batch-1 inference) products.
 package blas
 
 import (
@@ -226,22 +228,29 @@ func gemm(c, a, b Mat, workers int) {
 	kc := max(1, KC)
 	mc := max(mr, MC/mr*mr)
 	nc := max(nr, NC/nr*nr)
+	kcEff := min(kc, k)
+	mPack := roundUp(m, mr)
 
-	bp := getBuf(min(kc, k) * min(nc, roundUp(n, nr)))
+	bp := getBuf(kcEff * min(nc, roundUp(n, nr)))
 	defer putBuf(bp)
+	ap := getBuf(mPack * kcEff) // all of A's rows for one K block, in MR panels
+	defer putBuf(ap)
 
+	nIc := (m + mc - 1) / mc
 	for jc := 0; jc < n; jc += nc {
 		jb := min(nc, n-jc)
 		nPanels := (jb + nr - 1) / nr
 		for pc := 0; pc < k; pc += kc {
 			pb := min(kc, k-pc)
-			packB(bp, b, pc, jc, pb, jb, nr, workers)
 
-			// Task grid: A row blocks × B panel ranges. Aim for a few tasks per
-			// worker so dynamic scheduling can balance uneven cores; the price
-			// is that an A block is packed once per panel range it is paired
-			// with, which is O(MC·KC) against O(MC·KC·NC/nJ) of compute.
-			nIc := (m + mc - 1) / mc
+			// Phases 1 and 2: pack the B panels and all A panels of this K block.
+			packB(bp, b, pc, jc, pb, jb, nr, workers)
+			packAAll(ap, a, pc, m, pb, mr, workers)
+
+			// Phase 3: pure compute over a grid of (row block × panel range)
+			// tasks. A few tasks per worker keep dynamic scheduling effective
+			// on uneven cores; nothing is packed inside a task, so the grid
+			// can be fine-grained without redundant work.
 			nJ := 1
 			if workers > 1 {
 				nJ = min(nPanels, max(1, (3*workers+nIc-1)/nIc))
@@ -253,10 +262,6 @@ func gemm(c, a, b Mat, workers int) {
 				ic := (task / nJ) * mc
 				jt := task % nJ
 				ib := min(mc, m-ic)
-				ap := getBuf(roundUp(ib, mr) * pb)
-				defer putBuf(ap)
-				packA(ap, a, ic, pc, ib, pb, mr)
-
 				var tmp []float32 // edge-tile scratch, allocated on demand
 				p0 := jt * panelsPerTask
 				p1 := min(p0+panelsPerTask, nPanels)
@@ -266,7 +271,7 @@ func gemm(c, a, b Mat, workers int) {
 					bpanel := &bp[jr*nr*pb]
 					for ir := 0; ir < ib; ir += mr {
 						rows := min(mr, ib-ir)
-						apanel := &ap[ir*pb]
+						apanel := &ap[(ic+ir)*pb]
 						if rows == mr && cols == nr {
 							kernel.Gemm(pb, apanel, bpanel, &c.Data[(ic+ir)*c.RS+jc+j], c.RS)
 							continue
@@ -287,6 +292,19 @@ func gemm(c, a, b Mat, workers int) {
 			})
 		}
 	}
+}
+
+// packAAll packs rows [0, m) of A for the K block at p0 into dst as
+// consecutive MR panels (panel p holds rows p*mr .. p*mr+mr), in parallel
+// over panels. The last panel is zero-padded.
+func packAAll(dst []float32, a Mat, p0, m, pb, mr, workers int) {
+	nPanels := (m + mr - 1) / mr
+	parallel.RangeWorkers(nPanels, 4, workers, func(lo, hi int) {
+		for p := lo; p < hi; p++ {
+			i0 := p * mr
+			packA(dst[i0*pb:(i0+mr)*pb], a, i0, p0, min(mr, m-i0), pb, mr)
+		}
+	})
 }
 
 // packA copies the ib×pb block of A at (i0, p0) into dst as consecutive

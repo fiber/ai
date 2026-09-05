@@ -14,3 +14,4 @@ macOS is the development platform.
 - [ ] T-010 — AMX SGEMM kernel for Apple Silicon via the undocumented AMX instructions (spec/T-010-amx-sgemm-apple-silicon.md)
 - [ ] T-007 — Optional Accelerate BLAS backend behind a cgo build tag
 - [ ] T-009 — Conv1D/Conv2D via im2col, multi-head attention module
+- [ ] T-014 — GEMM driver: pack A once per K block, persistent workers, no per-task repacking (spec/T-014-gemm-driver-pack-a-once-per-k-block-persistent-w.md)

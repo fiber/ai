@@ -4,6 +4,13 @@
 // compute-bound operation uses. Work is scheduled dynamically (an atomic
 // counter hands out items), which keeps heterogeneous cores (e.g. Apple
 // performance/efficiency cores) busy without static partitioning.
+//
+// Jobs run on a persistent set of helper goroutines. After finishing a
+// job a helper polls briefly for the next one before parking, so a
+// sequence of rounds — the K blocks of one matrix product — does not pay
+// a thread wake-up per round. The calling goroutine always takes part
+// and never waits for a helper to start, only for items a helper has
+// already claimed; nested calls therefore cannot deadlock.
 package parallel
 
 import (
@@ -28,9 +35,98 @@ func SetWorkers(n int) {
 // Workers returns the maximum number of goroutines used for parallel work.
 func Workers() int { return int(maxWorkers.Load()) }
 
+// job is one For call: items [0, n) handed out from an atomic counter.
+type job struct {
+	n       int
+	fn      func(int)
+	next    atomic.Int64 // next item to hand out
+	pending atomic.Int64 // items not yet finished (or skipped)
+	failed  atomic.Bool
+	done    chan struct{}
+
+	panicMu  sync.Mutex
+	panicVal any
+}
+
+// run claims and executes items until none are left.
+func (j *job) run() {
+	for {
+		i := int(j.next.Add(1)) - 1
+		if i >= j.n {
+			return
+		}
+		if j.failed.Load() {
+			j.finish() // an earlier item panicked: skip the rest, keep the count right
+			continue
+		}
+		j.runItem(i)
+	}
+}
+
+func (j *job) finish() {
+	if j.pending.Add(-1) == 0 {
+		close(j.done)
+	}
+}
+
+func (j *job) runItem(i int) {
+	defer func() {
+		if r := recover(); r != nil {
+			j.panicMu.Lock()
+			if !j.failed.Load() {
+				j.panicVal = r
+				j.failed.Store(true)
+			}
+			j.panicMu.Unlock()
+		}
+		j.finish()
+	}()
+	j.fn(i)
+}
+
+// Helper pool. jobs is buffered so that handing a job to helpers never
+// blocks the caller; a helper that picks up an already finished job
+// simply returns from run.
+const spinRounds = 256 // polls before a helper parks; a few tens of µs
+
+var (
+	jobs    = make(chan *job, 4096)
+	helpers atomic.Int64
+	spawnMu sync.Mutex
+)
+
+func ensureHelpers(n int) {
+	if int(helpers.Load()) >= n {
+		return
+	}
+	spawnMu.Lock()
+	defer spawnMu.Unlock()
+	for int(helpers.Load()) < n {
+		go helper()
+		helpers.Add(1)
+	}
+}
+
+func helper() {
+	for {
+		var j *job
+		for i := 0; i < spinRounds && j == nil; i++ {
+			select {
+			case j = <-jobs:
+			default:
+				runtime.Gosched()
+			}
+		}
+		if j == nil {
+			j = <-jobs
+		}
+		j.run()
+	}
+}
+
 // For calls fn(i) for every i in [0, n), spreading calls over up to
 // Workers() goroutines. It returns once all calls have completed. A panic
-// inside fn is re-raised in the calling goroutine.
+// inside fn stops the remaining items and is re-raised in the caller.
 func For(n int, fn func(i int)) { ForWorkers(n, Workers(), fn) }
 
 // ForWorkers is like For but with an explicit upper bound on goroutines.
@@ -48,37 +144,23 @@ func ForWorkers(n, workers int, fn func(i int)) {
 		}
 		return
 	}
-
-	var (
-		next   atomic.Int64
-		wg     sync.WaitGroup
-		once   sync.Once
-		panic_ any
-	)
-	work := func() {
-		defer wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				once.Do(func() { panic_ = r })
-				next.Store(int64(n)) // stop other workers early
-			}
-		}()
-		for {
-			i := int(next.Add(1)) - 1
-			if i >= n {
-				return
-			}
-			fn(i)
+	j := &job{n: n, fn: fn, done: make(chan struct{})}
+	j.pending.Store(int64(n))
+	help := workers - 1
+	ensureHelpers(help)
+	for k := 0; k < help; k++ {
+		select {
+		case jobs <- j:
+		default:
+			k = help // queue full: helpers are all busy, the caller does the work
 		}
 	}
-	wg.Add(workers)
-	for w := 1; w < workers; w++ {
-		go work()
+	j.run()
+	if j.pending.Load() > 0 {
+		<-j.done
 	}
-	work() // the caller participates
-	wg.Wait()
-	if panic_ != nil {
-		panic(panic_)
+	if j.failed.Load() {
+		panic(j.panicVal)
 	}
 }
 

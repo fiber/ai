@@ -68,3 +68,48 @@ func TestSetWorkers(t *testing.T) {
 		t.Fatalf("Workers() = %d after reset", Workers())
 	}
 }
+
+func TestNestedForDoesNotDeadlock(t *testing.T) {
+	var total atomic.Int64
+	ForWorkers(8, 4, func(i int) {
+		ForWorkers(8, 4, func(j int) {
+			ForWorkers(4, 4, func(k int) { total.Add(1) })
+		})
+	})
+	if total.Load() != 8*8*4 {
+		t.Fatalf("nested total %d", total.Load())
+	}
+}
+
+func TestManyRoundsReuseHelpers(t *testing.T) {
+	// thousands of small back-to-back rounds must neither leak goroutines
+	// nor lose items
+	var total atomic.Int64
+	for r := 0; r < 5000; r++ {
+		ForWorkers(16, 8, func(i int) { total.Add(1) })
+	}
+	if total.Load() != 5000*16 {
+		t.Fatalf("total %d", total.Load())
+	}
+	if h := helpers.Load(); h > int64(max(Workers(), 16)) {
+		t.Fatalf("%d helpers for %d workers", h, Workers())
+	}
+}
+
+func TestPanicStopsRemainingItems(t *testing.T) {
+	var ran atomic.Int64
+	defer func() {
+		if r := recover(); r != "boom" {
+			t.Fatalf("expected panic 'boom', got %v", r)
+		}
+		if ran.Load() > 9000 {
+			t.Fatalf("%d items ran after a panic", ran.Load())
+		}
+	}()
+	ForWorkers(10000, 4, func(i int) {
+		if i == 10 {
+			panic("boom")
+		}
+		ran.Add(1)
+	})
+}
