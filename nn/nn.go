@@ -168,10 +168,8 @@ func NewEmbedding(vocab, dim int) *Embedding {
 }
 
 // Lookup returns the [len(ids), dim] embeddings of ids. Gradients flow to
-// the table rows.
-func (e *Embedding) Lookup(ids []int) *tensor.Tensor {
-	return tensor.OneHot(ids, e.W.Dim(0)).MatMul(e.W)
-}
+// the table rows (a scatter-add, so repeated ids accumulate).
+func (e *Embedding) Lookup(ids []int) *tensor.Tensor { return e.W.Rows(ids) }
 
 // Forward treats the batch of one-hot rows as ids via Argmax; prefer Lookup.
 func (e *Embedding) Forward(x *tensor.Tensor) *tensor.Tensor { return x.MatMul(e.W) }

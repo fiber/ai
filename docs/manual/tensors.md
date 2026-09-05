@@ -97,6 +97,17 @@ x.Reshape(6, 4).MatMul(w.T())          // [6 8]; the transpose is a view, nothin
 tensor.Randn(3, 2, 5, 4).MatMul(w.T()) // [3 2 5 8] (batched)
 ```
 
+## Attention and masks
+
+`tensor.Attention(q, k, v, mask)` is scaled dot-product attention,
+softmax(q·kᵀ/√d + mask)·v, over the last two dimensions; leading
+dimensions (batch, heads) are batched and may be strided views, so head
+splits through `Reshape` and `Permute` cost nothing. Masks are additive
+tensors broadcastable to the score shape: `CausalMask(n)` ([n×n], −1e9
+above the diagonal) and `PaddingMask(lengths, n)` ([batch×1×1×n]).
+`tensor.RMSNorm(x, g, eps)` normalises the last dimension by its root
+mean square.
+
 ## Views
 
 These return tensors sharing the same storage, in O(1):

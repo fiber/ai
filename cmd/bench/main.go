@@ -57,8 +57,8 @@ func main() {
 		}
 		defer pprof.StopCPUProfile()
 	}
-	sections := map[string]func(){"gemm": benchGemm, "elementwise": benchElementwise, "reductions": benchReductions, "mlp": benchMLP}
-	order := []string{"gemm", "elementwise", "reductions", "mlp"}
+	sections := map[string]func(){"gemm": benchGemm, "elementwise": benchElementwise, "reductions": benchReductions, "attention": benchAttention, "mlp": benchMLP}
+	order := []string{"gemm", "elementwise", "reductions", "attention", "mlp"}
 	if *only != "" {
 		order = strings.Split(*only, ",")
 	}
@@ -181,6 +181,26 @@ func benchReductions() {
 		t := timeIt(c.fn)
 		fmt.Printf("| %s | [4096×4096] | %s | %.1f |\n", c.name, fmtDur(t), c.bytes/t/1e9)
 	}
+	fmt.Println()
+}
+
+// benchAttention times scaled dot-product attention on a transformer-sized
+// shape: batch 8, 8 heads, 512 tokens, head dimension 64.
+func benchAttention() {
+	fmt.Println("### Attention (all threads, NoGrad, result released)")
+	fmt.Println()
+	fmt.Println("| shape | time | GFLOPS |")
+	fmt.Println("|---|---:|---:|")
+	b, h, n, d := 8, 8, 512, 64
+	q, k, v := tensor.Randn(b, h, n, d), tensor.Randn(b, h, n, d), tensor.Randn(b, h, n, d)
+	mask := tensor.CausalMask(n)
+	flops := 2.0 * 2 * float64(b*h) * float64(n) * float64(n) * float64(d) // two products
+	tensor.NoGrad(func() {
+		t := timeIt(func() { tensor.Attention(q, k, v, nil).Release() })
+		fmt.Printf("| [%d×%d×%d×%d] q·kᵀ, softmax, ·v | %s | %.1f |\n", b, h, n, d, fmtDur(t), flops/t/1e9)
+		t = timeIt(func() { tensor.Attention(q, k, v, mask).Release() })
+		fmt.Printf("| same with causal mask | %s | %.1f |\n", fmtDur(t), flops/t/1e9)
+	})
 	fmt.Println()
 }
 

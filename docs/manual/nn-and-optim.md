@@ -26,11 +26,28 @@ anything with those two methods composes with it.
 `nn.SetTraining(m, on)` flips modules with a training mode (Sequential
 forwards it to its children).
 
+## Attention
+
+`nn.MultiHeadAttention(dim, heads)` projects [batch, tokens, dim] inputs to
+`heads` sets of queries, keys and values, runs scaled dot-product
+attention per head and projects back. `Forward(x)` is self-attention;
+`Cross(x, context)` takes queries from `x` and keys and values from
+`context`. Set `Mask` to `tensor.CausalMask(n)` for autoregressive
+models, to `tensor.PaddingMask(lengths, n)` for padded batches, or to
+their sum; masks are additive and broadcast over batch and heads.
+`nn.NewRMSNorm(dim)` is the normalisation of Gemma- and Llama-class
+models; `Embedding.Lookup(ids)` gathers token vectors with a scatter-add
+gradient. `examples/nn/attention` puts them together as a two-layer
+pre-norm transformer that learns to continue repeating patterns.
+
 ## Losses and fused primitives
 
 All in package `tensor`:
 
 - `MSELoss(pred, target)` — mean squared error.
+- `CrossEntropyWeighted(logits, targets, weights)` — cross-entropy with one
+  weight per class, normalised by the batch's total target weight; for
+  uneven classes.
 - `CrossEntropy(logits, targets []int)` — mean negative log-likelihood of
   integer classes with the log-softmax fused in. Feed raw logits, not
   softmax output.
