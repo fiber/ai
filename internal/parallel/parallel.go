@@ -14,9 +14,12 @@
 package parallel
 
 import (
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 var maxWorkers atomic.Int64
@@ -122,19 +125,41 @@ func (j *job) runItem(i int) {
 // after finishing work, then park on cond. The caller wakes parked
 // helpers with one Broadcast per job. Polling a channel instead showed up
 // as runtime lock contention worth ~20 % of CPU on a 16-core Xeon.
-// spinRounds is how long a helper polls for the next job before parking.
+// spinTime is how long a helper polls for the next job before parking.
 // Waking a parked helper costs a futex round trip, and a Broadcast wakes
 // them one after another; with a dozen rounds per matrix product that
 // idle time was ~30 % of the run on a 16-core Xeon. A few hundred µs of
-// spinning (with a Gosched every few thousand loads so the P is not held
-// hostage) bridges the gap between rounds; an idle program pays it once.
-const spinRounds = 300000
+// spinning bridges the gap between rounds; an idle program pays it once.
+// The spin does not yield the P: a profile of a training step showed
+// ten helpers calling Gosched every 4 096 loads spending 70 % of all CPU
+// samples in the scheduler lock behind it, and every 65 536 loads was
+// still 40 %. A spinning helper holds its P for at most spinTime and then
+// parks; the runtime's asynchronous preemption covers the rest.
+var (
+	spinTime     = 300 * time.Microsecond
+	pollTime     = 100 * time.Microsecond // caller's wait for the last items before blocking
+	goschedEvery = 0                      // loads between Gosched calls while spinning; 0 = never
+)
+
+func init() {
+	// Tuning knobs for experiments without a rebuild.
+	if v, err := strconv.Atoi(os.Getenv("FIBERAI_SPIN_US")); err == nil && v >= 0 {
+		spinTime = time.Duration(v) * time.Microsecond
+	}
+	if v, err := strconv.Atoi(os.Getenv("FIBERAI_POLL_US")); err == nil && v >= 0 {
+		pollTime = time.Duration(v) * time.Microsecond
+	}
+	if v, err := strconv.Atoi(os.Getenv("FIBERAI_SPIN_GOSCHED")); err == nil && v > 0 {
+		goschedEvery = v
+	}
+}
 
 var (
 	cur     atomic.Pointer[job]
 	gen     atomic.Uint64
 	parkMu  sync.Mutex
 	parkCnd = sync.NewCond(&parkMu)
+	parked  atomic.Int64 // helpers waiting on parkCnd; publish broadcasts only then
 	helpers atomic.Int64
 	spawnMu sync.Mutex
 )
@@ -164,33 +189,46 @@ func helper(id int) {
 		}
 		// spin briefly: the next round of a blocked GEMM follows immediately
 		spun := false
-		for i := 0; i < spinRounds; i++ {
+		start := time.Now()
+		for i := 1; ; i++ {
 			if gen.Load() != seen {
 				spun = true
 				break
 			}
-			if i&4095 == 4095 {
-				runtime.Gosched()
+			if i&1023 == 0 {
+				if time.Since(start) > spinTime {
+					break
+				}
+				if goschedEvery > 0 && i%goschedEvery == 0 {
+					runtime.Gosched()
+				}
 			}
 		}
 		if spun {
 			continue
 		}
+		// Park. The count is raised under parkMu before the generation is
+		// re-checked, and publish bumps the generation before it reads the
+		// count, so a wake-up cannot be missed.
 		parkMu.Lock()
+		parked.Add(1)
 		for gen.Load() == seen {
 			parkCnd.Wait()
 		}
+		parked.Add(-1)
 		parkMu.Unlock()
 	}
 }
 
-// publish makes j the current job and wakes parked helpers.
+// publish makes j the current job and wakes parked helpers, if any.
 func publish(j *job) {
 	cur.Store(j)
-	parkMu.Lock()
 	gen.Add(1)
-	parkMu.Unlock()
-	parkCnd.Broadcast()
+	if parked.Load() > 0 {
+		parkMu.Lock()
+		parkMu.Unlock()
+		parkCnd.Broadcast()
+	}
 }
 
 // For calls fn(i) for every i in [0, n), spreading calls over up to
@@ -224,9 +262,12 @@ func runJob(j *job, workers int) {
 	// The last items are usually finishing on helpers right now: poll
 	// briefly before blocking, so the caller does not pay a futex wake-up
 	// at the end of every round.
-	for i := 0; i < 20000 && j.pending.Load() > 0; i++ {
-		if i&1023 == 1023 {
-			runtime.Gosched()
+	if j.pending.Load() > 0 {
+		start := time.Now()
+		for i := 1; j.pending.Load() > 0; i++ {
+			if i&1023 == 0 && time.Since(start) > pollTime {
+				break
+			}
 		}
 	}
 	if j.pending.Load() > 0 {

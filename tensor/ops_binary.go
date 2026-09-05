@@ -3,12 +3,14 @@ package tensor
 import (
 	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/internal/parallel"
+	"os"
+	"strconv"
 )
 
 // minChunk is the smallest number of elements handed to one goroutine by
 // SIMD element-wise operations: below ~64K elements the cost of waking
 // idle worker threads exceeds the work itself.
-const minChunk = 1 << 16
+var minChunk = 1 << 16 // FIBERAI_MIN_CHUNK overrides for experiments
 
 // minChunkMath is the chunk size for transcendental element-wise
 // operations (exp, tanh, ...), which cost ~10 ns per element.
@@ -242,3 +244,9 @@ func (t *Tensor) MulScalar(s float32) *Tensor {
 
 // DivScalar returns t / s.
 func (t *Tensor) DivScalar(s float32) *Tensor { return t.MulScalar(1 / s) }
+
+func init() {
+	if v, err := strconv.Atoi(os.Getenv("FIBERAI_MIN_CHUNK")); err == nil && v > 0 {
+		minChunk = v
+	}
+}
