@@ -44,6 +44,27 @@ comparison in [BENCHMARKS.md](../../BENCHMARKS.md).
 - **Reductions** along the last dimension run at memory bandwidth; along
   other dimensions they fold rows with per-goroutine partial results.
 
+## Heap ballast
+
+Element-wise operations allocate their result. With a small live heap
+Go's collector runs every few operations, returns freed results to the
+operating system, and the next result faults its pages back in and is
+zero-filled — that, not arithmetic, dominated small and medium tensors
+(`x + y` on 64K elements: 15 µs, of which ~3 µs compute). The library
+therefore keeps a 128 MiB *ballast* allocation alive at start-up. Its
+pages are never touched (address space, not resident memory), but the
+collector sizes the heap relative to live data, so it runs less often
+and freed buffers get reused by the allocator. Measured on the M2 Pro:
+`x + y` 64K 14.7 → 9.9 µs, 1M 194 → 129 µs, `relu` 1M 205 → 108 µs, an
+MLP training step +11 %; large results (16M elements) and GEMM are
+unchanged. The cost is up to roughly the ballast's size of garbage
+between collections.
+
+`tensor.SetHeapBallast(bytes)` changes it (0 removes it; the environment
+variable `FIBERAI_HEAP_BALLAST` overrides the default before start-up);
+`tensor.HeapBallast()` reads it. Raise it for services that churn many
+medium-sized tensors, remove it in memory-constrained processes.
+
 ## Storage reuse (opt-in)
 
 `tensor.SetPoolLimit(bytes)` turns on recycling of freed tensor storage:

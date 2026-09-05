@@ -150,3 +150,18 @@ func Equalf(a, b []float32) bool {
 	}
 	return true
 }
+
+func TestHeapBallast(t *testing.T) {
+	if HeapBallast() != DefaultHeapBallast {
+		t.Fatalf("default ballast %d", HeapBallast())
+	}
+	SetHeapBallast(0)
+	if HeapBallast() != 0 {
+		t.Fatal("ballast not removed")
+	}
+	SetHeapBallast(1 << 20)
+	if HeapBallast() != 1<<20 {
+		t.Fatal("ballast not set")
+	}
+	SetHeapBallast(DefaultHeapBallast)
+}

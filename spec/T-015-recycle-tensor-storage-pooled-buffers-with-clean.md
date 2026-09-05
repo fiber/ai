@@ -101,3 +101,17 @@ acceptance targets are not met; next attempt for this spec: a heap
 ballast (`tensor.SetHeapBallast`) measured against GOGC=800, and
 explicit reuse for the training loop (scoped arenas or out-parameters).
 Spec remains open.
+
+Second attempt — heap ballast (`tensor.SetHeapBallast`, default 128 MiB),
+M2 Pro `cmd/bench -quick`:
+
+| | x+y 64K | x+y 1M | relu 1M | x+y 16M | MLP step |
+|---|---:|---:|---:|---:|---:|
+| no ballast | 14.7 µs | 194 µs | 205 µs | 2.28 ms | 63.0 K/s |
+| 128 MiB | 9.9 µs | 129 µs | 108 µs | 2.45 ms | 70.2 K/s |
+| 512 MiB | 9.3 µs | 116 µs | 98 µs | 2.46 ms | 70.8 K/s |
+
+Meets the 64K target (≤ 12 µs), misses 1M by 17 % (129 vs 110) and
+16M (fresh 64 MB results are page-faulted either way; only reuse of the
+output buffer can fix that — out-parameter API, kept out of scope).
+Adopted as default; Xeon acceptance numbers pending.
