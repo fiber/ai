@@ -169,11 +169,12 @@ func TestFusedAttentionMatchesComposed(t *testing.T) {
 	both := tsMask.Add(pad) // [B×1×T×S]
 	cases := map[string]*Tensor{"none": nil, "TxS": tsMask, "padding": pad, "sum": both}
 	for name, mask := range cases {
-		fused := attentionFused(q, k, v, mask)
+		sc := float32(1 / math.Sqrt(float64(D)))
+		fused := attentionFused(q, k, v, mask, sc)
 		if fused == nil {
 			t.Fatalf("%s: fused path declined", name)
 		}
-		composed := attentionComposed(q, k, v, mask)
+		composed := attentionComposed(q, k, v, mask, sc)
 		if !fused.AllClose(composed, 1e-4, 1e-5) {
 			t.Fatalf("%s: fused and composed differ", name)
 		}
@@ -181,11 +182,11 @@ func TestFusedAttentionMatchesComposed(t *testing.T) {
 	// strided inputs: head split through Permute, and 3-D inputs
 	x := RandnFrom(rng, B, T, H*D)
 	split := x.Reshape(B, T, H, D).Permute(0, 2, 1, 3)
-	if !attentionFused(split, split, split, nil).AllClose(attentionComposed(split, split, split, nil), 1e-4, 1e-5) {
+	if !attentionFused(split, split, split, nil, float32(1/math.Sqrt(float64(D)))).AllClose(attentionComposed(split, split, split, nil, float32(1/math.Sqrt(float64(D)))), 1e-4, 1e-5) {
 		t.Fatal("permuted inputs differ")
 	}
 	q3, k3, v3 := RandnFrom(rng, 4, 9, 8), RandnFrom(rng, 4, 9, 8), RandnFrom(rng, 4, 9, 8)
-	if !attentionFused(q3, k3, v3, CausalMask(9)).AllClose(attentionComposed(q3, k3, v3, CausalMask(9)), 1e-4, 1e-5) {
+	if !attentionFused(q3, k3, v3, CausalMask(9), float32(1/math.Sqrt(8.0))).AllClose(attentionComposed(q3, k3, v3, CausalMask(9), float32(1/math.Sqrt(8.0))), 1e-4, 1e-5) {
 		t.Fatal("3-D causal differs")
 	}
 	// under grad recording the composed path is taken and gradients flow

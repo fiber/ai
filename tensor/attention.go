@@ -54,6 +54,17 @@ func PaddingMask(lengths []int, n int) *Tensor {
 // materialising the [T×S] score matrix: for [8×8×512×64] that is 64 MiB
 // per call that is not written, read three times and collected.
 func Attention(q, k, v, mask *Tensor) *Tensor {
+	d := q.shape[len(q.shape)-1]
+	return AttentionScaled(q, k, v, mask, float32(1/math.Sqrt(float64(d))))
+}
+
+// AttentionScaled is Attention with an explicit score scale instead of the
+// default 1/√d. Gemma-class models scale by query_pre_attn_scalar^-0.5,
+// which differs from 1/√d when that hyper-parameter is not the head
+// dimension. Grouped-query attention is expressed by giving k and v fewer
+// heads than q via Expand (stride 0 on the head dimension), so several
+// query heads read one key/value head with no copy.
+func AttentionScaled(q, k, v, mask *Tensor, scale float32) *Tensor {
 	nd := len(q.shape)
 	if nd < 2 || len(k.shape) != nd || len(v.shape) != nd {
 		fail("Attention", "q, k, v must have the same rank ≥ 2, got %v %v %v", q.shape, k.shape, v.shape)
@@ -64,20 +75,35 @@ func Attention(q, k, v, mask *Tensor) *Tensor {
 	}
 	needGrad := GradEnabled() && (q.requiresGrad || k.requiresGrad || v.requiresGrad || mask != nil && mask.requiresGrad)
 	if !needGrad {
-		if out := attentionFused(q, k, v, mask); out != nil {
+		if out := attentionFused(q, k, v, mask, scale); out != nil {
 			return out
 		}
 	}
-	return attentionComposed(q, k, v, mask)
+	return attentionComposed(q, k, v, mask, scale)
 }
 
-func attentionComposed(q, k, v, mask *Tensor) *Tensor {
-	d := q.shape[len(q.shape)-1]
-	scores := q.MatMul(k.Transpose(-2, -1)).MulScalar(float32(1 / math.Sqrt(float64(d))))
+func attentionComposed(q, k, v, mask *Tensor, scale float32) *Tensor {
+	scores := q.MatMul(k.Transpose(-2, -1)).MulScalar(scale)
 	if mask != nil {
 		scores = scores.Add(mask)
 	}
 	return scores.Softmax(-1).MatMul(v)
+}
+
+// WindowMask returns an [n×n] additive mask for bidirectional sliding-window
+// attention: 0 where |i−j| < w and a large negative number elsewhere, so a
+// position attends only to the w−1 neighbours on each side. It composes
+// with a padding mask by addition, like CausalMask.
+func WindowMask(n, w int) *Tensor {
+	m := newTensor(Shape{n, n})
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if j-i >= w || i-j >= w {
+				m.data[i*n+j] = maskNeg
+			}
+		}
+	}
+	return m
 }
 
 // attentionRows is the number of query rows one fused task handles: as
@@ -91,7 +117,7 @@ func attentionRows(S int) int {
 // attentionFused returns nil when the shapes need the composed path
 // (leading dimensions that differ between q, k and v, or a mask whose
 // key dimension is not contiguous).
-func attentionFused(q, k, v, mask *Tensor) *Tensor {
+func attentionFused(q, k, v, mask *Tensor, scale float32) *Tensor {
 	nd := len(q.shape)
 	lead := q.shape[:nd-2]
 	if !k.shape[:nd-2].Equal(lead) || !v.shape[:nd-2].Equal(lead) || v.shape[nd-1] != k.shape[nd-1] {
@@ -138,7 +164,7 @@ func attentionFused(q, k, v, mask *Tensor) *Tensor {
 		md = mask.data
 		mRowStride, mColStride = ms[nd-2], ms[nd-1]
 	}
-	scale := float32(1 / math.Sqrt(float64(D)))
+
 	block := attentionRows(S)
 	blocks := (T + block - 1) / block
 	parallel.For(nb*blocks, func(task int) {
@@ -189,6 +215,40 @@ func RMSNorm(x, g *Tensor, eps float32) *Tensor {
 	if g.size != n {
 		fail("RMSNorm", "g must have %d elements, got %d", n, g.size)
 	}
+	if !GradEnabled() || !(x.requiresGrad || g.requiresGrad) {
+		return rmsNormFused(x, g, eps)
+	}
 	rms := x.Square().Mean(-1).AddScalar(eps).Sqrt().Unsqueeze(-1)
 	return x.Div(rms).Mul(g)
+}
+
+// rmsNormFused computes RMSNorm in one pass into a single output buffer,
+// for inference. Composed RMSNorm allocates three full-size intermediates
+// per call; a 24-layer encoder calls it 146 times, and those buffers are
+// the bulk of its allocation traffic.
+func rmsNormFused(x, g *Tensor, eps float32) *Tensor {
+	xc := x
+	if !x.IsContiguous() {
+		xc = x.Contiguous()
+	}
+	n := x.shape[len(x.shape)-1]
+	rows := xc.size / n
+	out := newTensorUninit(xc.shape)
+	xd, od, gd := xc.data, out.data, g.values()
+	parallel.Range(rows, 1<<12/n+1, func(lo, hi int) {
+		for r := lo; r < hi; r++ {
+			row := xd[r*n : r*n+n]
+			var ss float32
+			for _, v := range row {
+				ss += v * v
+			}
+			inv := float32(1 / math.Sqrt(float64(ss/float32(n)+eps)))
+			dst := od[r*n : r*n+n]
+			for i, v := range row {
+				dst[i] = v * inv * gd[i]
+			}
+		}
+	})
+	runtime.KeepAlive(g)
+	return out
 }

@@ -59,6 +59,32 @@ func (t *Tensor) Release() {
 	t.releaseStorage()
 }
 
+// Recycle returns a tensor's off-heap storage to the free list for
+// immediate reuse even when views of it exist, which Release refuses. It is
+// for an inference caller that owns the whole dataflow and knows every view
+// of the tensor is also dead, such as a model runner freeing a layer's
+// intermediates before the next layer. Using the tensor, or any view of it,
+// after Recycle reads freed memory. It does nothing for pooled or
+// autograd-recorded tensors.
+func (t *Tensor) Recycle() {
+	if t == nil || t.node != nil || t.requiresGrad {
+		return
+	}
+	st := t.store
+	if st == nil || !st.mapped {
+		return
+	}
+	if !st.state.CompareAndSwap(stateLive, stateReleased) && !st.state.CompareAndSwap(stateEscaped, stateReleased) {
+		return
+	}
+	buf := st.buf[:cap(st.buf)]
+	st.buf, t.data = nil, nil
+	t.released = true
+	mapPool.mu.Lock()
+	putMappedLocked(buf)
+	mapPool.mu.Unlock()
+}
+
 // releaseStorage returns the storage unless a view, Data() or an earlier
 // release claims it. Backward uses it on graph intermediates whose
 // consumers have all run.
