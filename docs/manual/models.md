@@ -90,6 +90,12 @@ cosine similarity to the fp32 `sentence-transformers` output is:
 | mean | 1.000000 |
 | minimum | 1.000000 |
 
+Inputs longer than the sliding window are checked too (879, 1147 and
+1753 tokens, cosine 1.000000 each). One detail matters there: for
+bidirectional Gemma models the effective window is half the configured
+`sliding_window` on each side (256 tokens for the configured 512), the
+convention `transformers` applies; the loader does the same.
+
 Embeddings do not depend on how inputs are batched (a sentence alone and in
 a mixed-length batch match), and the `Dim(256)` vectors match the
 truncated-and-renormalised full vectors.

@@ -178,3 +178,43 @@ func TestLoadAndEmbedTime(t *testing.T) {
 	el := time.Since(start)
 	t.Logf("32 sentences in %v (%.0f sent/s)", el, 32/el.Seconds())
 }
+
+// TestParityLong checks inputs longer than the 512-token sliding window,
+// where the sliding and full-attention layers stop being equivalent and the
+// window mask path is exercised.
+func TestParityLong(t *testing.T) {
+	m, err := Load(modelDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	var lc struct {
+		Texts  []string `json:"texts"`
+		Tokens []int    `json:"tokens"`
+	}
+	b, err := os.ReadFile(filepath.Join("testdata", "long_sentences.json"))
+	if err != nil {
+		t.Skip(err)
+	}
+	if err := json.Unmarshal(b, &lc); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(filepath.Join("testdata", "reference_long.bin"))
+	if err != nil {
+		t.Skip(err)
+	}
+	defer f.Close()
+	ref := readMatrix(t, f)
+	got, err := m.Embed(lc.Texts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range got {
+		n := len(m.tok.Encode(lc.Texts[i]))
+		c := cosine(got[i], ref[i])
+		t.Logf("long input %d: %d tokens (reference %d), cosine %.6f", i, n, lc.Tokens[i], c)
+		if c < 0.999 {
+			t.Errorf("long input %d: cosine %.6f below 0.999", i, c)
+		}
+	}
+}

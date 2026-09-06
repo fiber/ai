@@ -141,8 +141,8 @@ func (m *Model) encode(flat, lengths []int, B, T int) *tensor.Tensor {
 	}
 	pad := tensor.PaddingMask(lengths, T) // [B,1,1,T]
 	var window *tensor.Tensor
-	if cfg.SlidingWindow > 0 && T > cfg.SlidingWindow {
-		window = tensor.WindowMask(T, cfg.SlidingWindow).Reshape(1, 1, T, T)
+	if w := cfg.window(); cfg.SlidingWindow > 0 && T > w {
+		window = tensor.WindowMask(T, w).Reshape(1, 1, T, T)
 	}
 
 	eps := float32(cfg.RMSNormEps)

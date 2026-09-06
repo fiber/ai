@@ -245,6 +245,28 @@ before the outer products of step k (four X/Y register slots; 3× faster
 than the naive loop), and `set`/`clr` per tile costs 0.7 µs, hence once
 per task with the goroutine locked to its thread.
 
+## Attention, convolution and EmbeddingGemma (M2 Pro, AMX)
+
+Rows added with the transformer work; PyTorch 2.14 (Accelerate BLAS, 6
+threads by default) via `benchmarks/python/bench.py --only
+attention,conv,embed`, fiber/ai via `go run ./cmd/bench -only
+attention,conv,embed`. Attention and convolution run under `NoGrad` with
+the result released; EmbeddingGemma is float32 on both sides, 32 copies
+of a 65-token sentence as one batch.
+
+| row | PyTorch | fiber/ai |
+|---|---:|---:|
+| attention [8×8×512×64], GFLOPS over the two products | 561 | ~950 |
+| same with a causal mask | 566 | ~900 |
+| conv2d [32×64×56×56] · 64 filters 3×3, GFLOPS | 314 | 367 |
+| EmbeddingGemma, sentences/s | 91 | 94–98 |
+
+The embedding row is the one that matters for the syslog work: a full
+24-layer encoder, tokenizer to unit vector, slightly ahead of the Python
+stack on the same machine. Its parity with `sentence-transformers` is
+cosine 1.000000 on 64 short and 3 long (up to 1753-token) inputs; see
+[docs/manual/models.md](docs/manual/models.md).
+
 ## Allocation cost (why the element-wise numbers are what they are)
 
 Every element-wise operation allocates its result; Go zero-fills it and,

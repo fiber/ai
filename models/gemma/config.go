@@ -78,6 +78,17 @@ func (c Config) validate() error {
 	return nil
 }
 
+// window returns the effective sliding-window bound: positions attend when
+// their distance is below it. For bidirectional models transformers halves
+// the configured value and adds one (config 512 → bound 257, so 256 tokens
+// to each side, a 512-wide window); causal models use the value as is.
+func (c Config) window() int {
+	if c.UseBidirectional {
+		return c.SlidingWindow/2 + 1
+	}
+	return c.SlidingWindow
+}
+
 // isSliding reports whether layer l uses sliding-window attention.
 func (c Config) isSliding(l int) bool { return c.LayerTypes[l] == "sliding_attention" }
 

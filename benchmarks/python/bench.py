@@ -13,6 +13,7 @@ import torch
 parser = argparse.ArgumentParser()
 parser.add_argument("--quick", action="store_true")
 parser.add_argument("-d", type=float, default=0.7, help="seconds per case")
+parser.add_argument("--only", default="", help="comma-separated sections: gemm,elementwise,reductions,mlp,attention,conv,embed")
 args = parser.parse_args()
 DURATION = args.d
 
@@ -190,7 +191,67 @@ def bench_mlp():
     print()
 
 
-bench_gemm()
-bench_elementwise()
-bench_reductions()
-bench_mlp()
+def bench_attention():
+    """Scaled dot-product attention on [8×8×512×64], the cmd/bench shape."""
+    print("### Attention (PyTorch, no_grad)\n")
+    print("| shape | time | GFLOPS |")
+    print("|---|---:|---:|")
+    b, h, n, d = 8, 8, 512, 64
+    q, k, v = torch.randn(b, h, n, d), torch.randn(b, h, n, d), torch.randn(b, h, n, d)
+    flops = 2.0 * 2 * b * h * n * n * d
+    sdpa = torch.nn.functional.scaled_dot_product_attention
+    t = time_it(lambda: sdpa(q, k, v))
+    print(f"| [{b}×{h}×{n}×{d}] q·kᵀ, softmax, ·v | {fmt_dur(t)} | {flops / t / 1e9:.1f} |")
+    t = time_it(lambda: sdpa(q, k, v, is_causal=True))
+    print(f"| same with causal mask | {fmt_dur(t)} | {flops / t / 1e9:.1f} |")
+    print()
+
+
+def bench_conv():
+    """3×3 convolution on [32×64×56×56] with 64 filters, padding 1."""
+    print("### Convolution (PyTorch, no_grad)\n")
+    print("| shape | time | GFLOPS |")
+    print("|---|---:|---:|")
+    n, c, h, w, o, k = 32, 64, 56, 56, 64, 3
+    x = torch.randn(n, c, h, w)
+    wt = torch.randn(o, c, k, k)
+    bias = torch.randn(o)
+    flops = 2.0 * n * o * h * w * c * k * k
+    t = time_it(lambda: torch.nn.functional.conv2d(x, wt, bias, stride=1, padding=1))
+    print(f"| [{n}×{c}×{h}×{w}] · {o} filters {k}×{k}, pad 1 | {fmt_dur(t)} | {flops / t / 1e9:.1f} |")
+    print()
+
+
+def bench_embed():
+    """EmbeddingGemma via sentence-transformers, fp32, 32 sentences of ~64 tokens."""
+    import os
+    print("### EmbeddingGemma (sentence-transformers, fp32, 32 sentences ≈ 64 tokens, one batch)\n")
+    root = os.environ.get("FIBERAI_MODELS")
+    if not root:
+        print("skipped: set FIBERAI_MODELS to the directory holding embeddinggemma-300m\n")
+        return
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        print("skipped: sentence-transformers is not installed\n")
+        return
+    model = SentenceTransformer(os.path.join(root, "embeddinggemma-300m"), device="cpu").float()
+    sentence = ("the quick brown fox jumps over the lazy dog " * 7).strip()
+    texts = [sentence] * 32
+    ntok = len(model.tokenizer(sentence)["input_ids"])
+    enc = lambda: model.encode(texts, batch_size=32, convert_to_numpy=True, normalize_embeddings=True)
+    t = time_it(enc)
+    print(f"threads {torch.get_num_threads()}\n")
+    print("| shape | time / batch | sentences/s |")
+    print("|---|---:|---:|")
+    print(f"| 32 × {ntok} tokens, dim {(model.get_embedding_dimension() if hasattr(model, "get_embedding_dimension") else model.get_sentence_embedding_dimension())} | {fmt_dur(t)} | {32 / t:.0f} |")
+    print()
+
+
+SECTIONS = {"gemm": bench_gemm, "elementwise": bench_elementwise, "reductions": bench_reductions,
+            "mlp": bench_mlp, "attention": bench_attention, "conv": bench_conv, "embed": bench_embed}
+order = [s.strip() for s in args.only.split(",") if s.strip()] or ["gemm", "elementwise", "reductions", "attention", "conv", "mlp", "embed"]
+for name in order:
+    if name not in SECTIONS:
+        sys.exit(f"unknown section {name!r}")
+    SECTIONS[name]()
