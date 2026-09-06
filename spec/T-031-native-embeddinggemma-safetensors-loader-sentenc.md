@@ -59,24 +59,30 @@ knows about Gemma.
 - No writer in this spec; a writer is trivial and comes with the first
   need to export.
 
-**`tokenizer/`: SentencePiece Unigram from `tokenizer.json`.**
+**`tokenizer/`: byte-fallback BPE from `tokenizer.json`.**
 
 - The Hugging Face `tokenizer.json` format is used, not the protobuf
-  `tokenizer.model`, because it needs only `encoding/json`. Supported:
-  `model.type == "Unigram"` with `vocab` as `[piece, score]` pairs,
-  `unk_id`, `byte_fallback`; `normalizer` entries `Replace`, `Prepend`,
-  `NFKC`/`NFC` (via `golang.org/x/text/unicode/norm` is not available:
-  implement none and error if the file asks for it, Gemma 3 does not);
-  `pre_tokenizer` none or `Metaspace`; `post_processor`
-  `TemplateProcessing` for BOS/EOS; `added_tokens` with `special` and
-  `normalized` flags, matched before segmentation. Anything else in the
-  file is an error at load time with the offending key, never silently
-  ignored.
-- Encoding: added-token split, normalisation (the Gemma 3 file replaces
-  " " with "▁" and prepends "▁"), then Viterbi over a trie of the
-  262 144 pieces (best path by summed log probability, ties by fewer
-  pieces), byte fallback to `<0xNN>` pieces for characters without a
-  path. Decoding is the inverse with byte pieces merged into UTF-8.
+  `tokenizer.model`, because it needs only `encoding/json`. The
+  EmbeddingGemma file is a **BPE** model (`model.type == "BPE"`, 262 144
+  pieces, 514 906 merges, `byte_fallback`, `fuse_unk`), not Unigram as
+  first assumed. Supported: `vocab` as `{piece: id}`, `merges` as
+  `[[a, b], ...]` (or the older `"a b"` line form), `byte_fallback`;
+  `normalizer` `Replace` (the Gemma file maps " " to the metaspace
+  character U+2581, no prepend), refuse `NFKC`/`NFC`/`Prepend`/`Sequence`
+  since the file needs none; `pre_tokenizer` `Split` on " " (a no-op
+  after normalisation, accepted and ignored) or `Metaspace`;
+  `post_processor` `TemplateProcessing` for BOS/EOS (BOS=2, EOS=1, both
+  added); `added_tokens` (6 415 of them, all raw/`normalized:false`),
+  matched literally against the raw text longest-first before
+  normalisation. Anything else is an error at load time with the
+  offending key, never silently ignored.
+- Encoding: added-token extraction over a byte trie (leftmost-longest),
+  then per chunk normalisation (" " to U+2581) and BPE. BPE builds the
+  initial symbols from the runes (a rune absent from the vocab falls back
+  to its UTF-8 bytes as `<0xNN>` pieces) and merges adjacent pairs by
+  rank with a doubly linked list and a candidate heap, O(n log n).
+  Decoding is the inverse: `<0xNN>` pieces become their bytes, U+2581
+  becomes a space, added tokens render as their literal content.
 - API: `Load(path string) (*Tokenizer, error)`, `Encode(text string)
   []int` (with the file's BOS/EOS template applied), `EncodeRaw(text)
   []int` without template, `Decode([]int) string`, `Piece(id) string`,
@@ -189,8 +195,8 @@ knows about Gemma.
 
 ### Alternatives considered
 
-- `tokenizer.model` (protobuf): needs a protobuf decoder or a
-  hand-written one; `tokenizer.json` carries the same data.
+- `tokenizer.model` (protobuf): needs a protobuf decoder; the
+  `tokenizer.json` BPE data carries the same information.
 - Repeating k/v heads with `Expand` before the products: correct and
   simple, but doubles the traffic in the attention products; indexing
   by division costs nothing.
