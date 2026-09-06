@@ -22,8 +22,11 @@ github.com/fiber/ai
 ├── data/, metrics/    data preparation and evaluation for applications
 ├── logtemplate/       syslog lines to templates, a million lines a second
 ├── cluster/           k-means and nearest-centre search over embeddings
+├── safetensors/       reader for Hugging Face weight files (bf16/f16 to float32)
+├── tokenizer/         byte-fallback BPE tokenizer from tokenizer.json
+├── models/gemma/      EmbeddingGemma natively: text to 768-d sentence embeddings
 ├── benchmarks/        results and the NumPy/PyTorch comparison script
-└── examples/          tensor basics, autograd, MLP regression, spiral classification
+└── examples/          tensor basics, autograd, MLP regression, spiral classification, EmbeddingGemma search
 ```
 
 The [tutorial](docs/tutorial/README.md) teaches the field from the code

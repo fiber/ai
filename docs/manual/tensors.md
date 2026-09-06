@@ -104,9 +104,33 @@ softmax(q·kᵀ/√d + mask)·v, over the last two dimensions; leading
 dimensions (batch, heads) are batched and may be strided views, so head
 splits through `Reshape` and `Permute` cost nothing. Masks are additive
 tensors broadcastable to the score shape: `CausalMask(n)` ([n×n], −1e9
-above the diagonal) and `PaddingMask(lengths, n)` ([batch×1×1×n]).
+above the diagonal), `PaddingMask(lengths, n)` ([batch×1×1×n]) and
+`WindowMask(n, w)` ([n×n], allowing only \|i−j\| < w for sliding-window
+attention). Masks add, so a padding mask and a window mask compose.
 `tensor.RMSNorm(x, g, eps)` normalises the last dimension by its root
 mean square.
+
+`tensor.AttentionScaled(q, k, v, mask, scale)` is `Attention` with an
+explicit score scale instead of 1/√d, which Gemma-class models need
+(they scale by a hyper-parameter that is not always the head dimension).
+It also expresses **grouped-query attention**: give k and v fewer heads
+than q and `Expand` them to q's head count, which sets a stride of zero on
+the head dimension, so several query heads read one key/value head with
+no copy.
+
+`tensor.RoPE(x, base, positions)` applies rotary position embeddings to
+the last dimension of a contiguous `[…, T, D]` tensor (D even), using the
+rotate-half convention; `positions` gives each slot's absolute position
+and `base` the RoPE theta. The rotation is orthogonal, so it has a
+backward pass and can sit inside a trained model.
+
+`Tensor.Recycle()` returns a tensor's off-heap storage to the free list
+even when views of it exist, which `Release` refuses. It is for an
+inference caller that owns the whole dataflow and knows every view of the
+tensor is also dead, such as a model runner freeing one layer's
+intermediates before the next; using the tensor or any view of it
+afterwards reads freed memory. See the [performance page](performance.md)
+for the allocator it feeds.
 
 `Attention` has two implementations behind one call. While a gradient is
 being recorded it is composed from two products and a softmax, whose

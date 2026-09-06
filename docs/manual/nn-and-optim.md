@@ -40,6 +40,8 @@ models; `Embedding.Lookup(ids)` gathers token vectors with a scatter-add
 gradient. `examples/nn/attention` puts them together as a two-layer
 pre-norm transformer that learns to continue repeating patterns.
 
+Under `NoGrad`, or when neither input needs a gradient, `RMSNorm` runs a fused one-pass kernel that writes a single output buffer; while a gradient is recorded it is composed from `Square`, `Mean`, `Sqrt`, `Div` and `Mul` so autograd provides the backward pass. Both give the same values.
+
 ## Convolutions
 
 `nn.NewConv2D(in, out, k)` and `nn.NewConv1D(in, out, k)` are convolution

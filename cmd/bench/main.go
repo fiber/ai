@@ -10,11 +10,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"strings"
 	"time"
 
+	"github.com/fiber/ai/models/gemma"
 	"github.com/fiber/ai/nn"
 	"github.com/fiber/ai/optim"
 	"github.com/fiber/ai/tensor"
@@ -57,8 +59,8 @@ func main() {
 		}
 		defer pprof.StopCPUProfile()
 	}
-	sections := map[string]func(){"gemm": benchGemm, "elementwise": benchElementwise, "reductions": benchReductions, "attention": benchAttention, "conv": benchConv, "mlp": benchMLP}
-	order := []string{"gemm", "elementwise", "reductions", "attention", "conv", "mlp"}
+	sections := map[string]func(){"gemm": benchGemm, "elementwise": benchElementwise, "reductions": benchReductions, "attention": benchAttention, "conv": benchConv, "mlp": benchMLP, "embed": benchEmbed}
+	order := []string{"gemm", "elementwise", "reductions", "attention", "conv", "mlp", "embed"}
 	if *only != "" {
 		order = strings.Split(*only, ",")
 	}
@@ -220,6 +222,43 @@ func benchConv() {
 		t := timeIt(func() { tensor.Conv2D(x, wt, b, 1, 1).Release() })
 		fmt.Printf("| [%d×%d×%d×%d] · %d filters %d×%d, pad 1 | %s | %.1f |\n", n, c, h, w, o, k, k, fmtDur(t), flops/t/1e9)
 	})
+	fmt.Println()
+}
+
+// benchEmbed times EmbeddingGemma on 32 sentences of about 64 tokens, the
+// shape the models manual quotes against sentence-transformers. It is
+// skipped unless FIBERAI_MODELS names a directory holding embeddinggemma-300m.
+func benchEmbed() {
+	fmt.Println("### EmbeddingGemma (32 sentences ≈ 64 tokens, one batch)")
+	fmt.Println()
+	root := os.Getenv("FIBERAI_MODELS")
+	if root == "" {
+		fmt.Println("skipped: set FIBERAI_MODELS to the directory holding embeddinggemma-300m")
+		fmt.Println()
+		return
+	}
+	dir := filepath.Join(root, "embeddinggemma-300m")
+	m, err := gemma.Load(dir)
+	if err != nil {
+		fmt.Printf("skipped: %v\n\n", err)
+		return
+	}
+	defer m.Close()
+	sentence := strings.TrimSpace(strings.Repeat("the quick brown fox jumps over the lazy dog ", 7))
+	texts := make([]string, 32)
+	for i := range texts {
+		texts[i] = sentence
+	}
+	ntok := len(m.Tokenizer().Encode(sentence))
+	m.Embed(texts) // warm
+	t := timeIt(func() {
+		if _, err := m.Embed(texts); err != nil {
+			panic(err)
+		}
+	})
+	fmt.Println("| shape | time / batch | sentences/s |")
+	fmt.Println("|---|---:|---:|")
+	fmt.Printf("| 32 × %d tokens, dim %d | %s | %.0f |\n", ntok, m.Dim(), fmtDur(t), 32/t)
 	fmt.Println()
 }
 

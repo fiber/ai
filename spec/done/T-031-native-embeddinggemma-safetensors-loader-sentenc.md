@@ -1,7 +1,7 @@
 ---
 id: T-031
-title: Native EmbeddingGemma: safetensors loader, SentencePiece tokenizer, Gemma 3 encoder, sentence embeddings
-status: open
+title: Native EmbeddingGemma: safetensors loader, BPE tokenizer, Gemma 3 encoder, sentence embeddings
+status: done
 scope:
   - safetensors/
   - tokenizer/
@@ -14,6 +14,7 @@ manual:
   - docs/manual/models.md
   - docs/manual/nn-and-optim.md
   - docs/manual/tensors.md
+done: 2026-09-06
 created: 2026-09-06
 ---
 
@@ -275,3 +276,35 @@ Follow-ups, not in scope: bf16 weight storage expanded inside GEMM
 packing (halves the 1.2 GB), int8 weights, decoder models with KV cache
 (Gemma 3 270M/1B share this code), a safetensors writer, a tokenizer
 cache file.
+
+### Results (2026-09-06, Apple M2 Pro)
+
+- **safetensors:** 314 tensors, 302.9 M parameters materialised in
+  153 ms (the mirror's file is F32; bf16/f16 paths covered by tests).
+- **tokenizer:** the file is a **BPE** model, not Unigram; spec corrected.
+  Identical ids to the Hugging Face tokenizer on all 101 fixtures; load
+  0.68 s; 8.3 M chars/s single-threaded.
+- **parity:** cosine to the fp32 sentence-transformers reference over 64
+  sentences: mean 1.000000, min 1.000000. Padding-invariant; `Dim(256)`
+  matches truncation + renormalisation; prompts reproduce the reference.
+- **performance:** 32 sentences × 65 tokens: fiber/ai 94–98 sentences/s
+  (AMX, default threads) against PyTorch CPU fp32 with 8 threads at 89
+  sentences/s, i.e. 1.05–1.10×. Target was 1.2×: not reached on the M2;
+  Xeon numbers pending. The remaining profile is GEMM 21 %, worker idle
+  23 %, fused RMSNorm 9 %, page touching 7 %.
+- **what it took to get there:** the first version ran at 0.43× PyTorch
+  with 66 % of the time in first-touch page faulting, because under NoGrad
+  nothing returns intermediates and every layer mapped fresh buffers. Two
+  changes fixed it: a fused inference `RMSNorm` (one buffer instead of
+  three per call, 146 calls per forward) and `Tensor.Recycle`, which
+  returns a root's storage even after a view marked it shared. One trap
+  found on the way: with a single key/value head, `Permute` of `[B,T,1,D]`
+  is already contiguous, so `Contiguous()` aliases instead of copying and
+  recycling both the source and the "copy" double-frees; the encoder
+  recycles only the downstream tensor in that pair.
+- **deviations from the design:** grouped-query attention uses `Expand`
+  (stride 0) rather than indexing by division; the fused attention path
+  handles it with no copy. Per-head norms, the gated MLP and the Gemma
+  block live in `models/gemma`. `nn.Linear` already had a bias-free
+  constructor. The Python bench row and Xeon measurements are still open.
+
