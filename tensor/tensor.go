@@ -428,3 +428,15 @@ func Backend() string { return kernel.Impl }
 // BackendWarnings lists SIMD implementations that were disabled at start-up
 // because they failed self-verification. Normally empty.
 func BackendWarnings() []string { return append([]string(nil), kernel.Warnings...) }
+
+// Generate returns a contiguous tensor of the given shape whose contents
+// are produced by fill, which receives the tensor's backing slice and
+// must write every element. The buffer is not zeroed beforehand, so
+// loaders and decoders can fill large tensors without an intermediate
+// copy.
+func Generate(fill func(dst []float32), shape ...int) *Tensor {
+	checkShape("Generate", shape)
+	t := newTensorUninit(shape)
+	fill(t.data[:t.size])
+	return t
+}
