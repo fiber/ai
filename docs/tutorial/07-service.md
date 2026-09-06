@@ -92,4 +92,6 @@ for a millisecond and answered together, do it.
   `Release` on results you have read.
 - Batch when you can; measure with the real input size.
 
-Next: [8. From toy to network data](08-forecast.md).
+That is the end of the tutorial. The [application packages](../manual/applications.md)
+show these pieces on log and counter data, and the
+[manual](../manual/README.md) covers the API in full.
