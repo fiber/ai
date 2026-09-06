@@ -319,6 +319,14 @@ func exempt(rel string) bool {
 	if strings.HasSuffix(rel, ".md") || rel == ".gitignore" {
 		return true
 	}
+	// Root files that are documentation by convention, without an extension.
+	switch rel {
+	case "LICENSE", "NOTICE", "AUTHORS", "CONTRIBUTORS", "CODEOWNERS":
+		return true
+	}
+	if strings.HasPrefix(rel, "LICENSE.") {
+		return true
+	}
 	for _, prefix := range []string{"spec/", ".claude/", ".githooks/", "benchmarks/results/", "orig/"} {
 		if strings.HasPrefix(rel, prefix) {
 			return true

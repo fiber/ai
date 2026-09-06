@@ -179,3 +179,7 @@ Rosetta 2, which hides AVX from CPUID; bypass detection with
   a separate module and not compiled.
 - Blocking parameters live in `internal/blas/params_*.go`;
   `go test ./internal/blas -run TestTune` style sweeps are easy to add.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

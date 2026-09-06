@@ -76,7 +76,7 @@ func TestCovers(t *testing.T) {
 }
 
 func TestExempt(t *testing.T) {
-	for _, p := range []string{"README.md", "spec/T-001-x.md", ".claude/settings.json", ".githooks/pre-commit", "benchmarks/results/go.md", "orig/foo.go", ".gitignore", "docs/notes.md"} {
+	for _, p := range []string{"README.md", "spec/T-001-x.md", ".claude/settings.json", ".githooks/pre-commit", "benchmarks/results/go.md", "orig/foo.go", ".gitignore", "docs/notes.md", "LICENSE", "LICENSE.txt", "NOTICE", "AUTHORS"} {
 		if !exempt(p) {
 			t.Errorf("%s should be exempt", p)
 		}
