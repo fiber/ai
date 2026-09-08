@@ -19,6 +19,7 @@ var generic = impl{
 	maxScalar: genericMaxScalar,
 	axpy:      genericAxpy,
 	dot:       genericDot,
+	dotNorms:  genericDotNorms,
 	sum:       genericSum,
 	max:       genericMax,
 	gemmZero:  genericGemmZero,
@@ -109,6 +110,36 @@ func genericAxpy(alpha float32, x, y []float32) {
 	for i := range y {
 		y[i] += alpha * x[i]
 	}
+}
+
+// genericDotNorms accumulates x·y, x·x and y·y in one pass, four lanes each.
+func genericDotNorms(x, y []float32) (dot, xx, yy float32) {
+	n := checkLen2(x, y)
+	x, y = x[:n], y[:n]
+	var d0, d1, d2, d3, a0, a1, a2, a3, b0, b1, b2, b3 float32
+	i := 0
+	for ; i+4 <= n; i += 4 {
+		x0, x1, x2, x3 := x[i], x[i+1], x[i+2], x[i+3]
+		y0, y1, y2, y3 := y[i], y[i+1], y[i+2], y[i+3]
+		d0 += x0 * y0
+		d1 += x1 * y1
+		d2 += x2 * y2
+		d3 += x3 * y3
+		a0 += x0 * x0
+		a1 += x1 * x1
+		a2 += x2 * x2
+		a3 += x3 * x3
+		b0 += y0 * y0
+		b1 += y1 * y1
+		b2 += y2 * y2
+		b3 += y3 * y3
+	}
+	for ; i < n; i++ {
+		d0 += x[i] * y[i]
+		a0 += x[i] * x[i]
+		b0 += y[i] * y[i]
+	}
+	return (d0 + d1) + (d2 + d3), (a0 + a1) + (a2 + a3), (b0 + b1) + (b2 + b3)
 }
 
 func genericDot(x, y []float32) float32 {

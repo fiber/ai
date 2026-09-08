@@ -66,6 +66,24 @@ centres take about 10 ms on the M2 Pro.
 prints the dashboard: clusters with their line counts and most frequent
 template, and new lines judged against the day's clusters.
 
+### Cosine similarity
+
+Two forms, both on top of the SIMD kernels:
+
+```go
+c := cluster.Cosine(a, b)                 // one pair of []float32, no allocation
+s := cluster.Similarities(queries, docs)  // [q×d] matrix through one GEMM
+```
+
+`Cosine` is for the odd comparison, a query against a handful of
+candidates: one fused kernel pass over both vectors, 128 ns for 768
+dimensions on the M2 Pro against 1 968 ns for NumPy's dot-over-norms.
+`Similarities` is for search and expects unit-length rows (`Normalize`
+once; EmbeddingGemma's vectors already are): one matrix product, then
+`Argmax` or a sort per row. A thousand queries against ten thousand
+documents take 7.4 ms, level with NumPy on Accelerate. `Nearest` is the
+same product with the argmax done for you.
+
 ## data: from measurements to examples
 
 The steps every project in the workbook takes before a model sees a

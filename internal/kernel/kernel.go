@@ -53,6 +53,9 @@ var (
 	Axpy func(alpha float32, x, y []float32)
 	// Dot returns the inner product of x and y.
 	Dot func(x, y []float32) float32
+	// DotNorms returns x·y, x·x and y·y from one pass over the data: the
+	// three numbers a cosine similarity needs.
+	DotNorms func(x, y []float32) (dot, xx, yy float32)
 	// Sum returns the sum of all elements.
 	Sum func(x []float32) float32
 	// Max returns the largest element. x must not be empty.
@@ -111,6 +114,7 @@ type impl struct {
 	addScalar, scale, maxScalar ScalarFunc
 	axpy                        func(alpha float32, x, y []float32)
 	dot                         func(x, y []float32) float32
+	dotNorms                    func(x, y []float32) (dot, xx, yy float32)
 	sum, max                    func(x []float32) float32
 	exp, tanh, log, sqrt        func(x, z []float32)
 	gemm, gemmZero              GemmFunc
@@ -137,6 +141,7 @@ func use(i *impl) {
 	Add, Sub, Mul, Div, Maximum = i.add, i.sub, i.mul, i.div, i.maximum
 	AddScalar, Scale, MaxScalar = i.addScalar, i.scale, i.maxScalar
 	Axpy, Dot, Sum, Max = i.axpy, i.dot, i.sum, i.max
+	DotNorms = i.dotNorms
 	Exp, Tanh, Log, Sqrt = i.exp, i.tanh, i.log, i.sqrt
 	Gemm, MR, NR = i.gemm, i.mr, i.nr
 	GemmZero = i.gemmZero
@@ -248,6 +253,13 @@ func verify(c *impl) error {
 		}
 		if a, b := c.dot(x, y), generic.dot(x, y); !close(a, b) {
 			return fmt.Errorf("dot mismatch at n=%d: %v vs %v", n, a, b)
+		}
+		{
+			d1, x1, y1 := c.dotNorms(x, y)
+			d2, x2, y2 := generic.dotNorms(x, y)
+			if !close(d1, d2) || !close(x1, x2) || !close(y1, y2) {
+				return fmt.Errorf("dotNorms mismatch at n=%d: %v %v %v vs %v %v %v", n, d1, x1, y1, d2, x2, y2)
+			}
 		}
 		if a, b := c.sum(x), generic.sum(x); !close(a, b) {
 			return fmt.Errorf("sum mismatch at n=%d: %v vs %v", n, a, b)
@@ -394,6 +406,18 @@ func wrapDot(f func(x, y *float32, n int) float32) func(x, y []float32) float32 
 			return 0
 		}
 		return f(&x[0], &y[0], n)
+	}
+}
+
+func wrapDotNorms(f func(x, y *float32, n int, out *[3]float32)) func(x, y []float32) (float32, float32, float32) {
+	return func(x, y []float32) (float32, float32, float32) {
+		n := checkLen2(x, y)
+		if n == 0 {
+			return 0, 0, 0
+		}
+		var out [3]float32
+		f(&x[0], &y[0], n, &out)
+		return out[0], out[1], out[2]
 	}
 }
 

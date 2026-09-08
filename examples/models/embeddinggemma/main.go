@@ -21,6 +21,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/fiber/ai/cluster"
 	"github.com/fiber/ai/models/gemma"
 )
 
@@ -81,7 +82,7 @@ func main() {
 		}
 		hits := make([]hit, len(templates))
 		for ti := range templates {
-			hits[ti] = hit{templates[ti], cosine(qemb[qi], docs[ti])}
+			hits[ti] = hit{templates[ti], float64(cluster.Cosine(qemb[qi], docs[ti]))}
 		}
 		sort.Slice(hits, func(a, b int) bool { return hits[a].sim > hits[b].sim })
 		fmt.Printf("query: %s\n", q)
@@ -90,25 +91,4 @@ func main() {
 		}
 		fmt.Println()
 	}
-}
-
-func cosine(a, b []float32) float64 {
-	var dot, na, nb float64
-	for i := range a {
-		dot += float64(a[i]) * float64(b[i])
-		na += float64(a[i]) * float64(a[i])
-		nb += float64(b[i]) * float64(b[i])
-	}
-	return dot / (sqrt(na) * sqrt(nb))
-}
-
-func sqrt(x float64) float64 {
-	if x <= 0 {
-		return 0
-	}
-	g := x
-	for i := 0; i < 40; i++ {
-		g = 0.5 * (g + x/g)
-	}
-	return g
 }

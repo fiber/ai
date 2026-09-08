@@ -14,6 +14,7 @@ func scaleNEON(x, z *float32, s float32, n int)
 func maxScalarNEON(x, z *float32, s float32, n int)
 func axpyNEON(x, y *float32, alpha float32, n int)
 func dotNEON(x, y *float32, n int) float32
+func dotNormsNEON(x, y *float32, n int, out *[3]float32)
 func sumNEON(x *float32, n int) float32
 func maxNEON(x *float32, n int) float32
 func expNEON(x, z *float32, n int)  // n % 4 == 0
@@ -36,6 +37,7 @@ var neon = impl{
 	maxScalar: wrapScalar(maxScalarNEON),
 	axpy:      wrapAxpy(axpyNEON),
 	dot:       wrapDot(dotNEON),
+	dotNorms:  wrapDotNorms(dotNormsNEON),
 	sum:       wrapSum(sumNEON),
 	max:       wrapMax(maxNEON),
 	exp:       wrapExp(expNEON, 4),

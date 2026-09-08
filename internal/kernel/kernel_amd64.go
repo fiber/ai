@@ -17,6 +17,7 @@ func scaleAVX2(x, z *float32, s float32, n int)
 func maxScalarAVX2(x, z *float32, s float32, n int)
 func axpyAVX2(x, y *float32, alpha float32, n int)
 func dotAVX2(x, y *float32, n int) float32
+func dotNormsAVX2(x, y *float32, n int, out *[3]float32)
 func sumAVX2(x *float32, n int) float32
 func maxAVX2(x *float32, n int) float32
 func expAVX2(x, z *float32, n int)  // n % 8 == 0
@@ -47,6 +48,7 @@ var avx2 = impl{
 	maxScalar: wrapScalar(maxScalarAVX2),
 	axpy:      wrapAxpy(axpyAVX2),
 	dot:       wrapDot(dotAVX2),
+	dotNorms:  wrapDotNorms(dotNormsAVX2),
 	sum:       wrapSum(sumAVX2),
 	max:       wrapMax(maxAVX2),
 	exp:       wrapExp(expAVX2, 8),

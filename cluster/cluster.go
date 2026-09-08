@@ -6,9 +6,11 @@
 package cluster
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 
+	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/tensor"
 )
 
@@ -154,4 +156,35 @@ func (r Result) Inertia() float64 {
 		return math.NaN()
 	}
 	return s / float64(len(r.Similarity))
+}
+
+// Cosine is the cosine similarity of two vectors of equal length: 1 for
+// the same direction, −1 for opposite, 0 for orthogonal or when either
+// vector is all zero. One fused SIMD pass accumulates a·b, a·a and b·b;
+// for many pairs at once use Similarities, which is one matrix product.
+func Cosine(a, b []float32) float32 {
+	if len(a) != len(b) {
+		panic(fmt.Sprintf("cluster: Cosine: lengths %d and %d differ", len(a), len(b)))
+	}
+	if len(a) == 0 {
+		return 0
+	}
+	dot, na, nb := kernel.DotNorms(a, b)
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return float32(float64(dot) / math.Sqrt(float64(na)*float64(nb)))
+}
+
+// Similarities returns the [q×d] matrix of cosine similarities between the
+// rows of queries and the rows of docs, through one matrix product. Rows
+// must be unit length (Normalize once when they are not; EmbeddingGemma's
+// already are), so that the product is the cosine: normalising inside
+// would cost two extra passes over data that is usually reused across
+// many calls.
+func Similarities(queries, docs *tensor.Tensor) *tensor.Tensor {
+	if queries.Dims() != 2 || docs.Dims() != 2 || queries.Dim(1) != docs.Dim(1) {
+		panic(fmt.Sprintf("cluster: Similarities: shapes %v and %v", queries.Shape(), docs.Shape()))
+	}
+	return queries.MatMul(docs.T())
 }

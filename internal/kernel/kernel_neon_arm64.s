@@ -837,3 +837,72 @@ sqrt_loop:
 	BNE  sqrt_loop
 sqrt_done:
 	RET
+
+// ---------------------------------------------------------------------------
+// func dotNormsNEON(x, y *float32, n int, out *[3]float32)
+//
+// One pass: out = {x·y, x·x, y·y}. Six accumulators (two per sum) so the
+// FMA chains of consecutive vectors do not serialise.
+TEXT ·dotNormsNEON(SB), NOSPLIT, $0-32
+	MOVD x+0(FP), R0
+	MOVD y+8(FP), R1
+	MOVD n+16(FP), R3
+	MOVD out+24(FP), R2
+	VEOR V0.B16, V0.B16, V0.B16   // dot
+	VEOR V1.B16, V1.B16, V1.B16
+	VEOR V2.B16, V2.B16, V2.B16   // xx
+	VEOR V3.B16, V3.B16, V3.B16
+	VEOR V16.B16, V16.B16, V16.B16 // yy
+	VEOR V17.B16, V17.B16, V17.B16
+	LSR  $3, R3, R4
+	CBZ  R4, dn_tail4
+dn_loop8:
+	VLD1.P 32(R0), [V4.S4, V5.S4]
+	VLD1.P 32(R1), [V8.S4, V9.S4]
+	VFMLA  V8.S4, V4.S4, V0.S4
+	VFMLA  V9.S4, V5.S4, V1.S4
+	VFMLA  V4.S4, V4.S4, V2.S4
+	VFMLA  V5.S4, V5.S4, V3.S4
+	VFMLA  V8.S4, V8.S4, V16.S4
+	VFMLA  V9.S4, V9.S4, V17.S4
+	SUBS   $1, R4, R4
+	BNE    dn_loop8
+dn_tail4:
+	AND  $7, R3, R4
+	LSR  $2, R4, R4
+	CBZ  R4, dn_reduce
+	VLD1.P 16(R0), [V4.S4]
+	VLD1.P 16(R1), [V8.S4]
+	VFMLA  V8.S4, V4.S4, V0.S4
+	VFMLA  V4.S4, V4.S4, V2.S4
+	VFMLA  V8.S4, V8.S4, V16.S4
+dn_reduce:
+	VFADD4(0, 0, 1)
+	VFADD4(2, 2, 3)
+	VFADD4(16, 16, 17)
+	VFADDP4(0, 0, 0)
+	VFADDP4(0, 0, 0)
+	VFADDP4(2, 2, 2)
+	VFADDP4(2, 2, 2)
+	VFADDP4(16, 16, 16)
+	VFADDP4(16, 16, 16)
+	AND  $3, R3, R3
+	CBZ  R3, dn_done
+dn_loop1:
+	FMOVS (R0), F4
+	FMOVS (R1), F8
+	FMULS F8, F4, F5
+	FADDS F5, F0, F0
+	FMULS F4, F4, F5
+	FADDS F5, F2, F2
+	FMULS F8, F8, F5
+	FADDS F5, F16, F16
+	ADD   $4, R0, R0
+	ADD   $4, R1, R1
+	SUBS  $1, R3, R3
+	BNE   dn_loop1
+dn_done:
+	FMOVS F0, (R2)
+	FMOVS F2, 4(R2)
+	FMOVS F16, 8(R2)
+	RET
