@@ -48,6 +48,22 @@ type airportState struct {
 	ShiftRef  float64            `json:"shiftRef"`
 	Outside   int                `json:"outside"`  // consecutive minutes outside the band
 	Aircraft  [][4]float32       `json:"aircraft"` // dx, dy, alt, holding flag for the radar
+	State     string             `json:"state"`    // "normal", "watch", "alarm"
+	Reason    string             `json:"reason"`   // one sentence: what deviates from what
+	Weather   weather            `json:"weather"`
+	Expected  float32            `json:"expected"` // movements expected in the last 30 min
+	Observed  float32            `json:"observed"`
+}
+
+// weather is the decoded current report of a station.
+type weather struct {
+	WindDir int    `json:"windDir"`
+	WindKt  int    `json:"windKt"`
+	GustKt  int    `json:"gustKt"`
+	VisM    int    `json:"visM"`
+	Wx      string `json:"wx"` // present weather in words
+	Speci   bool   `json:"speci"`
+	Time    string `json:"time"`
 }
 
 type scorePoint struct {
@@ -68,6 +84,9 @@ type state struct {
 	Events    []event        `json:"events"`
 	Templates []templateRow  `json:"templates"`
 	Training  []string       `json:"training"`
+	Headline  string         `json:"headline"`
+	DayAlarms []alarm        `json:"dayAlarms"` // the whole day, for the timeline
+	DayEvents []event        `json:"dayEvents"`
 }
 
 type templateRow struct {
@@ -519,8 +538,32 @@ func (w *watch) snapshot() state {
 		if ap < len(w.aircraft) && w.aircraft[ap] != nil {
 			as.Aircraft = w.aircraft[ap]
 		}
+		// Observed against expected movements over the last 30 minutes.
+		for i := 0; i < movWindow && w.minute-i >= 0 && idx-i >= 0 && idx-i < len(w.rawMov[ap]); i++ {
+			as.Observed += w.rawMov[ap][idx-i]
+			as.Expected += w.profile[ap][(w.minute-i)%minutesPerDay]
+		}
+		as.State, as.Reason = w.status(ap, as)
+		if as.Metar != "" {
+			if pm, ok := parseMETAR(as.Metar, w.clock(w.minute)); ok {
+				as.Weather = weather{WindDir: pm.WindDir, WindKt: pm.WindKt, GustKt: pm.GustKt, VisM: pm.VisM, Wx: weatherWords(pm.Weather), Speci: pm.Speci, Time: pm.Time.Format("15:04")}
+			}
+		}
 		s.Airports = append(s.Airports, as)
 	}
+	var inAlarm []string
+	for _, as := range s.Airports {
+		if as.State == "alarm" {
+			inAlarm = append(inAlarm, fmt.Sprintf("%s: %s", as.Name, as.Reason))
+		}
+	}
+	if len(inAlarm) == 0 {
+		s.Headline = "all eight airports as expected"
+	} else {
+		s.Headline = strings.Join(inAlarm, " · ")
+	}
+	s.DayAlarms = append([]alarm{}, w.alarms...)
+	s.DayEvents = append([]event{}, w.events...)
 	// Empty lists are [] in the JSON, not null: the page indexes them.
 	s.Scores = append([]scorePoint{}, w.scores...)
 	n := len(w.alarms)
@@ -537,6 +580,64 @@ func (w *watch) snapshot() state {
 	}
 	s.Training = append([]string{}, w.training...)
 	return s
+}
+
+// status derives the tile's state and its one-sentence reason: the latest
+// alarm of the last hour, else the deviation a run is building, else
+// "as expected". Called with w.mu held.
+func (w *watch) status(ap int, as airportState) (state, reason string) {
+	icao := airports[ap].ICAO
+	for i := len(w.alarms) - 1; i >= 0; i-- {
+		a := w.alarms[i]
+		if a.Airport != icao {
+			continue
+		}
+		if w.minute-a.Minute < 60 {
+			return "alarm", a.Text
+		}
+		break
+	}
+	if w.movRun[ap] > 0 {
+		return "watch", fmt.Sprintf("%.0f movements in the last %d min, expected %.0f", as.Observed, movWindow, as.Expected)
+	}
+	if w.outside[ap] > 0 {
+		return "watch", fmt.Sprintf("%.0f aircraft in the zone, outside the band for %d min", as.Now[cInZone], w.outside[ap])
+	}
+	if w.scoreRun > 0 && len(w.scores) > 0 && strings.HasPrefix(w.scores[len(w.scores)-1].Worst, icao) {
+		return "watch", "anomaly score rising, driven by " + strings.TrimPrefix(w.scores[len(w.scores)-1].Worst, icao+" ")
+	}
+	return "normal", fmt.Sprintf("as expected: %.0f movements in the last %d min, expected %.0f", as.Observed, movWindow, as.Expected)
+}
+
+var wxWords = map[string]string{"DZ": "drizzle", "RA": "rain", "SN": "snow", "SG": "snow grains", "PL": "ice pellets", "GR": "hail", "GS": "small hail",
+	"BR": "mist", "FG": "fog", "FU": "smoke", "HZ": "haze", "SQ": "squall", "FC": "funnel cloud", "SS": "sandstorm", "DS": "dust storm", "UP": "precipitation",
+	"SH": "showers of", "TS": "thunderstorm with", "FZ": "freezing", "MI": "shallow", "BC": "patches of", "PR": "partial", "DR": "drifting", "BL": "blowing", "VC": "nearby"}
+
+// weatherWords turns METAR weather groups ("-SHRA", "+TSGR") into words.
+func weatherWords(groups []string) string {
+	var out []string
+	for _, g := range groups {
+		var parts []string
+		switch {
+		case strings.HasPrefix(g, "+"):
+			parts = append(parts, "heavy")
+			g = g[1:]
+		case strings.HasPrefix(g, "-"):
+			parts = append(parts, "light")
+			g = g[1:]
+		}
+		for len(g) >= 2 {
+			code := g[:2]
+			g = g[2:]
+			if word, ok := wxWords[code]; ok {
+				parts = append(parts, word)
+			} else {
+				parts = append(parts, code)
+			}
+		}
+		out = append(out, strings.Join(parts, " "))
+	}
+	return strings.Join(out, ", ")
 }
 
 func (w *watch) subscribe() chan struct{} {

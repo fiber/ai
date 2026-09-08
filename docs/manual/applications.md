@@ -164,6 +164,24 @@ context: gusts over 40 kt, visibility under 800 m, special reports,
 aborted approaches, emergency codes, de-duplicated per aircraft and
 report.
 
+**Reading the page.** The header says in one line what is abnormal
+right now ("Dublin: 0 movements in 30 min, expected 14 · Edinburgh: 1
+movements in 60 min, expected 17") or that all eight airports are as
+expected. Each airport tile leads with a state, normal, watch or alarm,
+and the sentence behind it, then the last three hours of movements: the
+expected band in blue, the ten-minute mean of the actual in white, and
+the excursions filled red, so the anomaly is the coloured area and not a
+line crossing another. Beside it a 40 NM radar view of the zone, below
+it the current weather decoded from the METAR (wind and gusts,
+visibility, present weather, SPECI flagged). The incident timeline
+draws one lane per airport, west to east, with alarm hours as bars and
+events as ticks; on the storm day the two western lanes turn red from
+six in the morning while Frankfurt's stays clear. The anomaly score
+timeline, the alarm feed and the event feed complete the page; the
+METAR template table of the first version is gone, because a METAR's
+"template" is only the shape of the code with the numbers removed, and
+the numbers are the news.
+
 **The replay.** The shipped data covers 2025-01-19 to 2025-01-24. The
 first five days train, the sixth is Storm Éowyn: record gusts over
 Ireland and Scotland from the early morning, Dublin without a movement
@@ -171,12 +189,7 @@ until nine and Edinburgh with 49 for the day against 280, aborted
 approaches at Manchester, the front moving east across the stations
 through the day, Frankfurt untouched with 1 106 movements. (Belfast was
 the first choice for the north, but the archive's receiver coverage
-there is too thin to count movements; Edinburgh's is dense.) Watching the bands
-break at Dublin, the anomaly score jump when several airports deviate
-together, and the METAR mix tilt from routine to gust and SPECI
-templates station by station is the point of the example. The radar
-views show the traffic itself: each field's 40 NM around it, dots sized
-by altitude, holding aircraft in orange.
+there is too thin to count movements; Edinburgh's is dense.)
 
 **Data and licences.** Positions are derived from the adsb.lol history
 archives (ODbL / CC0) and reduced to per-minute counters plus a

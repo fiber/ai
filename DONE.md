@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-08 T-035 — Airspace dashboard: anomalies legible at a glance (state and reason per airport, marked excursions, incident timeline, decoded weather) (spec/done/T-035-airspace-dashboard-anomalies-legible-at-a-glance.md)
 - 2026-09-08 T-034 — Airspace watch example: forecast bands, autoencoder and METAR templates over live and historical ADS-B and flight weather data (spec/done/T-034-airspace-watch-example-forecast-bands-autoencode.md)
 - 2026-09-06 T-033 — MIT licence file; the gate treats LICENSE as documentation (spec/done/T-033-mit-licence-file-the-gate-treats-license-as-docu.md)
 - 2026-09-06 T-032 — Python bench rows for attention, convolution and EmbeddingGemma; long-input parity test (spec/done/T-032-python-bench-rows-for-attention-convolution-and.md)
