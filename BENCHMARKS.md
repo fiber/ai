@@ -42,11 +42,12 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | Workload | M2 Pro fiber/ai | M2 Pro PyTorch | Xeon fiber/ai | Xeon PyTorch |
 |---|---:|---:|---:|---:|
 | SGEMM 2048², all cores (GFLOPS) | 2 269 (level) | 2 227 | **1 156** | 780 |
-| SGEMM 1024² | 2 135 | **2 682** | 1 145 | **1 434** |
+| SGEMM 1024² | 2 135 (2 471 with B packed once) | **2 682** | 1 145 | **1 434** |
 | SGEMM 512² | 1 509 | **2 154** | 923 | 991 (level) |
 | SGEMM 256² | 916 | **1 116** | 425 | **627** |
 | SGEMM 128² | 369 | **755** | 99 | **236** |
-| [256×768]·[768×3072] | 1 795 | **2 358** | 1 016 (level) | 980 |
+| [256×768]·[768×3072], B packed per call | 1 795 | **2 358** | 1 016 (level) | 980 |
+| [256×768]·[768×3072], B packed once (weights) | **2 594** | 2 358 | pending | 980 |
 | [1×4096]·[4096×4096] | **13.4** | 11.3 | **13.0** | 11.0 |
 | x + y, 1M (released) | **43 µs** | 68 µs | **17 µs** | 24 µs |
 | x + y, 16M (released) | 1.51 ms | **1.37 ms** | **13.9 ms** | 17.5 ms |
@@ -60,10 +61,10 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
 | attention [8×8×512×64] (GFLOPS) | **947** | 553 | 479 | **1 091** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
-| MLP forward, batch 256 (samples/s) | **758 K** | 526 K | **384 K** | 361 K |
+| MLP forward, batch 256 (samples/s) | **839 K** | 526 K | **384 K** | 361 K |
 | MLP forward + backward | 179 K | **221 K** | 72 K | **124 K** |
 | MLP train step (Adam) | **148 K** | 121 K | 67 K | 71 K (level) |
-| EmbeddingGemma, 32 × 65 tokens (sentences/s) | 88 (level) | 88 | **49** | 37 |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **98** | 88 | **49** | 37 |
 
 **Where fiber/ai is ahead:** everything memory-bound that we wrote
 kernels for (element-wise, exp, tanh on Apple, reductions, softmax,
@@ -73,11 +74,14 @@ GEMM on the Xeon.
 
 **Where it is behind, honestly:**
 
-- **GEMM below 2048² on both machines.** Accelerate and MKL win by
-  20–50 % at 1024 and 512 and by 2× at 128 and 256. Our blocked driver
-  pays packing and dispatch that only amortise at the largest sizes.
-  The [256×768]·[768×3072] shape (a transformer projection) is 25 %
-  behind on the M2 and level on the Xeon.
+- **GEMM below 2048² on both machines, when B is packed per call.**
+  Accelerate and MKL win by 20–50 % at 1024 and 512 and by 2× at 128 and
+  256. Our blocked driver pays packing and dispatch that only amortise at
+  the largest sizes. With the packed-operand cache (T-037), which keeps
+  a reused right operand packed, the transformer projection
+  [256×768]·[768×3072] goes from 25 % behind to 10 % ahead on the M2, and
+  the inference rows (MLP forward, EmbeddingGemma) gain 9–14 %; the
+  square, fresh-operand case is unchanged and still behind.
 - **The backward pass.** forward+backward loses 20 % on the M2 and 40 %
   on the Xeon: PyTorch's autograd fuses more and allocates less; our
   backward builds each gradient as its own tensor. The Adam step wins
@@ -91,7 +95,9 @@ GEMM on the Xeon.
   kernel is 6× ahead of PyTorch, so this is the x86 kernel, not the
   algorithm.
 
-Earlier headline tables quoted single best runs (M2 GEMM 2 301, train
+The M2 inference rows and the "B packed once" entries were taken after
+T-037 (packed-operand cache); the rest of the table is from the run of
+the same morning. Earlier headline tables quoted single best runs (M2 GEMM 2 301, train
 164 K); the M2 varies by about 10 % between runs with the same code, so
 this table uses one run of each side taken minutes apart.
 

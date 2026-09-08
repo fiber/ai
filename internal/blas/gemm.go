@@ -166,7 +166,23 @@ func GemmZeroWorkers(c, a, b Mat, workers int) {
 // GemmWorkers is Gemm with an explicit upper bound on goroutines.
 func GemmWorkers(c, a, b Mat, workers int) { gemmWorkers(c, a, b, workers, false) }
 
+// GemmZeroPackedWorkers is GemmZeroWorkers with B already packed by PackB:
+// the packing round of every K block packs A only. p must have been built
+// from b with the current blocking parameters; otherwise the call packs as
+// usual.
+func GemmZeroPackedWorkers(c, a, b Mat, p *PackedB, workers int) {
+	if p == nil || !p.matches(b) {
+		gemmWorkers(c, a, b, workers, true)
+		return
+	}
+	gemmWorkersPacked(c, a, b, p, workers, true)
+}
+
 func gemmWorkers(c, a, b Mat, workers int, zero bool) {
+	gemmWorkersPacked(c, a, b, nil, workers, zero)
+}
+
+func gemmWorkersPacked(c, a, b Mat, p *PackedB, workers int, zero bool) {
 	if h := kernel.GemmHints.Workers; h > 0 && workers > h {
 		workers = h
 	}
@@ -217,7 +233,51 @@ func gemmWorkers(c, a, b Mat, workers int, zero bool) {
 		fewRows(c, a, b, workers)
 		return
 	}
-	gemm(c, a, b, workers, zero)
+	gemm(c, a, b, p, workers, zero)
+}
+
+// PackedB is a right operand in the driver's panel layout for every
+// (K block, N block), so that products against it skip the B packing
+// phase. Build it with PackB; it is valid for the blocking parameters in
+// force at that time.
+type PackedB struct {
+	rows, cols int
+	kc, nc, nr int
+	blocks     [][]float32 // index jcIdx*nPc + pcIdx
+	nPc        int
+	bytes      int
+}
+
+// Bytes is the memory the packed copy holds.
+func (p *PackedB) Bytes() int { return p.bytes }
+
+func (p *PackedB) matches(b Mat) bool {
+	return p != nil && b.Rows == p.rows && b.Cols == p.cols && p.kc == max(1, KC) && p.nr == kernel.NR && p.nc == max(kernel.NR, NC/kernel.NR*kernel.NR)
+}
+
+// PackB packs b for reuse across products. workers bounds the goroutines
+// used for the packing itself.
+func PackB(b Mat, workers int) *PackedB {
+	b.check("B")
+	nr := kernel.NR
+	kc := max(1, KC)
+	nc := max(nr, NC/nr*nr)
+	k, n := b.Rows, b.Cols
+	p := &PackedB{rows: k, cols: n, kc: kc, nc: nc, nr: nr}
+	p.nPc = (k + kc - 1) / kc
+	nJc := (n + nc - 1) / nc
+	p.blocks = make([][]float32, nJc*p.nPc)
+	for jc := 0; jc < n; jc += nc {
+		jb := min(nc, n-jc)
+		for pc := 0; pc < k; pc += kc {
+			pb := min(kc, k-pc)
+			buf := make([]float32, pb*roundUp(jb, nr))
+			packB(buf, b, pc, jc, pb, jb, nr, max(1, workers))
+			p.blocks[(jc/nc)*p.nPc+pc/kc] = buf
+			p.bytes += len(buf) * 4
+		}
+	}
+	return p
 }
 
 // FewRows is the largest M that takes the B-in-place path (see fewRows).
@@ -364,7 +424,7 @@ func putBuf(s []float32) {
 
 func roundUp(x, m int) int { return (x + m - 1) / m * m }
 
-func gemm(c, a, b Mat, workers int, zero bool) {
+func gemm(c, a, b Mat, p *PackedB, workers int, zero bool) {
 	mr, nr := kernel.MR, kernel.NR
 	m, n, k := a.Rows, b.Cols, a.Cols
 	if zero && kernel.GemmZero == nil {
@@ -377,8 +437,11 @@ func gemm(c, a, b Mat, workers int, zero bool) {
 	kcEff := min(kc, k)
 	mPack := roundUp(m, mr)
 
-	bp := getBuf(kcEff * min(nc, roundUp(n, nr)))
-	defer putBuf(bp)
+	var bp []float32
+	if p == nil {
+		bp = getBuf(kcEff * min(nc, roundUp(n, nr)))
+		defer putBuf(bp)
+	}
 	ap := getBuf(mPack * kcEff) // all of A's rows for one K block, in MR panels
 	defer putBuf(ap)
 
@@ -390,14 +453,24 @@ func gemm(c, a, b Mat, workers int, zero bool) {
 			pb := min(kc, k-pc)
 			first := zero && pc == 0 // this K block writes C instead of accumulating
 
+			if p != nil {
+				bp = p.blocks[(jc/nc)*p.nPc+pc/kc] // B packed once, before the call
+			}
 			if Strategy == StrategyRows {
-				packB(bp, b, pc, jc, pb, jb, nr, workers)
+				if p == nil {
+					packB(bp, b, pc, jc, pb, jb, nr, workers)
+				}
 				computeRows(c, a, bp, ic0(m, mc), jc, pc, pb, jb, mr, nr, workers, first)
 				continue
 			}
 			// Phase 1: pack the B panels and all A panels of this K block in
-			// one parallel round (the two packings are independent).
-			packAB(ap, bp, a, b, pc, jc, m, pb, jb, mr, nr, workers)
+			// one parallel round (the two packings are independent); with a
+			// packed B only A is packed.
+			if p != nil {
+				packAAll(ap, a, pc, m, pb, mr, workers)
+			} else {
+				packAB(ap, bp, a, b, pc, jc, m, pb, jb, mr, nr, workers)
+			}
 
 			// Phase 2: pure compute over a grid of (row block × panel range)
 			// tasks. Nothing is packed inside a task, so the grid can be fine:

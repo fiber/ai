@@ -240,6 +240,7 @@ func (t *Tensor) At(idx ...int) float32 { return t.data[t.offset("At", idx)] }
 
 // Set assigns v to the element at idx. It does not participate in autograd.
 func (t *Tensor) Set(v float32, idx ...int) {
+	t.touch()
 	t.checkInPlace("Set")
 	t.data[t.offset("Set", idx)] = v
 }

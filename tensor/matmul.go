@@ -46,7 +46,11 @@ func matmul2D(x, y *Tensor) *Tensor {
 	// pass, and the first K block does not read C.
 	out := newTensorUninit(Shape{m, n})
 	if out.size > 0 {
-		blas.GemmZero(mat(out, 0, 1), mat(x, 0, 1), mat(y, 0, 1))
+		if p := packedOperand(y); p != nil {
+			blas.GemmZeroPackedWorkers(mat(out, 0, 1), mat(x, 0, 1), mat(y, 0, 1), p, parallel.Workers())
+		} else {
+			blas.GemmZero(mat(out, 0, 1), mat(x, 0, 1), mat(y, 0, 1))
+		}
 	}
 	xd, yd := x.saved(), y.saved()
 	return record(out, "MatMul", []*Tensor{x, y}, func(gy *Tensor) {

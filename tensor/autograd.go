@@ -215,4 +215,13 @@ func (t *Tensor) checkInPlace(op string) {
 	if t.requiresGrad && GradEnabled() {
 		fail(op, "in-place modification of a tensor that requires grad; wrap the call in tensor.NoGrad")
 	}
+	t.touch()
+}
+
+// touch records that the storage is about to change, invalidating any
+// packed copy of it (see packcache.go).
+func (t *Tensor) touch() {
+	if t.store != nil {
+		t.store.version.Add(1)
+	}
 }

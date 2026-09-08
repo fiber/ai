@@ -84,6 +84,8 @@ func printAllocStats() {
 	fmt.Println()
 	fmt.Printf("allocator: mapped hits %d, misses %d, retained %d MiB, pinned %d MiB; GC cycles %d, forced %d\n",
 		hits, misses, retained>>20, pinned>>20, ms.NumGC, ms.NumForcedGC)
+	ph, pm, pb := tensor.PackedCacheStats()
+	fmt.Printf("packed operands: hits %d, misses %d, held %d MiB\n", ph, pm, pb>>20)
 }
 
 func benchGemm() {
@@ -99,6 +101,7 @@ func benchGemm() {
 	fmt.Println("| n (n×n · n×n) | 1 thread | all threads |")
 	fmt.Println("|---:|---:|---:|")
 	all := tensor.Threads()
+	tensor.SetPackedCacheLimit(0) // the square table is the general case: B packed per call
 	for _, n := range sizes {
 		a, b := tensor.Randn(n, n), tensor.Randn(n, n)
 		flops := 2 * float64(n) * float64(n) * float64(n)
@@ -108,15 +111,23 @@ func benchGemm() {
 		tn := timeIt(func() { a.MatMul(b).Release() })
 		fmt.Printf("| %d | %.1f | %.1f |\n", n, flops/t1/1e9, flops/tn/1e9)
 	}
+	tensor.SetPackedCacheLimit(512 << 20)
 	fmt.Println()
-	fmt.Println("| shape | GFLOPS (all threads) |")
-	fmt.Println("|---|---:|")
-	for _, s := range [][3]int{{1, 4096, 4096}, {8, 4096, 4096}, {64, 1024, 1024}, {256, 768, 3072}} {
+	// The right operand is reused across calls here, as a weight is in
+	// inference: the packed-operand cache serves it after the second call.
+	// Both states are shown; the "per call" column is the general case.
+	fmt.Println("| shape | GFLOPS, B packed once (cache) | GFLOPS, B packed per call |")
+	fmt.Println("|---|---:|---:|")
+	for _, s := range [][3]int{{1, 4096, 4096}, {8, 4096, 4096}, {64, 1024, 1024}, {256, 768, 3072}, {512, 512, 512}, {1024, 1024, 1024}} {
 		m, k, n := s[0], s[1], s[2]
 		a, b := tensor.Randn(m, k), tensor.Randn(k, n)
 		flops := 2 * float64(m) * float64(n) * float64(k)
-		t := timeIt(func() { a.MatMul(b).Release() })
-		fmt.Printf("| [%d×%d]·[%d×%d] | %.1f |\n", m, k, k, n, flops/t/1e9)
+		tensor.SetPackedCacheLimit(512 << 20)
+		tc := timeIt(func() { a.MatMul(b).Release() })
+		tensor.SetPackedCacheLimit(0)
+		tp := timeIt(func() { a.MatMul(b).Release() })
+		tensor.SetPackedCacheLimit(512 << 20)
+		fmt.Printf("| [%d×%d]·[%d×%d] | %.1f | %.1f |\n", m, k, k, n, flops/tc/1e9, flops/tp/1e9)
 	}
 	// transposed operand: no copy is made
 	a, b := tensor.Randn(1024, 1024), tensor.Randn(1024, 1024)

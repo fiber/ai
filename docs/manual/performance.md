@@ -97,6 +97,41 @@ clock and reports three times the real cost.
   [4096×4096] layer norm reads its input once and writes the output once
   (M2 Pro 1.9 ms against PyTorch's 2.35).
 
+## Packed operands: weights are packed once
+
+The GEMM driver works on operands repacked into panel layout. In
+inference the right operand of almost every product is a weight that
+does not change between calls, so packing it every time is wasted work:
+for a transformer projection [256×768]·[768×3072] it was a third of the
+call. The tensor layer therefore keeps a cache of packed right operands.
+An operand enters the cache the second time a product sees it (so an
+activation used once never does) and stays valid while its storage is
+unmodified: every in-place operation and `Set` invalidate it, and a
+tensor whose buffer escaped through `Data()` is never cached, because a
+caller could write through that slice at any time. Batched products
+(attention) and operands under 64K elements are not cached.
+
+What it is worth on the M2 Pro, right operand reused across calls:
+
+| product | B packed per call | B packed once |
+|---|---:|---:|
+| [8×4096]·[4096×4096] (GFLOPS) | 75 | 250 |
+| [64×1024]·[1024×1024] | 992 | 1 582 |
+| [256×768]·[768×3072] | 1 806 | 2 594 |
+| 1024² | 2 172 | 2 471 |
+| MLP forward, batch 256 (samples/s) | 768 K | 839 K |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | 86 | 98 |
+
+Training does not benefit: the weights change every step, and the
+optimisers write them through `Data()`, so they are never cached; the
+step costs the same as before within noise. Knobs:
+`tensor.SetPackedCacheLimit(bytes)` caps the memory held (default
+512 MiB, least-recently-used eviction; 0 disables and drops every
+entry), `FIBERAI_PACK_CACHE=0` disables it at start-up, and
+`tensor.PackedCacheStats()` reports hits, misses and bytes. A model
+whose weights exceed the limit keeps the most recently used ones packed;
+EmbeddingGemma's 170 matrices need about 420 MB.
+
 ## Denormals and masks
 
 x86 cores process denormal floats (below about 1.2e−38) through

@@ -24,6 +24,9 @@ type storage struct {
 	pooled bool // heap buffer from the (opt-in) heap pool
 	mapped bool // off-heap buffer from mapFloats
 	shared atomic.Bool
+	// version counts in-place modifications; the packed-operand cache
+	// keys on it (see packcache.go).
+	version atomic.Uint32
 	// state lives in its own allocation because the cleanup must not
 	// reference the storage (see cleanupArg).
 	state *atomic.Int32
