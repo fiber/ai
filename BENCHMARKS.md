@@ -389,17 +389,22 @@ machine cannot reach PyPI.
 | MLP forward, batch 256 (samples/s) | 288 K → **384 K** | 361 K |
 | MLP forward + backward (samples/s) | 65 K → 72 K | 124 K |
 | MLP train step (samples/s) | 64 K → 67 K | 71 K |
-| attention [8×8×512×64] (GFLOPS) | 479 | **2 189** ¹ |
-| same with causal mask | 470 (was 39) | **2 118** ¹ |
-| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **611** ¹ |
-| EmbeddingGemma, 32 × 65 tokens (sentences/s) | 49 | – ² |
+| attention [8×8×512×64] (GFLOPS) | 479 | **1 091** |
+| same with causal mask | 470 (was 39) | **1 072** |
+| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **438** |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **49** | 37 |
 
-¹ PyTorch 2.14.0+cpu with MKL and oneDNN, 32 threads, not pinned (both
-sockets). Per-socket peak on this machine is about 2.4 TFLOPS fp32, so
-like for like PyTorch's attention is roughly 2× fiber/ai's and its
-convolution 4×; the pinned Python run is still to be taken.
-² `sentence-transformers` is not in the Xeon's venv and the machine has
-no PyPI access; offline wheels are prepared.
+PyTorch 2.14.0+cpu with MKL and oneDNN, pinned to the same socket with
+`OMP_NUM_THREADS=16`; unpinned over both sockets it reaches 2 189 /
+2 118 / 611 on the three GFLOPS rows. `sentence-transformers` 6.0.1 in
+float32 for the embedding row (installed from offline wheels, the
+machine has no PyPI access).
+
+The embedding row is the one this round was about: the full encoder,
+tokenizer to unit vector, runs 1.32× faster than the Python stack on the
+production machine and 1.05× on the M2 Pro. The two rows where PyTorch
+is clearly ahead, attention (2.3×) and convolution (6×), are the next
+kernels to write (see TODO).
 
 Two placement results from the same session. Without `numactl`, the
 Linux default (all 32 physical cores of both sockets) reaches 887 GFLOPS

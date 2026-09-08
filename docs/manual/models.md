@@ -105,13 +105,14 @@ truncated-and-renormalised full vectors.
 fiber/ai computes in float32 throughout, as does the reference here. On the
 Apple M2 Pro, 32 sentences of about 64 tokens embedded as one batch:
 
-| | sentences/s |
-|---|---:|
-| fiber/ai (AMX) | 94 |
-| PyTorch CPU, 8 threads (`sentence-transformers`) | 89 |
+| machine | fiber/ai | PyTorch CPU (`sentence-transformers`) |
+|---|---:|---:|
+| Apple M2 Pro (AMX; PyTorch 8 threads) | 94 | 89 |
+| Xeon Gold 6130, one socket (AVX-512; PyTorch MKL, 16 threads) | 49 | 37 |
 
-So a little ahead of the Python stack on the same machine and in float32,
-which is the bar this project holds itself to. The weights take about
+Ahead of the Python stack on both machines in float32, by 5 % on the
+laptop and by a third on the server, which is the bar this project holds
+itself to. The weights take about
 1.2 GB in float32; total resident memory after loading and embedding a
 batch stays under 1.6 GB. For throughput, hand `Embed` many texts at once
 rather than calling it per text: batching amortises the per-call work and
