@@ -26,7 +26,8 @@ github.com/fiber/ai
 ├── tokenizer/         byte-fallback BPE tokenizer from tokenizer.json
 ├── models/gemma/      EmbeddingGemma natively: text to 768-d sentence embeddings
 ├── benchmarks/        results and the NumPy/PyTorch comparison script
-└── examples/          tensor basics, autograd, MLP regression, spiral classification, EmbeddingGemma search
+└── examples/          tensor basics, autograd, MLP regression, spiral classification, EmbeddingGemma search,
+                       airspace watch (eight airports on public ADS-B and METAR data, Storm Éowyn replay)
 ```
 
 The [tutorial](docs/tutorial/README.md) teaches the field from the code

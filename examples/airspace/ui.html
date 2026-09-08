@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Airspace watch</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #161c24; --ink: #d9e1ea; --muted: #7d8a99; --line: #232c37;
+    --band: rgba(90, 160, 255, 0.18); --trace: #5aa0ff; --actual: #f2f5f8; --warn: #ffb347; --bad: #ff5d5d; --ok: #4cd18a;
+    --mono: "SF Mono", Menlo, Consolas, monospace; --sans: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 var(--sans); }
+  header { display: flex; align-items: baseline; gap: 18px; padding: 12px 18px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: 0.02em; }
+  header .clock { font: 600 22px var(--mono); }
+  header .mode { color: var(--muted); }
+  main { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 12px 18px; }
+  .ap { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; display: grid; grid-template-columns: 1fr 120px; grid-template-rows: auto auto auto; gap: 6px 10px; }
+  .ap.alarm { border-color: var(--bad); box-shadow: inset 0 0 0 1px var(--bad); }
+  .ap.warn { border-color: var(--warn); }
+  .ap h2 { grid-column: 1 / 3; margin: 0; font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; }
+  .ap h2 small { color: var(--muted); font-weight: 400; }
+  .ap canvas.spark { width: 100%; height: 64px; display: block; }
+  .ap canvas.radar { width: 120px; height: 120px; display: block; grid-row: 2 / 4; }
+  .ap .now { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px 8px; font: 11px var(--mono); color: var(--muted); }
+  .ap .now b { color: var(--ink); font-weight: 600; }
+  .ap .metar { grid-column: 1 / 3; font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ap .metar.shift { color: var(--warn); }
+  section.wide { grid-column: 1 / 5; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  section.wide h2 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .row { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 10px; grid-column: 1 / 5; }
+  .row section.wide { grid-column: auto; }
+  canvas.score { width: 100%; height: 90px; display: block; }
+  ul.feed { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; font: 12px var(--mono); }
+  ul.feed li { padding: 3px 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 44px 52px 1fr; gap: 8px; }
+  ul.feed li .t { color: var(--muted); }
+  ul.feed li.band .k, ul.feed li.score .k, ul.feed li.metar .k { color: var(--bad); }
+  ul.feed li.gust .k, ul.feed li.visibility .k, ul.feed li.speci .k { color: var(--warn); }
+  ul.feed li.go-around .k, ul.feed li.emergency .k { color: var(--trace); }
+  table.tmpl { width: 100%; border-collapse: collapse; font: 11px var(--mono); }
+  table.tmpl td { padding: 2px 6px 2px 0; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+  table.tmpl td.n { text-align: right; width: 48px; color: var(--muted); }
+  pre.training { font: 11px var(--mono); color: var(--muted); max-height: 140px; overflow: auto; margin: 0; }
+  footer { padding: 8px 18px 16px; color: var(--muted); font-size: 11px; }
+  @media (max-width: 1100px) { main { grid-template-columns: repeat(2, 1fr); } section.wide, .row { grid-column: 1 / 3; } .row { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Airspace watch</h1>
+  <span class="clock" id="clock">--:--</span>
+  <span class="mode" id="mode"></span>
+</header>
+<main id="airports"></main>
+<main>
+  <div class="row">
+    <section class="wide"><h2>Anomaly score, all airports</h2><canvas class="score" id="score"></canvas></section>
+    <section class="wide"><h2>Alarms (models)</h2><ul class="feed" id="alarms"></ul></section>
+    <section class="wide"><h2>Events (facts)</h2><ul class="feed" id="events"></ul></section>
+  </div>
+  <div class="row">
+    <section class="wide"><h2>METAR templates today</h2><table class="tmpl" id="templates"></table></section>
+    <section class="wide" style="grid-column: span 2"><h2>Training log</h2><pre class="training" id="training"></pre></section>
+  </div>
+</main>
+<footer>Aircraft positions: adsb.lol (ODbL). Weather: U.S. National Weather Service via Iowa Environmental Mesonet and aviationweather.gov. Radar views are 40 NM around each field, north up; dot size grows with altitude; orange dots are in a holding pattern.</footer>
+<script>
+const $ = (id) => document.getElementById(id);
+const airports = $("airports");
+let panels = {};
+
+function panel(a) {
+  if (panels[a.icao]) return panels[a.icao];
+  const el = document.createElement("div");
+  el.className = "ap";
+  el.innerHTML = `<h2><span>${a.icao} <small>${a.name}</small></span><small class="out"></small></h2>
+    <canvas class="spark"></canvas><canvas class="radar" width="240" height="240"></canvas>
+    <div class="now"></div><div class="metar"></div>`;
+  airports.appendChild(el);
+  panels[a.icao] = { el, spark: el.querySelector(".spark"), radar: el.querySelector(".radar"), now: el.querySelector(".now"), metar: el.querySelector(".metar"), out: el.querySelector(".out") };
+  return panels[a.icao];
+}
+
+function drawSpark(canvas, pts) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (!pts || pts.length < 2) return;
+  let max = 1;
+  for (const p of pts) max = Math.max(max, p.v, p.mu + 3 * p.sigma);
+  const x = (i) => i / (pts.length - 1) * (w - 2) + 1;
+  const y = (v) => h - 2 - Math.max(0, Math.min(1, v / max)) * (h - 6);
+  // band
+  const css = getComputedStyle(document.documentElement);
+  ctx.fillStyle = css.getPropertyValue("--band");
+  ctx.beginPath();
+  let started = false;
+  pts.forEach((p, i) => { if (p.sigma > 0) { const yy = y(p.mu + 3 * p.sigma); started ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy); started = true; } });
+  for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; if (p.sigma > 0) ctx.lineTo(x(i), y(Math.max(0, p.mu - 3 * p.sigma))); }
+  ctx.closePath(); ctx.fill();
+  // expected
+  ctx.strokeStyle = css.getPropertyValue("--trace"); ctx.lineWidth = 1;
+  ctx.beginPath(); started = false;
+  pts.forEach((p, i) => { if (p.sigma > 0) { started ? ctx.lineTo(x(i), y(p.mu)) : ctx.moveTo(x(i), y(p.mu)); started = true; } });
+  ctx.stroke();
+  // actual, smoothed over 5 minutes like the alarm rule
+  ctx.strokeStyle = css.getPropertyValue("--actual"); ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  pts.forEach((p, i) => { let s = 0, n = 0; for (let j = Math.max(0, i - 4); j <= i; j++) { s += pts[j].v; n++; } const yy = y(s / n); i ? ctx.lineTo(x(i), yy) : ctx.moveTo(x(i), yy); });
+  ctx.stroke();
+}
+
+function drawRadar(canvas, aircraft) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height, c = w / 2, r = w / 2 - 4;
+  ctx.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  ctx.strokeStyle = css.getPropertyValue("--line"); ctx.lineWidth = 1;
+  for (const f of [0.25, 0.5, 0.75, 1]) { ctx.beginPath(); ctx.arc(c, c, r * f, 0, 2 * Math.PI); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(c - 6, c); ctx.lineTo(c + 6, c); ctx.moveTo(c, c - 6); ctx.lineTo(c, c + 6); ctx.stroke();
+  for (const a of aircraft || []) {
+    const [dx, dy, alt, hold] = a;
+    const x = c + dx / 40 * r, y = c - dy / 40 * r;
+    const size = 1.5 + Math.min(4, Math.max(0, alt) / 2500);
+    ctx.fillStyle = hold ? css.getPropertyValue("--warn") : (alt < 3000 ? css.getPropertyValue("--ok") : css.getPropertyValue("--actual"));
+    ctx.beginPath(); ctx.arc(x, y, size, 0, 2 * Math.PI); ctx.fill();
+  }
+}
+
+function drawScore(canvas, scores, threshold) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (!scores || !scores.length) return;
+  const css = getComputedStyle(document.documentElement);
+  let max = threshold * 1.5;
+  for (const s of scores) max = Math.max(max, s.score);
+  const x = (i) => i / Math.max(1, scores.length - 1) * (w - 2) + 1;
+  const y = (v) => h - 2 - Math.min(1, v / max) * (h - 6);
+  ctx.strokeStyle = css.getPropertyValue("--bad"); ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(0, y(threshold)); ctx.lineTo(w, y(threshold)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = css.getPropertyValue("--trace"); ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  scores.forEach((s, i) => { i ? ctx.lineTo(x(i), y(s.score)) : ctx.moveTo(x(i), y(s.score)); });
+  ctx.stroke();
+}
+
+const mm = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+function feed(el, items) {
+  el.innerHTML = items.slice().reverse().map((a) => `<li class="${a.kind}"><span class="t">${mm(a.minute)}</span><span class="k">${a.airport}</span><span>${a.kind}: ${a.text}</span></li>`).join("");
+}
+
+function render(s) {
+  $("clock").textContent = s.clock;
+  $("mode").textContent = `${s.mode} · ${s.date} UTC`;
+  const recentAlarm = {};
+  for (const a of s.alarms) if (s.minute - a.minute < 60) recentAlarm[a.airport] = true;
+  for (const a of s.airports) {
+    const p = panel(a);
+    drawSpark(p.spark, a.movements);
+    drawRadar(p.radar, a.aircraft);
+    const n = a.now;
+    p.now.innerHTML = `<span>zone <b>${n[0]}</b></span><span>arr <b>${n[1]}</b></span><span>dep <b>${n[2]}</b></span><span>hold <b>${n[3]}</b></span>` +
+      `<span>final <b>${n[7]}</b></span><span>g/a <b>${n[4]}</b></span><span>emerg <b>${n[5]}</b></span><span>gs <b>${Math.round(n[6])}</b></span>`;
+    p.metar.textContent = a.metar || "";
+    p.metar.title = a.template ? `template: ${a.template} · mix distance ${a.shift.toFixed(2)} (usual < ${a.shiftRef.toFixed(2)})` : "";
+    p.metar.classList.toggle("shift", a.shiftRef > 0 && a.shift > Math.max(0.35, 1.5 * a.shiftRef));
+    p.out.textContent = a.outside >= 3 ? `outside band ${a.outside} min` : "";
+    p.el.classList.toggle("alarm", !!recentAlarm[a.icao]);
+    p.el.classList.toggle("warn", a.outside > 0 && !recentAlarm[a.icao]);
+  }
+  drawScore($("score"), s.scores, s.threshold);
+  feed($("alarms"), s.alarms);
+  feed($("events"), s.events);
+  $("templates").innerHTML = s.templates.map((t) => `<tr><td class="n">${t.count}</td><td title="${t.template}">${t.template}</td></tr>`).join("");
+  $("training").textContent = s.training.join("\n");
+}
+
+const es = new EventSource("/events");
+es.onmessage = (e) => render(JSON.parse(e.data));
+fetch("/state").then((r) => r.json()).then(render);
+</script>
+</body>
+</html>

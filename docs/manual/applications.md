@@ -109,3 +109,78 @@ with 40 cameras and no recall on cameras at all. Pair the table with
 which multiplies each example's loss by its class's weight (for example
 the inverse class frequency) and normalises by the batch's total weight
 as PyTorch does.
+
+## The airspace watch: all of it on public data
+
+`examples/airspace` puts the packages above and the `nn` models
+together on data anyone can fetch: aircraft positions and flight-weather
+reports around eight European airports, Dublin to Frankfurt. It is the
+public counterpart of a network watch: airports are the entities,
+movements per minute the counters, METAR reports the event stream.
+
+```
+go run ./examples/airspace              # train on four ordinary days, replay Storm Éowyn
+go run ./examples/airspace -headless    # the same, alarms and events printed, no browser
+go run ./examples/airspace -live        # the live feeds, one poll per minute
+```
+
+**What it watches.** For every airport and minute: aircraft in a 40 NM
+zone below 10 000 ft, landings, take-offs, aircraft in holding patterns,
+aborted approaches, emergency squawks, the mean ground speed of low
+traffic and the number of aircraft on final. These come from a reduction
+of raw position reports (`reduce.go`) that the archive and the live feed
+share, so replay and live counters mean the same thing. The METARs of
+the eight stations are the text stream.
+
+**What the models and rules do.** Movements per minute are counts, so
+their expectation is the training days' profile by minute of day (the
+"same minute on an ordinary day" rule the workbook insists on beating)
+and the test is Poisson: over the last 30 and 60 minutes the observed
+number of movements against the expected one, an alarm when the tail
+probability is under one in ten thousand for three minutes running. That
+gives a quiet airport with twenty movements an hour and a busy one with
+ninety the same false-alarm rate, which no fixed band does. Aircraft in
+the zone is a level, not a count: one forecaster with an expectation
+band per airport (the recipe of tutorial chapter 6) predicts it fifteen
+minutes ahead from the last 24 minutes, time of day and day of week; an
+alarm needs eight minutes outside three spreads. An autoencoder over the
+48-value vector of all airports' zone state (in zone, arrivals,
+departures, holding, mean speed, on final) scores the minute as a whole,
+threshold at the 99.9th percentile of training error, alarm after three
+minutes over it or one at double. Aborted approaches have a rate rule:
+two in an hour where the training days had none. And a
+`logtemplate.Miner` over the METARs keeps a per-station rate per
+template and a mix-shift measure (Hellinger distance of the last hour's
+template histogram to the training histogram). There is no first-seen
+alarm: a new report kind simply moves the mix like any other.
+
+**Alarms and events are kept apart.** Alarms come from the models and
+rules only: movements out of Poisson range, the zone level outside its
+band, an autoencoder score over the threshold, a burst of aborted
+approaches, a template far above its usual rate or a shifted mix. They
+bundle per airport and hour: the first finding of an hour is reported,
+later ones fold into it. Events are facts that need no model and are shown for
+context: gusts over 40 kt, visibility under 800 m, special reports,
+aborted approaches, emergency codes, de-duplicated per aircraft and
+report.
+
+**The replay.** The shipped data covers 2025-01-19 to 2025-01-24. The
+first five days train, the sixth is Storm Éowyn: record gusts over
+Ireland and Scotland from the early morning, Dublin without a movement
+until nine and Edinburgh with 49 for the day against 280, aborted
+approaches at Manchester, the front moving east across the stations
+through the day, Frankfurt untouched with 1 106 movements. (Belfast was
+the first choice for the north, but the archive's receiver coverage
+there is too thin to count movements; Edinburgh's is dense.) Watching the bands
+break at Dublin, the anomaly score jump when several airports deviate
+together, and the METAR mix tilt from routine to gust and SPECI
+templates station by station is the point of the example. The radar
+views show the traffic itself: each field's 40 NM around it, dots sized
+by altitude, holding aircraft in orange.
+
+**Data and licences.** Positions are derived from the adsb.lol history
+archives (ODbL / CC0) and reduced to per-minute counters plus a
+down-sampled track set for the storm day; METARs are U.S. National
+Weather Service data via the Iowa Environmental Mesonet. Live mode reads
+api.adsb.lol and aviationweather.gov. `testdata/ATTRIBUTION.md` has the
+details; `-prep` rebuilds the files from the raw archives.
