@@ -389,10 +389,17 @@ machine cannot reach PyPI.
 | MLP forward, batch 256 (samples/s) | 288 K → **384 K** | 361 K |
 | MLP forward + backward (samples/s) | 65 K → 72 K | 124 K |
 | MLP train step (samples/s) | 64 K → 67 K | 71 K |
-| attention [8×8×512×64] (GFLOPS) | 479 | – |
-| same with causal mask | 470 (was 39) | – |
-| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | – |
-| EmbeddingGemma, 32 × 65 tokens (sentences/s) | 49 | – |
+| attention [8×8×512×64] (GFLOPS) | 479 | **2 189** ¹ |
+| same with causal mask | 470 (was 39) | **2 118** ¹ |
+| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **611** ¹ |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | 49 | – ² |
+
+¹ PyTorch 2.14.0+cpu with MKL and oneDNN, 32 threads, not pinned (both
+sockets). Per-socket peak on this machine is about 2.4 TFLOPS fp32, so
+like for like PyTorch's attention is roughly 2× fiber/ai's and its
+convolution 4×; the pinned Python run is still to be taken.
+² `sentence-transformers` is not in the Xeon's venv and the machine has
+no PyPI access; offline wheels are prepared.
 
 Two placement results from the same session. Without `numactl`, the
 Linux default (all 32 physical cores of both sockets) reaches 887 GFLOPS
@@ -405,7 +412,13 @@ parallel threshold is right when pinned: n=128 runs at 99 GFLOPS on all
 cores against 65 on one; the earlier unpinned reading of 58 was the
 placement problem, not the threshold. Convolution at 73 GFLOPS against
 1 150 for GEMM says the im2col path is memory-bound on this machine and
-is the strongest case yet for the implicit-GEMM candidate.
+is the strongest case yet for the implicit-GEMM candidate. Attention
+runs at about 42 % of the GEMM rate on both machines (479 of 1 156 on the
+Xeon, 981 of 2 300 on the M2): each fused task is a K=64 product with
+its own packing, where the blocked GEMM is at its weakest. oneDNN's
+fused attention primitive gets twice that; an attention micro-kernel
+that packs K and V once per head and skips the general GEMM is the
+candidate.
 
 The two-socket run (all 64 hardware threads, no pinning) is in
 [results/skylake-sp-6130-2socket/](benchmarks/results/skylake-sp-6130-2socket/)
