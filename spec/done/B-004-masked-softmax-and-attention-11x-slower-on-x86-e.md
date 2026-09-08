@@ -77,3 +77,7 @@ mask. The Xeon confirmation (target: masked within 10 % of unmasked)
 comes with the next pinned run; the pinned baseline for both is to be
 recorded then.
 
+Xeon confirmation (one socket, pinned, 2026-09-08): attention
+[8×8×512×64] 478.5 GFLOPS unmasked, 469.7 with the causal mask (was
+39.4). Fixed as specified.
+

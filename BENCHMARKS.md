@@ -373,6 +373,40 @@ What this says:
 - Where no allocation dominates we already win on this machine:
   matrix-vector, column sums, max, transposes.
 
+
+Transformer round (T-031/T-032/B-004, 2026-09-08), same socket and
+pinning, Go 1.27.1. The MLP rows moved with the storage and RMSNorm work
+of that round; the attention rows are after the B-004 fix (before it the
+masked row ran at 39 GFLOPS). The Python columns are open: the Xeon's
+venv has NumPy and PyTorch but no `sentence-transformers`, and the
+machine cannot reach PyPI.
+
+| Workload | fiber/ai AVX-512 | PyTorch / MKL |
+|---|---:|---:|
+| SGEMM 1024², all cores, tensor level | 1 145 | – |
+| SGEMM 2048², all cores, tensor level | 1 156 | – |
+| [256×768]·[768×3072] | 1 016 | – |
+| MLP forward, batch 256 (samples/s) | 288 K → **384 K** | 361 K |
+| MLP forward + backward (samples/s) | 65 K → 72 K | 124 K |
+| MLP train step (samples/s) | 64 K → 67 K | 71 K |
+| attention [8×8×512×64] (GFLOPS) | 479 | – |
+| same with causal mask | 470 (was 39) | – |
+| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | – |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | 49 | – |
+
+Two placement results from the same session. Without `numactl`, the
+Linux default (all 32 physical cores of both sockets) reaches 887 GFLOPS
+at 2048² and 46 K training samples/s; `FIBERAI_WORKERS=16` unpinned
+gives the same 887 and 46 K; the pinned socket gives 1 156 and 67 K.
+Worker count is not the lever, memory placement is: pages first touched
+by workers on both sockets are spread over both nodes. Pinning worker
+threads to one node's cores is the candidate fix (TODO). The 1M-element
+parallel threshold is right when pinned: n=128 runs at 99 GFLOPS on all
+cores against 65 on one; the earlier unpinned reading of 58 was the
+placement problem, not the threshold. Convolution at 73 GFLOPS against
+1 150 for GEMM says the im2col path is memory-bound on this machine and
+is the strongest case yet for the implicit-GEMM candidate.
+
 The two-socket run (all 64 hardware threads, no pinning) is in
 [results/skylake-sp-6130-2socket/](benchmarks/results/skylake-sp-6130-2socket/)
 as a record of the problem, not as a result.

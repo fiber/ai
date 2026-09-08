@@ -118,10 +118,11 @@ func (m *Model) embedBatch(ids [][]int, idx []int, dim int) [][]float32 {
 		}
 		h := m.encode(flat, lengths, B, T) // [B, T, hidden]
 		pooled := m.pool(h, lengths, B, T) // [B, hidden]
-		h.Release()
-		emb := m.applyHead(pooled, dim) // [B, dim]
+		h.Recycle()                        // pool read it through Data(): Release would refuse (B-005)
+		emb := m.applyHead(pooled, dim)    // [B, dim]
+		pooled.Recycle()
 		data := emb.Float32s()
-		emb.Release()
+		emb.Recycle()
 		result = make([][]float32, B)
 		for b := 0; b < B; b++ {
 			result[b] = append([]float32(nil), data[b*dim:(b+1)*dim]...)

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/fiber/ai/tensor"
 )
 
 func modelDir(t testing.TB) string {
@@ -216,5 +218,43 @@ func TestParityLong(t *testing.T) {
 		if c < 0.999 {
 			t.Errorf("long input %d: cosine %.6f below 0.999", i, c)
 		}
+	}
+}
+
+// TestEmbedDoesNotPinMemory: repeated Embed calls must not grow the mapped
+// allocator's pinned or retained bytes (B-005).
+func TestEmbedDoesNotPinMemory(t *testing.T) {
+	m, err := Load(modelDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	texts := make([]string, 16)
+	for i := range texts {
+		texts[i] = "interface GigabitEthernet0/1 changed state to down on switch access-7"
+	}
+	// The free list fills up to its retention limit over the first calls
+	// (recycled buffers kept for reuse), so cap it low and check that the
+	// cap holds and that nothing is pinned.
+	const limit = 128 << 20
+	tensor.SetMappedLimit(limit)
+	defer tensor.SetMappedLimit(512 << 20)
+	run := func(n int) {
+		for i := 0; i < n; i++ {
+			if _, err := m.Embed(texts); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	run(20)
+	_, _, retained0, pinned0 := tensor.MappedStats()
+	run(20)
+	_, _, retained1, pinned1 := tensor.MappedStats()
+	t.Logf("steady state: pinned %d -> %d bytes, retained %d -> %d bytes", pinned0, pinned1, retained0, retained1)
+	if pinned1 > pinned0 {
+		t.Errorf("pinned memory grew by %d bytes over 20 calls", pinned1-pinned0)
+	}
+	if retained1 > limit+8<<20 {
+		t.Errorf("retained memory %d bytes exceeds the %d byte limit", retained1, limit)
 	}
 }
