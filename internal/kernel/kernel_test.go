@@ -321,8 +321,15 @@ func TestExpAccuracy(t *testing.T) {
 				im.exp(x, z)
 				var maxRel float64
 				for i := range x {
-					// the kernels clamp to the float32-rounded bounds
-					xc := min(max(x[i], float32(expLo)), float32(expHi))
+					if x[i] < expLo {
+						// below the low clamp the kernels return exactly 0 (B-004)
+						if z[i] != 0 {
+							t.Fatalf("exp(%v) = %v, want 0", x[i], z[i])
+						}
+						continue
+					}
+					// the kernels clamp to the float32-rounded upper bound
+					xc := min(x[i], float32(expHi))
 					want := math.Exp(float64(xc))
 					rel := math.Abs(float64(z[i])-want) / want
 					maxRel = math.Max(maxRel, rel)

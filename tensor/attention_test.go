@@ -196,3 +196,28 @@ func TestFusedAttentionMatchesComposed(t *testing.T) {
 		t.Fatal("no gradient through Attention")
 	}
 }
+
+// TestMaskedAttentionWeightsAreExactZeros: with the exp kernels flushing
+// sub-threshold inputs to 0 (B-004), masked positions carry weight exactly
+// 0, so a causal attention's output at position 0 equals v[0] and the
+// softmax of a masked row has no denormals.
+func TestMaskedAttentionWeightsAreExactZeros(t *testing.T) {
+	rng := rand.New(rand.NewPCG(11, 12))
+	n, d := 64, 16
+	q, k, v := RandnFrom(rng, 1, 1, n, d), RandnFrom(rng, 1, 1, n, d), RandnFrom(rng, 1, 1, n, d)
+	var out *Tensor
+	NoGrad(func() { out = Attention(q, k, v, CausalMask(n)) })
+	if !out.Narrow(2, 0, 1).AllClose(v.Narrow(2, 0, 1), 1e-6, 1e-6) {
+		t.Fatal("position 0 with a causal mask must reproduce v[0] exactly")
+	}
+	row := RandnFrom(rng, 1, n).Add(CausalMask(n).Narrow(0, 0, 1)) // first row: only column 0 unmasked
+	w := row.Softmax(-1).Float32s()
+	for j := 1; j < n; j++ {
+		if w[j] != 0 {
+			t.Fatalf("masked softmax weight %d = %g, want exactly 0", j, w[j])
+		}
+	}
+	if w[0] != 1 {
+		t.Fatalf("unmasked weight = %g, want 1", w[0])
+	}
+}

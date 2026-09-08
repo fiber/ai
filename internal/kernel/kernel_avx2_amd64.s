@@ -638,6 +638,10 @@ TEXT ·expAVX2(SB), NOSPLIT, $0-24
 expAVX2_loop2:
 	VMOVUPS (SI), Y0
 	VMOVUPS 32(SI), Y5
+	// Lanes below the low clamp return exactly 0 (see genericExp): the
+	// mask is taken before clamping and applied before the store.
+	VCMPPS $1, ·expConsts+128(SB), Y0, Y10
+	VCMPPS $1, ·expConsts+128(SB), Y5, Y11
 	VMAXPS ·expConsts+128(SB), Y0, Y0
 	VMAXPS ·expConsts+128(SB), Y5, Y5
 	VMINPS ·expConsts+96(SB), Y0, Y0
@@ -674,6 +678,8 @@ expAVX2_loop2:
 	VPSLLD $23, Y7, Y7
 	VPADDD Y2, Y3, Y3
 	VPADDD Y7, Y8, Y8
+	VANDNPS Y3, Y10, Y3
+	VANDNPS Y8, Y11, Y8
 	VMOVUPS Y3, (DX)
 	VMOVUPS Y8, 32(DX)
 	ADDQ $64, SI
@@ -684,6 +690,7 @@ expAVX2_loop2:
 	JZ   expAVX2_done
 expAVX2_tail:
 	VMOVUPS (SI), Y0
+	VCMPPS $1, ·expConsts+128(SB), Y0, Y10
 	VMAXPS ·expConsts+128(SB), Y0, Y0
 	VMINPS ·expConsts+96(SB), Y0, Y0
 	VMULPS ·expConsts+0(SB), Y0, Y1
@@ -702,6 +709,7 @@ expAVX2_tail:
 	VADDPS ·expConsts+352(SB), Y3, Y3
 	VPSLLD $23, Y2, Y2
 	VPADDD Y2, Y3, Y3
+	VANDNPS Y3, Y10, Y3
 	VMOVUPS Y3, (DX)
 	ADDQ $32, SI
 	ADDQ $32, DX

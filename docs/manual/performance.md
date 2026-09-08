@@ -97,6 +97,21 @@ clock and reports three times the real cost.
   [4096×4096] layer norm reads its input once and writes the output once
   (M2 Pro 1.9 ms against PyTorch's 2.35).
 
+## Denormals and masks
+
+x86 cores process denormal floats (below about 1.2e−38) through
+microcode assists that cost around a hundred cycles per operation, and Go
+does not set the flush-to-zero flags. Apple's cores handle denormals at
+full speed, so a workload can look fine on a Mac and crawl on a Xeon. The
+one place this bit fiber/ai was masked attention: a masked score gave
+exp(−87) after clamping, the softmax normalisation turned it into a
+denormal weight, and the weights·V product ran eleven times slower with a
+causal mask than without. The exp kernels now return exactly 0 for inputs
+below the clamp, so masked weights are true zeros on every back-end. If a
+model of your own produces values in that range (activations decaying
+towards zero over many steps, tiny variances), expect the same effect and
+clamp or rescale.
+
 ## Heap ballast
 
 Element-wise operations allocate their result. With a small live heap

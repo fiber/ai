@@ -232,7 +232,16 @@ func genericExp(x, z []float32) {
 	x, z = x[:n], z[:n]
 	const magicBits = 0x4B400000
 	for i, v := range x {
-		v = min(max(v, expLo), expHi)
+		if v < expLo {
+			// Below the clamp the true value is under the smallest normal
+			// float. Return exactly 0 rather than exp(expLo): it is closer,
+			// it makes masked softmax weights exact zeros, and it keeps
+			// denormals (a hundred-cycle microcode assist per operation on
+			// x86) out of the products that follow.
+			z[i] = 0
+			continue
+		}
+		v = min(v, expHi)
 		t := v*expLog2e + expMagic
 		nf := t - expMagic
 		r := v - nf*expLn2Hi

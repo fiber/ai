@@ -23,6 +23,8 @@
 #define VFADDP4(Vd, Vn, Vm) WORD $(0x6E20D400 | (Vm<<16) | (Vn<<5) | Vd)
 // FMAXV Sd, Vn.4S (horizontal max)
 #define VFMAXV4(Sd, Vn) WORD $(0x6E30F800 | (Vn<<5) | Sd)
+// FCMGE Vd.4S, Vn.4S, Vm.4S (all ones where Vn >= Vm)
+#define VFCMGE4(Vd, Vn, Vm) WORD $(0x6E20E400 | (Vm<<16) | (Vn<<5) | Vd)
 // FMLA Vd.4S, Vn.4S, Vm.S[idx]  (Vd += Vn * Vm[idx])
 #define FMLA_E0(Vd, Vn, Vm) WORD $(0x4F801000 | (Vm<<16) | (Vn<<5) | Vd)
 #define FMLA_E1(Vd, Vn, Vm) WORD $(0x4FA01000 | (Vm<<16) | (Vn<<5) | Vd)
@@ -534,6 +536,8 @@ TEXT ·expNEON(SB), NOSPLIT, $0-24
 loop2:
 	VLD1.P 16(R0), [V0.S4]
 	VLD1.P 16(R0), [V8.S4]
+	VFCMGE4(6, 0, 21)              // keep mask: x >= lo (below: result 0)
+	VFCMGE4(14, 8, 21)
 	VFMAX4(0, 0, 21)
 	VFMAX4(8, 8, 21)
 	VFMIN4(0, 0, 20)
@@ -582,6 +586,8 @@ loop2:
 	VSHL  $23, V9.S4, V9.S4
 	VADD  V1.S4, V5.S4, V5.S4      // p · 2^n via the exponent field
 	VADD  V9.S4, V13.S4, V13.S4
+	VAND  V6.B16, V5.B16, V5.B16   // flush lanes below the clamp to 0
+	VAND  V14.B16, V13.B16, V13.B16
 	VST1.P [V5.S4], 16(R2)
 	VST1.P [V13.S4], 16(R2)
 	SUBS $1, R5, R5
@@ -590,6 +596,7 @@ loop2:
 	BEQ  done
 tail:
 	VLD1.P 16(R0), [V0.S4]
+	VFCMGE4(6, 0, 21)              // keep mask: x >= lo
 	VFMAX4(0, 0, 21)               // x = max(x, lo)
 	VFMIN4(0, 0, 20)               // x = min(x, hi)
 	VFMUL4(1, 0, 16)               // t = x·log2e
@@ -614,6 +621,7 @@ tail:
 	VSUB  V17.S4, V1.S4, V1.S4     // n = bits(t) - bits(magic)
 	VSHL  $23, V1.S4, V1.S4        // n << 23
 	VADD  V1.S4, V5.S4, V5.S4      // p · 2^n via the exponent field
+	VAND  V6.B16, V5.B16, V5.B16   // flush lanes below the clamp to 0
 	VST1.P [V5.S4], 16(R2)
 	SUBS $1, R3, R3
 	BNE  tail
@@ -630,7 +638,6 @@ done:
 #define VFCMEQ4(Vd, Vn, Vm) WORD $(0x4E20E400 | (Vm<<16) | (Vn<<5) | Vd)
 #define VBSL16(Vd, Vn, Vm) WORD $(0x6E601C00 | (Vm<<16) | (Vn<<5) | Vd)
 #define VSCVTF4(Vd, Vn) WORD $(0x4E21D800 | (Vn<<5) | Vd)
-#define VFCMGE4(Vd, Vn, Vm) WORD $(0x6E20E400 | (Vm<<16) | (Vn<<5) | Vd)
 
 TEXT ·tanhNEON(SB), NOSPLIT, $0-24
 	MOVD x+0(FP), R0
