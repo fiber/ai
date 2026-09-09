@@ -1,9 +1,11 @@
-//go:build !arm64
+//go:build !arm64 && !amd64
 
 package blas
 
 // Without an assembly transpose the plain streaming loop in packA is
-// faster; packRows4 is never called here.
+// faster; packRows is never asked to take rows here.
 const packTranspose = false
 
-func packRows4(dst, src *float32, rs, pb, mr int) { panic("blas: packRows4 without assembly") }
+const packWidth = 1
+
+func packRows(dst, src *float32, rs, pb, width, rows int) int { return 0 }

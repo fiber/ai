@@ -813,24 +813,8 @@ func packA(dst []float32, a Mat, i0, p0, ib, pb, mr int) {
 					panel[p*mr+i] = v
 				}
 			}
-		case a.CS == 1: // rows of A are contiguous: 4×4 register transposes, scalar tails
-			i := 0
-			pb4 := pb &^ 3
-			for ; i+4 <= rows && pb4 > 0; i += 4 {
-				packRows4(&panel[i], &a.Data[(i0+ir+i)*a.RS+p0], a.RS, pb4, mr)
-			}
-			for ; i < rows; i++ { // leftover rows, all columns
-				src := a.Data[(i0+ir+i)*a.RS+p0:][:pb]
-				for p, v := range src {
-					panel[p*mr+i] = v
-				}
-			}
-			for i := 0; i < rows&^3 && pb4 > 0; i++ { // column tail of the transposed rows
-				src := a.Data[(i0+ir+i)*a.RS+p0:][:pb]
-				for p := pb4; p < pb; p++ {
-					panel[p*mr+i] = src[p]
-				}
-			}
+		case a.CS == 1: // rows of A are contiguous: register transposes, scalar tails
+			packRowsTransposed(panel, a.Data, (i0+ir)*a.RS+p0, a.RS, pb, mr, rows)
 		case a.RS == 1: // columns of A are contiguous (transposed input)
 			for p := 0; p < pb; p++ {
 				src := a.Data[(p0+p)*a.CS+i0+ir:][:rows]
@@ -848,6 +832,39 @@ func packA(dst []float32, a Mat, i0, p0, ib, pb, mr int) {
 			for p := 0; p < pb; p++ {
 				clear(panel[p*mr+rows : p*mr+mr])
 			}
+		}
+	}
+}
+
+// packRowsTransposed writes rows [0, rows) of a row-contiguous block (row
+// r is data[base+r*stride:][:pb]) into panel k-major with row stride
+// width: panel[p*width + r] = row r[p]. Register transposes in groups of
+// packWidth rows where the architecture has them (8×8 AVX2 on amd64, 4×4
+// NEON on arm64), the scalar loop for the rows they decline and for the
+// column tail.
+func packRowsTransposed(panel, data []float32, base, stride, pb, width, rows int) {
+	pbw := pb &^ (packWidth - 1)
+	if !packTranspose {
+		pbw = 0
+	}
+	done := 0
+	for done < rows && pbw > 0 {
+		n := packRows(&panel[done], &data[base+done*stride], stride, pbw, width, min(packWidth, rows-done))
+		if n == 0 {
+			break
+		}
+		done += n
+	}
+	for r := done; r < rows; r++ { // rows the kernel did not take, all columns
+		src := data[base+r*stride:][:pb]
+		for p, v := range src {
+			panel[p*width+r] = v
+		}
+	}
+	for r := 0; r < done; r++ { // column tail of the transposed rows
+		src := data[base+r*stride:][:pb]
+		for p := pbw; p < pb; p++ {
+			panel[p*width+r] = src[p]
 		}
 	}
 }
@@ -879,13 +896,8 @@ func packBPanel(dst []float32, b Mat, p0, j0, pb, jb, nr, pi int) {
 				src := b.Data[(p0+p)*b.RS+j0+jr:][:cols]
 				copy(panel[p*nr:p*nr+cols], src)
 			}
-		case b.RS == 1: // columns of B are contiguous (transposed input)
-			for j := 0; j < cols; j++ {
-				src := b.Data[(j0+jr+j)*b.CS+p0:][:pb]
-				for p, v := range src {
-					panel[p*nr+j] = v
-				}
-			}
+		case b.RS == 1: // columns of B are contiguous (transposed input): same transposes as A
+			packRowsTransposed(panel, b.Data, (j0+jr)*b.CS+p0, b.CS, pb, nr, cols)
 		default:
 			for p := 0; p < pb; p++ {
 				base := (p0+p)*b.RS + (j0+jr)*b.CS

@@ -245,8 +245,8 @@ func BenchmarkGemmSmallM(b *testing.B) {
 
 func TestPackARowContiguous(t *testing.T) {
 	rng := rand.New(rand.NewPCG(5, 6))
-	for _, mr := range []int{8, 14, 32} {
-		for _, pb := range []int{1, 3, 4, 5, 8, 17, 64, 513} {
+	for _, mr := range []int{6, 8, 14, 32} {
+		for _, pb := range []int{1, 3, 4, 5, 7, 8, 13, 17, 64, 65, 513} {
 			for _, ib := range []int{1, 3, 4, 5, mr, mr + 3, 2*mr + 1} {
 				rs := pb + 7
 				a := Mat{Data: make([]float32, (ib+2)*rs), Rows: ib, Cols: pb, RS: rs, CS: 1}
@@ -270,6 +270,45 @@ func TestPackARowContiguous(t *testing.T) {
 							}
 							if panel[p*mr+i] != want {
 								t.Fatalf("mr=%d pb=%d ib=%d: panel[p=%d][i=%d] = %v, want %v", mr, pb, ib, p, i, panel[p*mr+i], want)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestPackBPanelTransposed checks the transposed-B path (columns of B
+// contiguous), which shares the register transposes with packA.
+func TestPackBPanelTransposed(t *testing.T) {
+	rng := rand.New(rand.NewPCG(7, 8))
+	for _, nr := range []int{6, 8, 14, 16, 32} {
+		for _, pb := range []int{1, 7, 8, 13, 64, 65} {
+			for _, jb := range []int{1, 3, 5, nr, nr + 3, 2*nr + 1} {
+				cs := pb + 5 // column stride of the source: element (p, j) at j*cs + p
+				b := Mat{Data: make([]float32, (jb+2)*cs), Rows: pb, Cols: jb, RS: 1, CS: cs}
+				for i := range b.Data {
+					b.Data[i] = rng.Float32()
+				}
+				nPanels := (jb + nr - 1) / nr
+				dst := make([]float32, nPanels*nr*pb)
+				for i := range dst {
+					dst[i] = -1
+				}
+				packB(dst, b, 0, 0, pb, jb, nr, 1)
+				for pi := 0; pi < nPanels; pi++ {
+					jr := pi * nr
+					cols := min(nr, jb-jr)
+					panel := dst[jr*pb : (jr+nr)*pb]
+					for p := 0; p < pb; p++ {
+						for j := 0; j < nr; j++ {
+							want := float32(0)
+							if j < cols {
+								want = b.Data[(jr+j)*cs+p]
+							}
+							if panel[p*nr+j] != want {
+								t.Fatalf("nr=%d pb=%d jb=%d: panel %d [p=%d][j=%d] = %v, want %v", nr, pb, jb, pi, p, j, panel[p*nr+j], want)
 							}
 						}
 					}

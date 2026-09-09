@@ -126,6 +126,16 @@ Training does not benefit: the weights change every step, and the
 optimisers write them through `Data()`, so they are never cached; the
 step costs the same as before within noise.
 
+**Packing itself** is a register transpose on both architectures: a
+row-contiguous block (the A operand of every product, a transposed B, the
+query rows and probabilities of attention) goes into the k-major panel
+through 4×4 NEON transposes on arm64 and 8×8 AVX2 transposes with masked
+stores on amd64 (`packRows8`), so a 6-row group, the tail of the 14-row
+AVX-512 tile and the whole of the AVX2 one, costs the same as a full
+group. Before, amd64 streamed each row with a scalar store every MR
+floats, and the pinned Xeon spent a third of the attention benchmark in
+those loops (21 % `packA`, 11 % `packBPanel` in the profile).
+
 **Eviction.** Least recently used, with one guard: an entry is only
 evicted when it has not been hit within the last pass over the working
 set (two lookups per entry). If a new operand cannot be fitted by
