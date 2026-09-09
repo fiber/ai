@@ -334,7 +334,7 @@ the M4's SME unit, four threads; same day, commit 0ceb7eb; raw runs in
 | MLP forward, batch 256 (samples/s) | 666 K → **1.07 M** (performance cores, T-047) | – | 815 K |
 | MLP forward + backward | 202 K → 254 K | – | **348 K** |
 | MLP train step (Adam) | 163 K → **225 K** | – | 204 K |
-| EmbeddingGemma (sentences/s) | 83 (level) | – | 80 |
+| EmbeddingGemma (sentences/s) | 83 → **91** (performance cores) | – | 80 |
 
 The M4 Air is where PyTorch's Accelerate stack is strongest, and the
 picture differed from the M2 Pro in one place: with all ten cores the
