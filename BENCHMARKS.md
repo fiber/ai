@@ -329,11 +329,11 @@ the M4's SME unit, four threads; same day, commit 0ceb7eb; raw runs in
 | softmax(dim=1), 4096² | **2.73 ms** | – | 5.71 ms |
 | layernorm, 4096² | 2.64 ms | – | **2.39 ms** |
 | transpose + copy, 4096² | **11.5 ms** | 50.4 ms | 14.4 ms |
-| attention [8×8×512×64] (GFLOPS) | **920** → 982 | – | 729 |
+| attention [8×8×512×64] (GFLOPS) | **920** → 988 | – | 729 |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 357 | – | 332 (level) |
-| MLP forward, batch 256 (samples/s) | 666 K → **1.09 M** (performance cores, T-047) | – | 815 K |
-| MLP forward + backward | 202 K → 256 K | – | **348 K** |
-| MLP train step (Adam) | 163 K → **223 K** | – | 204 K |
+| MLP forward, batch 256 (samples/s) | 666 K → **1.07 M** (performance cores, T-047) | – | 815 K |
+| MLP forward + backward | 202 K → 254 K | – | **348 K** |
+| MLP train step (Adam) | 163 K → **225 K** | – | 204 K |
 | EmbeddingGemma (sentences/s) | 83 (level) | – | 80 |
 
 The M4 Air is where PyTorch's Accelerate stack is strongest, and the
