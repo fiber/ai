@@ -183,6 +183,18 @@ func ensureHelpers(n int) {
 }
 
 func helper(id int) {
+	// One helper per physical core: the Go scheduler knows nothing about
+	// hyperthread siblings, and two helpers on one core share its FMA
+	// ports while another core idles (2048² SGEMM on a Xeon socket:
+	// 1 102 → 1 309 GFLOPS with one thread per core). Helper ids are
+	// 1-based; entry 0 is left to the caller's goroutine, which is not
+	// pinned. Helpers beyond the list run unpinned.
+	if cpus := pinCPUs(); id < len(cpus) {
+		runtime.LockOSThread()
+		if !pinThread(cpus[id]) {
+			runtime.UnlockOSThread()
+		}
+	}
 	var seen uint64
 	for {
 		g := gen.Load()

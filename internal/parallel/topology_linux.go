@@ -3,6 +3,8 @@
 package parallel
 
 import (
+	"os"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -42,4 +44,42 @@ func affinityCPUs() []int {
 		}
 	}
 	return cpus
+}
+
+var (
+	pinOnce sync.Once
+	pinList []int
+)
+
+// pinCPUs returns the CPUs pool helpers pin to: one per physical core of
+// the affinity mask, in package order (see coreCPUs). Empty when
+// FIBERAI_PIN=0, when the topology is unreadable, or when the mask has a
+// single core. Computed once.
+func pinCPUs() []int {
+	pinOnce.Do(func() {
+		if os.Getenv("FIBERAI_PIN") == "0" {
+			return
+		}
+		cpus := affinityCPUs()
+		if cpus == nil {
+			return
+		}
+		if l := coreCPUs(sysfsRoot, cpus); len(l) > 1 {
+			pinList = l
+		}
+	})
+	return pinList
+}
+
+// pinThread restricts the calling OS thread to one CPU with
+// sched_setaffinity(2); false when the call fails (the thread then runs
+// wherever the scheduler puts it).
+func pinThread(cpu int) bool {
+	var mask [1024 / 8]uint64
+	if cpu < 0 || cpu >= len(mask)*64 {
+		return false
+	}
+	mask[cpu/64] |= 1 << (uint(cpu) % 64)
+	_, _, errno := syscall.RawSyscall(syscall.SYS_SCHED_SETAFFINITY, 0, uintptr(len(mask)*8), uintptr(unsafe.Pointer(&mask[0])))
+	return errno == 0
 }
