@@ -230,25 +230,20 @@ per-call overhead, not by the passes between them. The transformer gains
 ## Attention from the micro-kernel
 
 Without gradients recording, `Attention` and `AttentionScaled` do not go
-through the GEMM driver. Per head, K and V are packed once into
-micro-kernel panels (heads that share storage, as grouped-query `Expand`
-views do, share one packing; the packed operands are held in groups of
-at most 64 MB). Each task is a head and a block of query rows, worked
-through in MR-row groups, on one of two paths:
+through the GEMM driver. K and V are packed once per head into
+micro-kernel panels; with at least two distinct K/V per worker each task
+is one head that packs its own K and V and then attends every query row
+(and every head sharing that K/V, as grouped-query `Expand` views do),
+so one task's reads from memory overlap the others' arithmetic; with
+fewer, a packing phase precedes tasks over row blocks. Per MR-row group
+the whole key range is scored at once, the probabilities are packed as
+the left operand of the second product and multiplied with the packed V.
+An online-softmax structure over key blocks with a micro-kernel that
+reads its left operand row-major (`kernel.GemmRM`, AVX2 and AVX-512)
+exists behind `FIBERAI_ATTENTION=blocked`; it measured 3–6 % slower on
+a Xeon because 14 × 512 scores already fit L1.
 
-- **AVX2 and AVX-512** have a micro-kernel variant that reads its left
-  operand row-major (`kernel.GemmRM`), so nothing is packed per row
-  group. The keys are walked in blocks of 128: the block's scores go
-  straight from the kernel into L1-sized scratch, the softmax is kept
-  running (the row's maximum so far, its sum so far, and the output
-  accumulator rescaled when the maximum moves), and the probabilities
-  are multiplied with the block's packed V columns as they are. This is
-  the structure of oneDNN's attention kernel.
-- **NEON, AMX and generic** score the whole key range at once, pack the
-  probabilities as the left operand (AMX needs the packed layout) and
-  multiply with the packed V.
-
-On both paths the softmax is three passes, the mask joining the raw
+The softmax is three passes, the mask joining the raw
 scores, one `Max`, and `kernel.ExpSum`, which applies the scale and the
 shift, exponentiates and sums in one pass; the rows leave scaled by
 their 1/Σ, a D-wide pass instead of an S-wide one. Before T-041 each task
@@ -260,20 +255,19 @@ M2 Pro, GFLOPS over the two products, PyTorch 2.14 same day:
 
 | shape | before | now | PyTorch |
 |---|---:|---:|---:|
-| [8×8×512×64] | 947 | 1 110 | 553 |
-| same, causal mask | ~900 | 1 070 | 566 |
-| [1×8×2048×64], long sequence | – | 1 120 | 652.5 |
+| [8×8×512×64] | 947 | 1 175 | 553 |
+| same, causal mask | ~900 | 1 065 | 566 |
+| [1×8×2048×64], long sequence | – | 1 125 | 652.5 |
 
 What remains on the M2 is arithmetic, not overhead: half the task time
 is the AMX products (the score product has depth 64, so every 32×32
 tile pays its store after 64 steps), a third the exponential (16.8 M of
 them per call at 0.4 ns each on one core), the rest the probability
-packing and the row scaling. On the Xeon the same change gives 479 →
-533 GFLOPS on the pinned socket and 437 → 747 across both (the new path
-carries little memory traffic), against 1 141 for PyTorch; per core it
-reaches 33 GFLOPS where the plain GEMM reaches 72, and the AVX2
-exponential at about 1.2 ns per element is the first suspect. See
-BENCHMARKS.md.
+packing and the row scaling. On the Xeon socket the steps were 479 →
+533 (this kernel) → 618 (AVX2 packing) → 655 (AVX-512 exponential) →
+693 (one thread per core) → 763 (packing inside the task) against
+1 141 for PyTorch's oneDNN kernel; the AVX2 back-end there runs at 543.
+See BENCHMARKS.md for what each step was and was not.
 
 ## Denormals and masks
 

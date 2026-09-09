@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-09 T-046 — Attention v2: online softmax over key blocks and a micro-kernel that reads its left operand row-major, so nothing is packed per row group (spec/done/T-046-attention-v2-online-softmax-over-key-blocks-and.md)
 - 2026-09-09 T-045 — Linux: pin pool workers to distinct physical cores of the affinity mask (spec/done/T-045-linux-pin-pool-workers-to-distinct-physical-core.md)
 - 2026-09-09 T-044 — Result recycling without Release: cheaper forced collections and released exp/tanh rows for the kernel comparison (spec/done/T-044-result-recycling-without-release-cheaper-forced.md)
 - 2026-09-09 T-043 — AVX-512 exp, exp-sum and tanh: 16 lanes with every constant in a register (spec/done/T-043-avx-512-exp-exp-sum-and-tanh-16-lanes-with-every.md)

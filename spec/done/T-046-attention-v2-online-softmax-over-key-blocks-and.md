@@ -1,13 +1,14 @@
 ---
 id: T-046
 title: Attention v2: online softmax over key blocks and a micro-kernel that reads its left operand row-major, so nothing is packed per row group
-status: open
+status: done
 scope:
   - internal/kernel/
   - internal/blas/
   - tensor/
 manual:
   - docs/manual/performance.md
+done: 2026-09-09
 created: 2026-09-09
 ---
 
@@ -90,3 +91,11 @@ AMX path keeps the packed layout it needs and is unchanged.
   are at least two per worker (no phase, no barrier, memory reads
   overlap arithmetic); the grouped phase structure remains for few
   distinct K/V. M2: 1 130 → 1 165–1 183 GFLOPS.
+- Xeon (0ceb7eb): AVX-512 703 → 763 (causal 662 → 713), long sequence
+  748 → 722 (eight heads: below two per worker, phase path, noise);
+  AVX2 551 → 543, flat. Targets (≥ 850, long ≥ 900) not met; closed
+  here rather than pushed further. What this spec established: the
+  online-softmax block structure is not the lever at these sizes, the
+  packing phase and its barrier were (9 % on AVX-512), and the remaining
+  gap to oneDNN (1.5×) sits in the kernel's share of peak under
+  all-core load and the exponential, not in data movement.

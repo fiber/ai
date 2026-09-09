@@ -59,7 +59,7 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | softmax(dim=1), 4096² | **2.22 ms** | 6.27 ms | **11.0 ms** | 14.4 ms |
 | layernorm, 4096² | **1.85 ms** | 2.21 ms | **11.0 ms** | 14.1 ms |
 | transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
-| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 693 | **1 141** |
+| attention [8×8×512×64] (GFLOPS) | **1 175** | 553 | 763 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
 | MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **473 K** | 361 K |
 | MLP forward + backward | 179 K | **221 K** | 74 K | **124 K** |
@@ -96,9 +96,13 @@ GEMM on the Xeon.
   head (M2: 947 → 1 110 GFLOPS; Xeon pinned 479 → 533, both sockets
   437 → 747); the profile then showed a third of the Xeon's time in Go
   packing loops, and the AVX2 register-transpose packing (T-042) took
-  it to 618 pinned. Still 1.8× behind oneDNN's fused attention; what
-  is left there is the AVX2 exponential (an AVX-512 version is the
-  candidate) and the micro-kernel's own 60 % of peak.
+  it to 618 pinned; the AVX-512 exponential (T-043) 655, one thread per
+  core (T-045) 693, packing K and V inside each head's task instead of
+  in a phase of its own (T-046) 763. An online-softmax block structure
+  like oneDNN's measured slower at these sizes (the scores fit L1
+  anyway) and stays behind a switch. Still 1.5× behind oneDNN's fused
+  attention, and what is left is arithmetic under all-core load, not
+  data movement.
   The im2col convolution is memory-bound on the Xeon; oneDNN has a
   dedicated primitive, the implicit-GEMM candidate is on the list.
 - **tanh on the Xeon** (9× behind in the unreleased 1M row): not the
@@ -309,8 +313,8 @@ of a 65-token sentence as one batch.
 
 | row | PyTorch | fiber/ai |
 |---|---:|---:|
-| attention [8×8×512×64], GFLOPS over the two products | 561 | 1 110 |
-| same with a causal mask | 566 | 1 070 |
+| attention [8×8×512×64], GFLOPS over the two products | 561 | 1 175 |
+| same with a causal mask | 566 | 1 065 |
 | attention [1×8×2048×64], long sequence | 652.5 | 1 120 |
 | conv2d [32×64×56×56] · 64 filters 3×3, GFLOPS | 314 | 367 |
 | EmbeddingGemma, sentences/s | 91 | 106 |
@@ -443,8 +447,9 @@ machine cannot reach PyPI.
 | MLP forward, batch 256 (samples/s) | 288 K → 384 K → 415 K (T-040) → **473 K** (T-042) | 361 K |
 | MLP forward + backward (samples/s) | 65 K → 72 K | 124 K |
 | MLP train step (samples/s) | 64 K → 67 K | 71 K |
-| attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) → 618 (T-042) → 655 (T-043) → 693 (T-045) | **1 141** |
-| same with causal mask | 470 (was 39) → 515 → 595 → 662 | **1 129** |
+| attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) → 618 (T-042) → 655 (T-043) → 693 (T-045) → 763 (T-046) | **1 141** |
+| same with causal mask | 470 (was 39) → 515 → 595 → 662 → 713 | **1 129** |
+| attention [8×8×512×64], AVX2 back-end | 543 | – (AVX2-limited PyTorch not yet measured) |
 | attention [1×8×2048×64], long sequence | 539 → 698 → 748 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **438** |
 | EmbeddingGemma, 32 × 65 tokens (sentences/s) | **49 → 58** (T-040, pre-norms folded, gated FFN fused) | 37 |
