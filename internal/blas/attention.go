@@ -54,11 +54,10 @@ func PackKV(buf []float32, kt, v Mat, workers int) PackedKV {
 // first key of that slice. Nothing here depends on rows, so the caller
 // chooses the block size for load balance alone.
 //
-// Where the back-end has a micro-kernel reading its left operand
-// row-major (kernel.GemmRM: AVX2, AVX-512), the keys are processed in
-// blocks with an online softmax and nothing is packed per row group (see
-// attentionBlockRM); elsewhere (NEON, AMX, generic) the whole key range
-// is scored at once and the probabilities are packed.
+// The whole key range is scored at once and the probabilities are packed
+// as the left operand of the second product; the alternative over key
+// blocks with an online softmax (attentionBlockRM, FIBERAI_ATTENTION=
+// blocked) measured slower where it is available.
 func AttentionBlock(out, q Mat, kv PackedKV, scale float32, mask func(r int, row []float32, invScale float32, k0 int)) {
 	mr, nr := kernel.MR, kernel.NR
 	rows, S, D := q.Rows, kv.S, kv.D
@@ -68,7 +67,7 @@ func AttentionBlock(out, q Mat, kv PackedKV, scale float32, mask func(r int, row
 	if rows == 0 {
 		return
 	}
-	if kernel.GemmRM != nil && scale > 0 && !attentionPacked {
+	if kernel.GemmRM != nil && scale > 0 && attentionBlocked {
 		attentionBlockRM(out, q, kv, scale, mask)
 		return
 	}
@@ -136,10 +135,13 @@ func AttentionBlock(out, q Mat, kv PackedKV, scale float32, mask func(r int, row
 	}
 }
 
-// attentionPacked forces the packed path on back-ends that have the
-// row-major one (FIBERAI_ATTENTION=packed), for measuring the two against
-// each other on the same machine.
-var attentionPacked = os.Getenv("FIBERAI_ATTENTION") == "packed"
+// attentionBlocked selects the online-softmax path over key blocks on
+// back-ends that have the row-major kernel (FIBERAI_ATTENTION=blocked).
+// It measured 3–6 % slower than the packed path on a Xeon Gold 6130 on
+// both AVX-512 and AVX2 (T-046): 14 × 512 scores already fit L1, so the
+// block structure buys nothing and pays in shorter kernel calls; kept for
+// measurement and for the day the numbers say otherwise.
+var attentionBlocked = os.Getenv("FIBERAI_ATTENTION") == "blocked"
 
 // attentionKeyBlock is the number of keys one online-softmax step covers
 // (rounded up to NR): MR × 128 scores are 7 KB on AVX-512, L1-resident.

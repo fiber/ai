@@ -176,13 +176,77 @@ func attentionFused(q, k, v, mask *Tensor, scale float32) *Tensor {
 	}
 
 	workers := parallel.Workers()
+	per := blas.PackedKVSize(S, D)
+	type kvKey struct{ k, v int }
+	maskFor := func(b, i0 int) func(r int, row []float32, invScale float32, k0 int) {
+		if md == nil {
+			return nil
+		}
+		return func(r int, row []float32, invScale float32, k0 int) {
+			base := moff[b] + (i0+r)*mRowStride
+			if mColStride == 1 {
+				kernel.Axpy(invScale, md[base+k0:base+k0+len(row)], row)
+			} else { // one mask value for the whole row
+				kernel.AddScalar(row, md[base]*invScale, row)
+			}
+		}
+	}
+	packHead := func(buf []float32, kk kvKey, w int) blas.PackedKV {
+		kt := blas.Mat{Data: kd[kk.k:], Rows: D, Cols: S, RS: k.strides[nd-1], CS: k.strides[nd-2]}
+		vb := blas.Mat{Data: vd[kk.v:], Rows: S, Cols: D, RS: v.strides[nd-2], CS: v.strides[nd-1]}
+		return blas.PackKV(buf, kt, vb, w)
+	}
+	runHead := func(b int, p blas.PackedKV, i0, rows int) {
+		qb := blas.Mat{Data: qd[qoff[b]+i0*q.strides[nd-2]:], Rows: rows, Cols: D, RS: q.strides[nd-2], CS: q.strides[nd-1]}
+		ob := blas.Mat{Data: out.data[(b*T+i0)*D:], Rows: rows, Cols: D, RS: D, CS: 1}
+		blas.AttentionBlock(ob, qb, p, scale, maskFor(b, i0))
+	}
+
+	// Enough distinct K/V for every worker: one task per distinct K/V that
+	// packs it itself and then attends every head sharing it. No packing
+	// phase, no barrier between packing and computing; one task's reads
+	// of K and V from memory overlap the others' arithmetic. (On a Xeon
+	// the separate packing phase was 16 % of the call with the FMA units
+	// idle, plus 11 % waiting at its barrier.)
+	{
+		idx := map[kvKey]int{}
+		var keys []kvKey
+		var heads [][]int
+		for b := 0; b < nb; b++ {
+			kk := kvKey{koff[b], voff[b]}
+			i, ok := idx[kk]
+			if !ok {
+				i = len(keys)
+				idx[kk] = i
+				keys = append(keys, kk)
+				heads = append(heads, nil)
+			}
+			heads[i] = append(heads[i], b)
+		}
+		if len(keys) >= 2*workers && per <= attentionPackBudget/workers {
+			parallel.For(len(keys), func(i int) {
+				buf := blas.GetBuf(per)
+				defer blas.PutBuf(buf)
+				p := packHead(buf[:per], keys[i], 1)
+				for _, b := range heads[i] {
+					runHead(b, p, 0, T)
+				}
+			})
+			runtime.KeepAlive(q)
+			runtime.KeepAlive(k)
+			runtime.KeepAlive(v)
+			runtime.KeepAlive(mask)
+			return out
+		}
+	}
+
+	// Few distinct K/V (a long single sequence, grouped-query heads): pack
+	// in a parallel phase, then split every head's rows over the workers.
 	block := attentionRows(nb, T)
 	blocks := (T + block - 1) / block
-	per := blas.PackedKVSize(S, D)
 	headsPerGroup := max(1, attentionPackBudget/per)
 	buf := blas.GetBuf(headsPerGroup * per)
 	defer blas.PutBuf(buf)
-	type kvKey struct{ k, v int }
 	for b0 := 0; b0 < nb; {
 		// Take heads while their distinct (k, v) storages fit the budget.
 		idx := map[kvKey]int{}
@@ -199,12 +263,7 @@ func attentionFused(q, k, v, mask *Tensor, scale float32) *Tensor {
 			}
 		}
 		packs := make([]blas.PackedKV, len(keys))
-		packOne := func(i, w int) {
-			kk := keys[i]
-			kt := blas.Mat{Data: kd[kk.k:], Rows: D, Cols: S, RS: k.strides[nd-1], CS: k.strides[nd-2]}
-			vb := blas.Mat{Data: vd[kk.v:], Rows: S, Cols: D, RS: v.strides[nd-2], CS: v.strides[nd-1]}
-			packs[i] = blas.PackKV(buf[i*per:(i+1)*per], kt, vb, w)
-		}
+		packOne := func(i, w int) { packs[i] = packHead(buf[i*per:(i+1)*per], keys[i], w) }
 		if len(keys) >= workers {
 			parallel.For(len(keys), func(i int) { packOne(i, 1) })
 		} else {
@@ -216,22 +275,7 @@ func attentionFused(q, k, v, mask *Tensor, scale float32) *Tensor {
 		parallel.For(heads*blocks, func(task int) {
 			b, blk := b0+task/blocks, task%blocks
 			i0 := blk * block
-			rows := min(block, T-i0)
-			p := packs[idx[kvKey{koff[b], voff[b]}]]
-			qb := blas.Mat{Data: qd[qoff[b]+i0*q.strides[nd-2]:], Rows: rows, Cols: D, RS: q.strides[nd-2], CS: q.strides[nd-1]}
-			ob := blas.Mat{Data: out.data[(b*T+i0)*D:], Rows: rows, Cols: D, RS: D, CS: 1}
-			var addMask func(r int, row []float32, invScale float32, k0 int)
-			if md != nil {
-				addMask = func(r int, row []float32, invScale float32, k0 int) {
-					base := moff[b] + (i0+r)*mRowStride
-					if mColStride == 1 {
-						kernel.Axpy(invScale, md[base+k0:base+k0+len(row)], row)
-					} else { // one mask value for the whole row
-						kernel.AddScalar(row, md[base]*invScale, row)
-					}
-				}
-			}
-			blas.AttentionBlock(ob, qb, p, scale, addMask)
+			runHead(b, packs[idx[kvKey{koff[b], voff[b]}]], i0, min(block, T-i0))
 		})
 		b0 = b1
 	}

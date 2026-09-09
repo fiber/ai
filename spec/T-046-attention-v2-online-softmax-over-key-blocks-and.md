@@ -78,3 +78,15 @@ AMX path keeps the packed layout it needs and is unchanged.
   thermal). AVX-512 variant assembled here, verified on the Xeon.
 - Xeon measurement pending, both back-ends (`avx512` default and
   `FIBERAI_KERNEL=avx2`, which is the deployment case).
+- Xeon (3011b02): blocked 658 / packed 703 on AVX-512, 536 / 551 on
+  AVX2: the online-softmax path is 3–6 % slower on both. 14 × 512 scores
+  already fit L1; the block structure buys nothing and pays in shorter
+  kernel and exp calls. Packed is the default again; the row-major
+  kernels stay (verified, useful for narrow products without packing)
+  and the blocked path behind FIBERAI_ATTENTION=blocked. The profile of
+  the call showed the real cost: 16 % packing K and V in a phase of its
+  own (DRAM-bound, FMA units idle) and 11 % waiting at its barrier.
+  Hence one task per distinct K/V that packs inside the task when there
+  are at least two per worker (no phase, no barrier, memory reads
+  overlap arithmetic); the grouped phase structure remains for few
+  distinct K/V. M2: 1 130 → 1 165–1 183 GFLOPS.
