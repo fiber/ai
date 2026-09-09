@@ -102,7 +102,11 @@ GEMM on the Xeon.
   like oneDNN's measured slower at these sizes (the scores fit L1
   anyway) and stays behind a switch. Still 1.5× behind oneDNN's fused
   attention, and what is left is arithmetic under all-core load, not
-  data movement.
+  data movement. Limited to AVX2 (`ONEDNN_MAX_CPU_ISA=AVX2
+  ATEN_CPU_CAPABILITY=avx2`) PyTorch still reaches 1 023 GFLOPS while
+  our AVX2 back-end runs at 543: their kernel barely depends on the
+  vector width, ours does; on AVX2, the deployment case, attention is
+  1.9× behind while EmbeddingGemma stays ahead (49 against 36).
   The im2col convolution is memory-bound on the Xeon; oneDNN has a
   dedicated primitive, the implicit-GEMM candidate is on the list.
 - **tanh on the Xeon** (9× behind in the unreleased 1M row): not the
@@ -449,7 +453,8 @@ machine cannot reach PyPI.
 | MLP train step (samples/s) | 64 K → 67 K | 71 K |
 | attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) → 618 (T-042) → 655 (T-043) → 693 (T-045) → 763 (T-046) | **1 141** |
 | same with causal mask | 470 (was 39) → 515 → 595 → 662 → 713 | **1 129** |
-| attention [8×8×512×64], AVX2 back-end | 543 | – (AVX2-limited PyTorch not yet measured) |
+| attention [8×8×512×64], AVX2 back-end | 543 | **1 023** (oneDNN and ATen limited to AVX2; MKL limit pending) |
+| EmbeddingGemma, AVX2 back-end (sentences/s) | **49** | 36 (same limits) |
 | attention [1×8×2048×64], long sequence | 539 → 698 → 748 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **438** |
 | EmbeddingGemma, 32 × 65 tokens (sentences/s) | **49 → 58** (T-040, pre-norms folded, gated FFN fused) | 37 |
