@@ -41,8 +41,8 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 
 | Workload | M2 Pro fiber/ai | M2 Pro PyTorch | Xeon fiber/ai | Xeon PyTorch |
 |---|---:|---:|---:|---:|
-| SGEMM 2048², all cores (GFLOPS) | 2 269 (level) | 2 227 | **1 156** | 780 |
-| SGEMM 1024² | 2 135 (2 471 with B packed once) | **2 682** | 1 217 (1 327 with B packed once) | **1 434** |
+| SGEMM 2048², all cores (GFLOPS) | 2 269 (level) | 2 227 | **1 268** | 780 |
+| SGEMM 1024² | 2 135 (2 471 with B packed once) | **2 682** | 1 234 (1 327 with B packed once) | **1 434** |
 | SGEMM 512² | 1 509 | **2 154** | **1 002** | 991 (level) |
 | SGEMM 256² | 916 | **1 116** | 540 | **627** |
 | SGEMM 128² | 369 | **755** | 99 | **236** |
@@ -59,7 +59,7 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | softmax(dim=1), 4096² | **2.22 ms** | 6.27 ms | **11.0 ms** | 14.4 ms |
 | layernorm, 4096² | **1.85 ms** | 2.21 ms | **11.0 ms** | 14.1 ms |
 | transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
-| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 655 | **1 141** |
+| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 693 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
 | MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **473 K** | 361 K |
 | MLP forward + backward | 179 K | **221 K** | 74 K | **124 K** |
@@ -438,12 +438,12 @@ machine cannot reach PyPI.
 | Workload | fiber/ai AVX-512 | PyTorch / MKL |
 |---|---:|---:|
 | SGEMM 1024², all cores, tensor level | 1 145 | – |
-| SGEMM 2048², all cores, tensor level | 1 156 | – |
+| SGEMM 2048², all cores, tensor level | 1 156 → **1 268** (workers pinned to cores, T-045) | – |
 | [256×768]·[768×3072] | 1 016 | – |
 | MLP forward, batch 256 (samples/s) | 288 K → 384 K → 415 K (T-040) → **473 K** (T-042) | 361 K |
 | MLP forward + backward (samples/s) | 65 K → 72 K | 124 K |
 | MLP train step (samples/s) | 64 K → 67 K | 71 K |
-| attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) → 618 (T-042) → 655 (T-043) | **1 141** |
+| attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) → 618 (T-042) → 655 (T-043) → 693 (T-045) | **1 141** |
 | same with causal mask | 470 (was 39) → 515 → 595 → 662 | **1 129** |
 | attention [1×8×2048×64], long sequence | 539 → 698 → 748 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **438** |
@@ -513,6 +513,16 @@ traffic, so it scales across the sockets where the old one did not, but
 per core it reaches 33 GFLOPS against 72 for the plain GEMM. The AVX2
 exponential (about 1.2 ns per element on this machine, three times the
 M2's) is the first suspect; a profile of the pinned run decides.
+
+Where the socket's remaining 37 % go (2048²: 1 268 of a 2 000 GFLOPS
+all-core peak): the kernel alone runs at 95 % of the single-core peak
+(174 of 179 GFLOPS at 2.8 GHz), the scaling curve loses from the second
+core on (93 % efficiency at 2, 74 % at 4, 56 % at 12, nothing from the
+last four), K blocking and loop order change nothing (KC 512/1024/2048
+within 3 %, the rows strategy 30 % worse), finer tasks 2 %, one thread
+per physical core +10 % (now the default on one package). What is left
+is the AVX-512 clock under all-core load and shared resources between
+cores; not cheap to buy back in software.
 
 The two-socket run (all 64 hardware threads, no pinning) is in
 [results/skylake-sp-6130-2socket/](benchmarks/results/skylake-sp-6130-2socket/)

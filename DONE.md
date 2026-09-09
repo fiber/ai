@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-09 T-045 — Linux: pin pool workers to distinct physical cores of the affinity mask (spec/done/T-045-linux-pin-pool-workers-to-distinct-physical-core.md)
 - 2026-09-09 T-044 — Result recycling without Release: cheaper forced collections and released exp/tanh rows for the kernel comparison (spec/done/T-044-result-recycling-without-release-cheaper-forced.md)
 - 2026-09-09 T-043 — AVX-512 exp, exp-sum and tanh: 16 lanes with every constant in a register (spec/done/T-043-avx-512-exp-exp-sum-and-tanh-16-lanes-with-every.md)
 - 2026-09-09 T-042 — amd64 register-transpose packing: AVX2 8x8 transposes with masked tails for A panels and transposed B panels (spec/done/T-042-amd64-register-transpose-packing-avx2-8x8-transp.md)

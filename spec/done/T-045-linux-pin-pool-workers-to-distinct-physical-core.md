@@ -1,11 +1,12 @@
 ---
 id: T-045
 title: Linux: pin pool workers to distinct physical cores of the affinity mask
-status: open
+status: done
 scope:
   - internal/parallel/
 manual:
   - docs/manual/performance.md
+done: 2026-09-09
 created: 2026-09-09
 ---
 
@@ -66,8 +67,13 @@ right without numactl incantations.
   (target 1 280 missed by 1 %; physcpubind 1 309), 1 024² 1 237 (met),
   attention 693 (target 700 missed by 1 %), training 67 K (71 before,
   target 78 K missed: the step is small parallel rounds, FMA contention
-  was never its cost); unpinned two-socket default 2048² 887 → 795 and
-  training 46 K → 39 K, worse. Consequence: pin by default only when the
-  affinity mask lies within one package; FIBERAI_PIN=1 forces it across
-  packages. NUMA-local memory placement remains the open item for the
-  two-socket case.
+  was never its cost); two-socket default 2048² 795 and training 39 K
+  with pinning, 803 and 39 K without (same day): neutral. The 887 / 46 K
+  of the day before were a different day on a shared machine; the
+  two-socket figures vary about 10 % between days. Consequence: pin by
+  default only within one package, where it is measured to help;
+  FIBERAI_PIN=1 forces it across packages. NUMA-local memory placement
+  remains the open item for the two-socket case.
+- Control run after the change (bb71d1e): one socket 1024² 1 234, 2048²
+  1 268; two sockets 803 and 39 K. Closed with 2048² and attention 1 %
+  under their targets and training unchanged.

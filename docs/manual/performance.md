@@ -38,11 +38,10 @@ calling goroutine stays free). The Go scheduler does not know hyperthread
 siblings, and two workers on one core share its FMA ports while another
 core idles: on a Xeon Gold 6130 socket 2048² SGEMM ran at 1 102–1 177
 GFLOPS with the scheduler's placement and 1 309 with one thread per
-core. Across two packages the pinned placement measured 10 % worse than
-the scheduler's (memory placement decides there, not core choice), so
-the default pins only within one package; `FIBERAI_PIN=1` forces it,
-`FIBERAI_PIN=0` switches it off, for example when other processes need
-those cores.
+core. Across two packages pinning measured neither better nor worse
+(memory placement decides there, not core choice), so the default pins
+only within one package; `FIBERAI_PIN=1` forces it, `FIBERAI_PIN=0`
+switches it off, for example when other processes need those cores.
 
 ### AMX on Apple Silicon
 
