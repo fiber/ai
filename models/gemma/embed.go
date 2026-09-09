@@ -163,11 +163,13 @@ func (m *Model) encode(flat, lengths []int, B, T int) *tensor.Tensor {
 		// Attention. rel() frees each intermediate's off-heap storage as
 		// soon as its last reader is done, so the next layer reuses the
 		// buffers instead of faulting fresh pages (66% of the time before).
-		h := tensor.RMSNorm(x, ly.inputNorm, eps)
-		q0 := h.MatMul(ly.wq)
-		k0 := h.MatMul(ly.wk)
-		v0 := h.MatMul(ly.wv)
-		rec(h)
+		// Pre-norm folded into the weights (see Load): one read pass for the
+		// row statistics, the scale applied in each product's epilogue.
+		xf := x.Reshape(B*T, cfg.HiddenSize)
+		scale := rmsScale(xf.RowSumSquares(), cfg.HiddenSize, eps)
+		q0 := tensor.MatMulFused(xf, ly.wq, tensor.Fused{RowScale: scale})
+		k0 := tensor.MatMulFused(xf, ly.wk, tensor.Fused{RowScale: scale})
+		v0 := tensor.MatMulFused(xf, ly.wv, tensor.Fused{RowScale: scale})
 		q := tensor.RMSNorm(q0.Reshape(B, T, H, D), ly.qNorm, eps)
 		k := tensor.RMSNorm(k0.Reshape(B, T, Hkv, D), ly.kNorm, eps)
 		rec(q0, k0)
@@ -192,14 +194,14 @@ func (m *Model) encode(flat, lengths []int, B, T int) *tensor.Tensor {
 		rec(x, o)
 		x = x2
 
-		// Feed-forward: down(gelu(gate(x)) * up(x)).
-		h2 := tensor.RMSNorm(x, ly.preFFNNorm, eps)
-		gate := h2.MatMul(ly.wgate).GELU()
-		up := h2.MatMul(ly.wup)
-		rec(h2)
-		gu := gate.Mul(up)
-		rec(gate, up)
-		mlp0 := gu.MatMul(ly.wdown)
+		// Feed-forward: down(gelu(gate(x)) * up(x)), with the pre-norm folded
+		// and GELU and the gated product applied in the gate epilogue.
+		xf = x.Reshape(B*T, cfg.HiddenSize)
+		scale = rmsScale(xf.RowSumSquares(), cfg.HiddenSize, eps)
+		up := tensor.MatMulFused(xf, ly.wup, tensor.Fused{RowScale: scale})
+		gu := tensor.MatMulFused(xf, ly.wgate, tensor.Fused{RowScale: scale, Act: tensor.GELUAct, Mul: up})
+		rec(up)
+		mlp0 := gu.MatMul(ly.wdown).Reshape(B, T, cfg.HiddenSize)
 		rec(gu)
 		mlp := tensor.RMSNorm(mlp0, ly.postFFNNorm, eps)
 		rec(mlp0)
@@ -256,6 +258,15 @@ func (m *Model) applyHead(x *tensor.Tensor, dim int) *tensor.Tensor {
 		x = l2normalize(x)
 	}
 	return x
+}
+
+// rmsScale turns row sums of squares into the RMSNorm factors 1/√(ss/n+ε).
+func rmsScale(ss []float32, n int, eps float32) []float32 {
+	out := make([]float32, len(ss))
+	for i, v := range ss {
+		out[i] = float32(1 / math.Sqrt(float64(v/float32(n)+eps)))
+	}
+	return out
 }
 
 // rel releases each tensor's off-heap storage, ignoring the ones that

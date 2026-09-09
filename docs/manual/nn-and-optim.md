@@ -14,7 +14,7 @@ anything with those two methods composes with it.
 
 | Module | Notes |
 |---|---|
-| `NewLinear(in, out)` | `y = x·W + b`, W is `[in out]` (He initialisation); `NewLinearNoBias` |
+| `NewLinear(in, out)` | `y = x·W + b`, W is `[in out]` (He initialisation); `NewLinearNoBias`; in inference the bias is applied in the product's epilogue |
 | `ReLU{} GELU{} Tanh{} Sigmoid{}` | stateless activations |
 | `Softmax{Dim: -1}` | softmax along a dimension |
 | `Flatten{}` | `[batch, ...]` → `[batch, features]` |
@@ -25,6 +25,14 @@ anything with those two methods composes with it.
 `nn.NumParams(m)` counts scalars, `nn.ZeroGrad(m)` clears gradients,
 `nn.SetTraining(m, on)` flips modules with a training mode (Sequential
 forwards it to its children).
+
+Under `tensor.NoGrad` `Linear` adds its bias inside the matrix product
+and `Sequential` fuses a `ReLU{}` or `GELU{}` that directly follows a
+`Linear` into that product (`tensor.MatMulFused`), so the inference
+forward of an MLP is its matrix products and nothing else. With
+gradients recording, the modules compute the same result from the
+ordinary operations; see the fused-epilogue section of
+[performance.md](performance.md).
 
 ## Attention
 

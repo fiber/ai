@@ -61,10 +61,10 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
 | attention [8×8×512×64] (GFLOPS) | **947** | 553 | 479 | **1 091** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
-| MLP forward, batch 256 (samples/s) | **839 K** | 526 K | **384 K** | 361 K |
+| MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **384 K** | 361 K |
 | MLP forward + backward | 179 K | **221 K** | 72 K | **124 K** |
 | MLP train step (Adam) | **148 K** | 121 K | 67 K | 71 K (level) |
-| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **98** | 88 | **49** | 37 |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **106** | 88 | **49** | 37 |
 
 **Where fiber/ai is ahead:** everything memory-bound that we wrote
 kernels for (element-wise, exp, tanh on Apple, reductions, softmax,
@@ -80,8 +80,11 @@ GEMM on the Xeon.
   the largest sizes. With the packed-operand cache (T-037), which keeps
   a reused right operand packed, the transformer projection
   [256×768]·[768×3072] goes from 25 % behind to 10 % ahead on the M2, and
-  the inference rows (MLP forward, EmbeddingGemma) gain 9–14 %; the
-  square, fresh-operand case is unchanged and still behind.
+  the inference rows (MLP forward, EmbeddingGemma) gain 9–14 %, and the
+  fused epilogues (T-040: bias, activation, gated product and folded
+  pre-norm applied on the finished output block) give EmbeddingGemma
+  another 13 % on the M2; the square, fresh-operand case is unchanged
+  and still behind.
 - **The backward pass.** forward+backward loses 20 % on the M2 and 40 %
   on the Xeon: PyTorch's autograd fuses more and allocates less; our
   backward builds each gradient as its own tensor. The Adam step wins
@@ -297,10 +300,10 @@ of a 65-token sentence as one batch.
 | attention [8×8×512×64], GFLOPS over the two products | 561 | ~950 |
 | same with a causal mask | 566 | ~900 |
 | conv2d [32×64×56×56] · 64 filters 3×3, GFLOPS | 314 | 367 |
-| EmbeddingGemma, sentences/s | 91 | 94–98 |
+| EmbeddingGemma, sentences/s | 91 | 106 |
 
 The embedding row is the one that matters for the syslog work: a full
-24-layer encoder, tokenizer to unit vector, slightly ahead of the Python
+24-layer encoder, tokenizer to unit vector, a fifth ahead of the Python
 stack on the same machine. Its parity with `sentence-transformers` is
 cosine 1.000000 on 64 short and 3 long (up to 1753-token) inputs; see
 [docs/manual/models.md](docs/manual/models.md).

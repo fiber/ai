@@ -145,6 +145,51 @@ bytes and entries; `cmd/bench` prints that line after every section. A
 steady-state inference run shows misses of about twice the number of
 weights (first sighting, then the pack) and hits for everything after.
 
+## Fused epilogues: bias, activation and gating on the hot block
+
+In inference the work between two matrix products is element-wise: add
+a bias, apply an activation, multiply by a gate, add the residual. Each
+is a pass over the whole output; for a transformer block that meant
+reading and writing a 4–6 MB matrix seven times for three products, and
+on a server with a tenth of the M2's memory bandwidth those passes were
+half of an EmbeddingGemma forward. `tensor.MatMulFused(x, w,
+tensor.Fused{Bias, RowScale, Act, Mul, Residual})` applies them inside
+the GEMM driver: once the last K block of an output region has been
+accumulated, whichever task finished the region runs the epilogue on it
+while it is still in cache. The order is bias, row scale, activation,
+element-wise multiply, residual add.
+
+The region is a row block (128 rows) by at least 256 columns. Narrower,
+per micro-tile panel, and the vector kernels spend their time on
+dispatch instead of data (GELU alone cost 5 % of the forward that way);
+the whole row block, and one core runs the block's epilogue while the
+others wait for it. The matrix-vector and few-rows paths apply the
+epilogue over the finished output instead; correct everywhere, fused
+where it matters.
+
+Under gradient recording `MatMulFused` computes the same result from the
+ordinary operations, so autograd sees what it always saw; the fusion is
+an inference path. `nn.Linear` uses it for its bias and `nn.Sequential`
+for a `ReLU` or `GELU` that directly follows a `Linear`, both under
+`NoGrad`. `models/gemma` folds the pre-attention and pre-feed-forward
+RMSNorms into the weights it loads (RMSNorm(x)·W equals
+(1/rms(x)) · (x · diag(g)W)): the encoder computes one sum of squares
+per row with `RowSumSquares`, a read-only pass, and passes the factor
+as `RowScale`; the gated feed-forward is one call, `gate = h·W'gate`
+with `Act: GELUAct, Mul: up`, instead of gate, GELU and product.
+
+M2 Pro, same day, packed-operand cache warm:
+
+| | separate passes | fused |
+|---|---:|---:|
+| MLP forward, batch 256 (samples/s) | 840 K | 875 K |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | 94 | 106 |
+
+The MLP gains little: three products of 256 rows are dominated by
+per-call overhead, not by the passes between them. The transformer gains
+13 % on the M2, whose memory bandwidth was never the bottleneck; the
+server, where it is, is measured in BENCHMARKS.md.
+
 ## Denormals and masks
 
 x86 cores process denormal floats (below about 1.2e−38) through

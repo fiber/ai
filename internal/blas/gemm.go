@@ -26,6 +26,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/internal/parallel"
@@ -93,6 +94,12 @@ var (
 // n=1024 and 1012/1086/1139/1133 at n=2048; the M2 Pro also preferred 16).
 // FIBERAI_BLAS_TASKS overrides it for experiments.
 var tasksPerWorker = 16
+
+// epilogueCols is the minimum width of the output region an epilogue is
+// applied to at once (see gemm): wide enough that the element-wise
+// kernels amortise their dispatch, narrow enough that several cores share
+// a row block's epilogue.
+const epilogueCols = 256
 
 // Strategy selects how the compute phase is distributed:
 //
@@ -183,6 +190,10 @@ func gemmWorkers(c, a, b Mat, workers int, zero bool) {
 }
 
 func gemmWorkersPacked(c, a, b Mat, p *PackedB, workers int, zero bool) {
+	gemmWorkersFull(c, a, b, p, Epilogue{}, workers, zero)
+}
+
+func gemmWorkersFull(c, a, b Mat, p *PackedB, e Epilogue, workers int, zero bool) {
 	if h := kernel.GemmHints.Workers; h > 0 && workers > h {
 		workers = h
 	}
@@ -207,6 +218,7 @@ func gemmWorkersPacked(c, a, b Mat, p *PackedB, workers int, zero bool) {
 		if zero {
 			clearC(c, workers)
 		}
+		e.applyAll(c, workers)
 		return
 	}
 
@@ -217,9 +229,11 @@ func gemmWorkersPacked(c, a, b Mat, p *PackedB, workers int, zero bool) {
 			clearC(c, workers) // a single row or column: cheap to clear, then accumulate
 		}
 		if m == 1 && gemvRow(c, a, b, workers) {
+			e.applyAll(c, workers)
 			return
 		}
 		if n == 1 && gemvCol(c, a, b, workers) {
+			e.applyAll(c, workers)
 			return
 		}
 		zero = false
@@ -231,9 +245,117 @@ func gemmWorkersPacked(c, a, b Mat, p *PackedB, workers int, zero bool) {
 			clearC(c, workers)
 		}
 		fewRows(c, a, b, workers)
+		e.applyAll(c, workers)
 		return
 	}
-	gemm(c, a, b, p, workers, zero)
+	gemm(c, a, b, p, e, workers, zero)
+}
+
+// Activation names the element-wise function an Epilogue applies.
+type Activation int
+
+const (
+	ActNone Activation = iota
+	ActReLU
+	ActGELU
+)
+
+// Epilogue is what a product applies to its finished output block while
+// the block is still in cache, in this order: Bias (per column), RowScale
+// (per row; before the activation so a folded normalisation is applied to
+// the pre-activation), Act, Mul (element-wise), Residual (added). Zero
+// fields are skipped. Mul and Residual must have C's shape and unit
+// column stride.
+type Epilogue struct {
+	Bias     []float32
+	Act      Activation
+	Mul      Mat
+	RowScale []float32
+	Residual Mat
+}
+
+// empty reports whether the epilogue does nothing.
+func (e Epilogue) empty() bool {
+	return e.Bias == nil && e.Act == ActNone && e.Mul.Data == nil && e.RowScale == nil && e.Residual.Data == nil
+}
+
+func (e Epilogue) check(c Mat) {
+	if e.Bias != nil && len(e.Bias) < c.Cols {
+		panic("blas: Epilogue.Bias shorter than the output's columns")
+	}
+	if e.RowScale != nil && len(e.RowScale) < c.Rows {
+		panic("blas: Epilogue.RowScale shorter than the output's rows")
+	}
+	for _, m := range []struct {
+		name string
+		m    Mat
+	}{{"Mul", e.Mul}, {"Residual", e.Residual}} {
+		if m.m.Data == nil {
+			continue
+		}
+		if m.m.Rows != c.Rows || m.m.Cols != c.Cols || m.m.CS != 1 {
+			panic(fmt.Sprintf("blas: Epilogue.%s must be [%d×%d] with unit column stride", m.name, c.Rows, c.Cols))
+		}
+	}
+}
+
+// applyRows runs the epilogue on rows [r0, r1) and columns [c0, c1) of C.
+func (e Epilogue) applyRows(c Mat, r0, r1, c0, c1 int) {
+	if c1 <= c0 {
+		return
+	}
+	var tmp []float32
+	if e.Act == ActGELU {
+		tmp = getBuf(c1 - c0) // GELU reads its input after writing: not in place
+		defer putBuf(tmp)
+	}
+	for i := r0; i < r1; i++ {
+		row := c.Data[i*c.RS+c0 : i*c.RS+c1]
+		if e.Bias != nil {
+			kernel.Add(row, e.Bias[c0:c1], row)
+		}
+		if e.RowScale != nil {
+			kernel.Scale(row, e.RowScale[i], row)
+		}
+		switch e.Act {
+		case ActReLU:
+			kernel.MaxScalar(row, 0, row)
+		case ActGELU:
+			copy(tmp, row)
+			kernel.GELU(tmp[:len(row)], row)
+		}
+		if e.Mul.Data != nil {
+			kernel.Mul(row, e.Mul.Data[i*e.Mul.RS+c0:i*e.Mul.RS+c1], row)
+		}
+		if e.Residual.Data != nil {
+			kernel.Add(row, e.Residual.Data[i*e.Residual.RS+c0:i*e.Residual.RS+c1], row)
+		}
+	}
+}
+
+// applyAll runs the epilogue over the whole output, in parallel by rows.
+func (e Epilogue) applyAll(c Mat, workers int) {
+	if e.empty() {
+		return
+	}
+	parallel.RangeWorkers(c.Rows, max(1, 8192/max(1, c.Cols)), workers, func(lo, hi int) {
+		e.applyRows(c, lo, hi, 0, c.Cols)
+	})
+}
+
+// GemmZeroEpilogue computes C = epilogue(A·B), applying the epilogue on
+// each finished output block while it is in cache. p may be nil (B is
+// packed on the call) or a PackedB of b.
+func GemmZeroEpilogue(c, a, b Mat, p *PackedB, e Epilogue, workers int) {
+	if e.empty() {
+		GemmZeroPackedWorkers(c, a, b, p, workers)
+		return
+	}
+	e.check(c)
+	if p != nil && !p.matches(b) {
+		p = nil
+	}
+	gemmWorkersFull(c, a, b, p, e, workers, true)
 }
 
 // PackedB is a right operand in the driver's panel layout for every
@@ -424,7 +546,7 @@ func putBuf(s []float32) {
 
 func roundUp(x, m int) int { return (x + m - 1) / m * m }
 
-func gemm(c, a, b Mat, p *PackedB, workers int, zero bool) {
+func gemm(c, a, b Mat, p *PackedB, e Epilogue, workers int, zero bool) {
 	mr, nr := kernel.MR, kernel.NR
 	m, n, k := a.Rows, b.Cols, a.Cols
 	if zero && kernel.GemmZero == nil {
@@ -461,6 +583,11 @@ func gemm(c, a, b Mat, p *PackedB, workers int, zero bool) {
 					packB(bp, b, pc, jc, pb, jb, nr, workers)
 				}
 				computeRows(c, a, bp, ic0(m, mc), jc, pc, pb, jb, mr, nr, workers, first)
+				if pc+pb >= k && !e.empty() {
+					parallel.RangeWorkers(m, max(1, 8192/max(1, jb)), workers, func(lo, hi int) {
+						e.applyRows(c, lo, hi, jc, jc+jb)
+					})
+				}
 				continue
 			}
 			// Phase 1: pack the B panels and all A panels of this K block in
@@ -484,6 +611,27 @@ func gemm(c, a, b Mat, p *PackedB, workers int, zero bool) {
 			}
 			panelsPerTask := (nPanels + nJ - 1) / nJ
 			nJ = (nPanels + panelsPerTask - 1) / panelsPerTask
+
+			// On the last K block the epilogue runs on groups of tasks: a
+			// row block × at least epilogueCols columns, applied by whichever
+			// task finishes the group. Per task the rows would be a few
+			// panels wide and kernel dispatch would dominate (GELU alone
+			// cost 5 % of the EmbeddingGemma forward that way); per whole
+			// row block one core would do the block's epilogue while the
+			// others idle (no gain at all for a batch-256 MLP). The group's
+			// region is still in cache.
+			var remaining []int32
+			tasksPerGroup, nG := 1, nJ
+			if pc+pb >= k && !e.empty() {
+				groupPanels := max(panelsPerTask, (epilogueCols+nr-1)/nr)
+				tasksPerGroup = (groupPanels + panelsPerTask - 1) / panelsPerTask
+				nG = (nJ + tasksPerGroup - 1) / tasksPerGroup
+				remaining = make([]int32, nIc*nG)
+				for i := range remaining {
+					g := i % nG
+					remaining[i] = int32(min(tasksPerGroup, nJ-g*tasksPerGroup))
+				}
+			}
 
 			parallel.ForWorkers(nIc*nJ, workers, func(task int) {
 				if kernel.GemmHooks {
@@ -526,6 +674,13 @@ func gemm(c, a, b Mat, p *PackedB, workers int, zero bool) {
 								kernel.Add(crow, tmp[i*nr:i*nr+cols], crow)
 							}
 						}
+					}
+				}
+				if remaining != nil {
+					g := jt / tasksPerGroup
+					if atomic.AddInt32(&remaining[(task/nJ)*nG+g], -1) == 0 {
+						w := tasksPerGroup * panelsPerTask * nr
+						e.applyRows(c, ic, ic+ib, jc+g*w, jc+min((g+1)*w, jb))
 					}
 				}
 			})

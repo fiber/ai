@@ -39,11 +39,32 @@ func NewLinearNoBias(in, out int) *Linear {
 }
 
 func (l *Linear) Forward(x *tensor.Tensor) *tensor.Tensor {
+	return l.forward(x, tensor.NoAct)
+}
+
+// forward is Forward with an activation folded into the product's
+// epilogue (Sequential uses it for a Linear followed by ReLU or GELU).
+// The fused path is taken for 2-D inputs; with a gradient being recorded
+// it computes the same result from the ordinary operations.
+func (l *Linear) forward(x *tensor.Tensor, act tensor.Activation) *tensor.Tensor {
+	if x.Dims() == 2 && (l.B != nil || act != tensor.NoAct) {
+		return tensor.MatMulFused(x, l.W, tensor.Fused{Bias: l.B, Act: act})
+	}
 	y := x.MatMul(l.W)
 	if l.B != nil {
 		h := y
 		y = y.Add(l.B)
 		h.Release() // no-op when autograd needs it
+	}
+	switch act {
+	case tensor.ReLUAct:
+		h := y
+		y = y.ReLU()
+		h.Release()
+	case tensor.GELUAct:
+		h := y
+		y = y.GELU()
+		h.Release()
 	}
 	return y
 }
@@ -60,8 +81,23 @@ type Sequential []Module
 
 func (s Sequential) Forward(x *tensor.Tensor) *tensor.Tensor {
 	prev := x
-	for _, m := range s {
-		y := m.Forward(prev)
+	for i := 0; i < len(s); i++ {
+		var y *tensor.Tensor
+		// A Linear directly followed by ReLU or GELU: one product with the
+		// activation applied in its epilogue instead of a separate pass.
+		if l, ok := s[i].(*Linear); ok && i+1 < len(s) {
+			switch s[i+1].(type) {
+			case ReLU:
+				y = l.forward(prev, tensor.ReLUAct)
+				i++
+			case GELU:
+				y = l.forward(prev, tensor.GELUAct)
+				i++
+			}
+		}
+		if y == nil {
+			y = s[i].Forward(prev)
+		}
 		if prev != x && y != prev {
 			prev.Release() // intermediate result; a no-op when autograd or a view holds it
 		}

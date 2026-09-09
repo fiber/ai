@@ -138,6 +138,23 @@ func Load(dir string, opts ...Option) (*Model, error) {
 	if m.norm, err = norm("norm.weight"); err != nil {
 		return nil, err
 	}
+	// Fold the pre-norms into the weights they feed: RMSNorm(x)·W equals
+	// (x/rms(x))·(diag(g)·W), so the encoder scales rows of the product
+	// instead of normalising the input in a separate pass. W is [in, out];
+	// scaling its rows by g is diag(g)·W.
+	fold := func(w, g *tensor.Tensor) *tensor.Tensor {
+		out := w.Mul(g.Reshape(g.Size(), 1))
+		w.Release()
+		return out
+	}
+	for i := range m.layers {
+		ly := &m.layers[i]
+		ly.wq = fold(ly.wq, ly.inputNorm)
+		ly.wk = fold(ly.wk, ly.inputNorm)
+		ly.wv = fold(ly.wv, ly.inputNorm)
+		ly.wgate = fold(ly.wgate, ly.preFFNNorm)
+		ly.wup = fold(ly.wup, ly.preFFNNorm)
+	}
 
 	if err := m.loadHead(dir); err != nil {
 		return nil, err
