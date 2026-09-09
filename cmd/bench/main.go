@@ -70,9 +70,21 @@ func main() {
 			fmt.Fprintf(os.Stderr, "unknown section %q\n", name)
 			os.Exit(2)
 		}
+		tensor.ResetPackedCache() // one section's operands must not shape the next
 		fn()
+		printPackedStats()
 	}
 	printAllocStats()
+}
+
+// printPackedStats shows what the packed-operand cache did in a section.
+func printPackedStats() {
+	s := tensor.PackedCacheReport()
+	if s.Hits+s.Misses == 0 {
+		return
+	}
+	fmt.Printf("packed operands: hits %d, misses %d, packs %d, evictions %d, invalidations %d, refusals %d, held %d MiB in %d entries\n\n",
+		s.Hits, s.Misses, s.Packs, s.Evictions, s.Invalidations, s.Refusals, s.Bytes>>20, s.Entries)
 }
 
 // printAllocStats shows how the off-heap result allocator behaved over
@@ -84,8 +96,7 @@ func printAllocStats() {
 	fmt.Println()
 	fmt.Printf("allocator: mapped hits %d, misses %d, retained %d MiB, pinned %d MiB; GC cycles %d, forced %d\n",
 		hits, misses, retained>>20, pinned>>20, ms.NumGC, ms.NumForcedGC)
-	ph, pm, pb := tensor.PackedCacheStats()
-	fmt.Printf("packed operands: hits %d, misses %d, held %d MiB\n", ph, pm, pb>>20)
+
 }
 
 func benchGemm() {

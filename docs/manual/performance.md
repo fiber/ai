@@ -124,13 +124,26 @@ What it is worth on the M2 Pro, right operand reused across calls:
 
 Training does not benefit: the weights change every step, and the
 optimisers write them through `Data()`, so they are never cached; the
-step costs the same as before within noise. Knobs:
-`tensor.SetPackedCacheLimit(bytes)` caps the memory held (default
-512 MiB, least-recently-used eviction; 0 disables and drops every
-entry), `FIBERAI_PACK_CACHE=0` disables it at start-up, and
-`tensor.PackedCacheStats()` reports hits, misses and bytes. A model
-whose weights exceed the limit keeps the most recently used ones packed;
-EmbeddingGemma's 170 matrices need about 420 MB.
+step costs the same as before within noise.
+
+**Eviction.** Least recently used, with one guard: an entry is only
+evicted when it has not been hit within the last pass over the working
+set (two lookups per entry). If a new operand cannot be fitted by
+evicting such stale entries, it is not inserted and packs per call.
+Plain LRU cycles when the working set is slightly larger than the cap,
+every entry evicted just before it is needed again, which is what the
+Xeon showed with EmbeddingGemma's 420 MB behind a 512 MiB cap and other
+operands in front; with the guard, what fits stays.
+
+Knobs and numbers: `tensor.SetPackedCacheLimit(bytes)` caps the memory
+held (default 512 MiB; 0 disables and drops every entry),
+`FIBERAI_PACK_CACHE=0` disables it at start-up,
+`tensor.ResetPackedCache()` drops everything, and
+`tensor.PackedCacheReport()` returns hits, misses, packs, evictions,
+invalidations (the operand changed), refusals (no evictable space),
+bytes and entries; `cmd/bench` prints that line after every section. A
+steady-state inference run shows misses of about twice the number of
+weights (first sighting, then the pack) and hits for everything after.
 
 ## Denormals and masks
 

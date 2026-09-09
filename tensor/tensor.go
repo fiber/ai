@@ -43,7 +43,7 @@ func alloc(shape Shape, zero bool) *Tensor {
 // wrap builds a contiguous tensor over caller-owned data without copying;
 // the storage is never pooled.
 func wrap(data []float32, shape Shape) *Tensor {
-	st := &storage{buf: data, state: newState()}
+	st := &storage{id: nextStorageID(), buf: data, state: newState()}
 	return &Tensor{data: data, store: st, shape: shape, strides: contiguousStrides(shape), size: shape.Size()}
 }
 

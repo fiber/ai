@@ -1,3 +1,5 @@
+//go:build darwin && arm64
+
 // Command smeprobe answers the phase-0 questions of spec T-006 on an
 // Apple M4: do the SME instruction words execute, is the outer-product
 // layout as expected, what does one core's fmopa throughput look like,

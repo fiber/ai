@@ -25,8 +25,11 @@ type storage struct {
 	mapped bool // off-heap buffer from mapFloats
 	shared atomic.Bool
 	// version counts in-place modifications; the packed-operand cache
-	// keys on it (see packcache.go).
+	// keys on it (see packcache.go). id is unique for the life of the
+	// process, so a recycled buffer address never impersonates an earlier
+	// storage in that cache.
 	version atomic.Uint32
+	id      uint64
 	// state lives in its own allocation because the cleanup must not
 	// reference the storage (see cleanupArg).
 	state *atomic.Int32
@@ -42,6 +45,11 @@ const (
 )
 
 func newState() *atomic.Int32 { return new(atomic.Int32) }
+
+var storageIDs atomic.Uint64
+
+// nextStorageID hands out process-unique storage identities.
+func nextStorageID() uint64 { return storageIDs.Add(1) }
 
 // Release hands the tensor's storage back for immediate reuse, without
 // waiting for the garbage collector to notice that the tensor is dead.
@@ -347,14 +355,14 @@ func getMapped(n int, zero bool) *storage {
 			mapPool.mu.Lock()
 			mapPool.live -= capacity * 4
 			mapPool.mu.Unlock()
-			return &storage{buf: make([]float32, n), state: newState()}
+			return &storage{id: nextStorageID(), buf: make([]float32, n), state: newState()}
 		}
 		buf = m // fresh pages are zero
 		touchPages(buf[:n])
 	} else if zero {
 		parallelClear(buf[:n])
 	}
-	st := &storage{buf: buf[:n], mapped: true, state: newState()}
+	st := &storage{id: nextStorageID(), buf: buf[:n], mapped: true, state: newState()}
 	runtime.AddCleanup(st, releaseMapped, cleanupArg{buf: buf[:cap(buf)], state: st.state})
 	return st
 }
@@ -454,7 +462,7 @@ func getStorage(n int, zero bool) *storage {
 		return getMapped(n, zero)
 	}
 	if n < minPooled || n > maxPooled {
-		return &storage{buf: make([]float32, n), state: newState()}
+		return &storage{id: nextStorageID(), buf: make([]float32, n), state: newState()}
 	}
 	class, capacity := sizeClass(n)
 	var buf []float32
@@ -477,7 +485,7 @@ func getStorage(n int, zero bool) *storage {
 	} else if zero {
 		clear(buf[:n])
 	}
-	st := &storage{buf: buf[:n], pooled: pooled, state: newState()}
+	st := &storage{id: nextStorageID(), buf: buf[:n], pooled: pooled, state: newState()}
 	if pooled {
 		// The cleanup argument must not reference st, or st would never
 		// become unreachable; the buffer and the flag are separate objects.

@@ -105,3 +105,41 @@ func abs32(x float32) float32 {
 	}
 	return x
 }
+
+// TestPackedCacheNoThrash: a working set 1.5x the cap must not cycle; after
+// warm-up, at least the cap's worth of operands hit on every pass and the
+// rest are refused, not evicted round-robin.
+func TestPackedCacheNoThrash(t *testing.T) {
+	ResetPackedCache()
+	defer SetPackedCacheLimit(512 << 20)
+	rng := rand.New(rand.NewPCG(31, 32))
+	// each B: 300x400 = 480 KB packed (plus padding); cap for ~8 of 12
+	const nB = 12
+	ws := make([]*Tensor, nB)
+	for i := range ws {
+		ws[i] = RandnFrom(rng, 300, 400)
+	}
+	x := RandnFrom(rng, 32, 300)
+	SetPackedCacheLimit(8 * 300 * 416 * 4) // room for eight
+	for pass := 0; pass < 4; pass++ {
+		for _, w := range ws {
+			x.MatMul(w).Release()
+		}
+	}
+	before := PackedCacheReport()
+	for _, w := range ws {
+		x.MatMul(w).Release()
+	}
+	after := PackedCacheReport()
+	hits := after.Hits - before.Hits
+	t.Logf("pass: %d hits of %d, entries %d, evictions %d, refusals %d", hits, nB, after.Entries, after.Evictions, after.Refusals)
+	if hits < 7 {
+		t.Fatalf("working set cycled: only %d hits in a pass over %d operands", hits, nB)
+	}
+	if after.Refusals == 0 {
+		t.Fatal("expected refusals for the operands that do not fit")
+	}
+	if after.Evictions-before.Evictions > 0 {
+		t.Fatalf("steady state should evict nothing, evicted %d", after.Evictions-before.Evictions)
+	}
+}
