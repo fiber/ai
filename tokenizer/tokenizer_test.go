@@ -110,8 +110,11 @@ func TestLoadTime(t *testing.T) {
 	}
 	el := time.Since(start)
 	t.Logf("load %v, vocab %d", el, tok.VocabSize())
-	if el > time.Second {
-		t.Errorf("load took %v, want under 1 s", el)
+	// A regression guard against a pathological parse (it once took 20 s),
+	// not a performance bound: 0.7 s on an M2 Pro, 1.7 s on a Xeon Gold
+	// 6130 under the full suite (B-007).
+	if el > 10*time.Second {
+		t.Errorf("load took %v, want well under 10 s", el)
 	}
 	if tok.VocabSize() != 262144 {
 		t.Errorf("vocab size %d", tok.VocabSize())
