@@ -306,6 +306,50 @@ before the outer products of step k (four X/Y register slots; 3× faster
 than the naive loop), and `set`/`clr` per tile costs 0.7 µs, hence once
 per task with the goroutine locked to its thread.
 
+## Cloud VM, 6 vCPU AVX2 (9 September 2026)
+
+The machine most like production: a KVM guest with six AVX2 vCPUs, no
+AVX-512, a hypervisor between us and the page tables. fiber/ai commit
+0ceb7eb (Go 1.26.2) against NumPy 2.5.2 / OpenBLAS and PyTorch 2.14 /
+MKL with six threads, same day; raw runs in
+`results/kvm-avx2-2026-09-09/`. Bold marks the faster side.
+
+| Workload | fiber/ai AVX2 | NumPy | PyTorch |
+|---|---:|---:|---:|
+| SGEMM 2048², all cores (GFLOPS) | **270** | 241 | 187 |
+| SGEMM 1024² | **234** | 220 | 122 |
+| SGEMM 512² | 180 | **199** | 184 |
+| SGEMM 128² | 52 | 88 | **129** |
+| [256×768]·[768×3072], B packed once | **220** (191 per call) | 208 | 170 |
+| [1×4096]·[4096×4096] | 7.8 | 15.4 | **16.6** |
+| x + y, 1M (released) | 163 µs | 724 µs | **141 µs** |
+| x + y, 16M (released) | **6.1 ms** | 40.7 ms | 30.9 ms |
+| exp, 16M | **6.4 ms** | 76.7 ms | 32.7 ms |
+| tanh, 1M (released) | **397 µs** | 6.1 ms | 1.22 ms |
+| sum(), 4096² | 1.92 ms (level) | 9.95 ms | 2.01 ms |
+| sum(dim=0), 4096² | **2.10 ms** | 8.98 ms | 7.30 ms |
+| softmax(dim=1), 4096² | **9.6 ms** | – | 34.2 ms |
+| layernorm, 4096² | **11.0 ms** | – | 25.6 ms |
+| transpose + copy, 4096² | **74 ms** | 216 ms | 128 ms |
+| attention [8×8×512×64] (GFLOPS) | **150** | – | 128 |
+| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | – | **130** |
+| MLP forward, batch 256 (samples/s) | **139 K** | – | 78 K |
+| MLP forward + backward | 28 K | – | **45 K** |
+| MLP train step (Adam) | 23 K | – | **31 K** |
+| EmbeddingGemma (sentences/s) | 17 | – | not installed |
+
+Where the VM differs from the Xeon: attention is ahead here (PyTorch's
+AVX2 attention kernel runs at 128 GFLOPS on six vCPUs, ours at 150), the
+matrix-vector product is behind (7.8 against 16.6: six threads over a
+64 MB matrix, and our per-row split does not saturate this guest's
+memory), and everything that allocates suffers under the hypervisor.
+The unreleased 64K row is the extreme: `x + y` on a 256 KB result costs
+788 µs against 15 µs released and 27 µs in PyTorch, because a fresh
+256 KB mapping pays about 0.7 ms of page faults here and small results
+rotate through a thousand fresh mappings before the first forced
+collection. A lower collection budget for small size classes on such
+hosts, or the heap path for them, is the candidate (TODO).
+
 ## Attention, convolution and EmbeddingGemma (M2 Pro, AMX)
 
 Rows added with the transformer work; PyTorch 2.14 (Accelerate BLAS, 6
