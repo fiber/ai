@@ -59,11 +59,11 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | softmax(dim=1), 4096² | **2.22 ms** | 6.27 ms | **11.0 ms** | 14.4 ms |
 | layernorm, 4096² | **1.85 ms** | 2.21 ms | **11.0 ms** | 14.1 ms |
 | transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
-| attention [8×8×512×64] (GFLOPS) | **1 175** | 553 | 763 | **1 141** |
+| attention [8×8×512×64] (GFLOPS) | **982** (1 156 with all ten cores) | 553 | 763 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
-| MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **473 K** | 361 K |
-| MLP forward + backward | 179 K | **221 K** | 74 K | **124 K** |
-| MLP train step (Adam) | **148 K** | 121 K | 71 K (level) | 71 K |
+| MLP forward, batch 256 (samples/s) | **855 K** | 526 K | **473 K** | 361 K |
+| MLP forward + backward | 212 K (level) | 221 K | 74 K | **124 K** |
+| MLP train step (Adam) | **183 K** | 121 K | 71 K (level) | 71 K |
 | EmbeddingGemma, 32 × 65 tokens (sentences/s) | **106** | 88 | **59** | 37 |
 
 **Where fiber/ai is ahead:** everything memory-bound that we wrote
@@ -329,21 +329,24 @@ the M4's SME unit, four threads; same day, commit 0ceb7eb; raw runs in
 | softmax(dim=1), 4096² | **2.73 ms** | – | 5.71 ms |
 | layernorm, 4096² | 2.64 ms | – | **2.39 ms** |
 | transpose + copy, 4096² | **11.5 ms** | 50.4 ms | 14.4 ms |
-| attention [8×8×512×64] (GFLOPS) | **920** | – | 729 |
+| attention [8×8×512×64] (GFLOPS) | **920** → 982 | – | 729 |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 357 | – | 332 (level) |
-| MLP forward, batch 256 (samples/s) | 666 K | – | **815 K** |
-| MLP forward + backward | 202 K | – | **348 K** |
-| MLP train step (Adam) | 163 K | – | **204 K** |
+| MLP forward, batch 256 (samples/s) | 666 K → **1.09 M** (performance cores, T-047) | – | 815 K |
+| MLP forward + backward | 202 K → 256 K | – | **348 K** |
+| MLP train step (Adam) | 163 K → **223 K** | – | 204 K |
 | EmbeddingGemma (sentences/s) | 83 (level) | – | 80 |
 
 The M4 Air is where PyTorch's Accelerate stack is strongest, and the
-picture differs from the M2 Pro in one place: the MLP rows are behind,
-all three phases, where the M2 Pro has them ahead. The Air has four
-performance and six efficiency cores against the M2 Pro's six and four,
-PyTorch uses four threads, and our element-wise and backward rounds fan
-out over all ten. Whether the efficiency cores drag every round is one
-run away (`FIBERAI_WORKERS=4`); if they do, the default on Apple Silicon
-becomes the performance cores.
+picture differed from the M2 Pro in one place: with all ten cores the
+MLP rows were behind, all three phases, where the M2 Pro had them ahead.
+The Air has four performance and six efficiency cores against the M2
+Pro's six and four, and every parallel round waited for an efficiency
+core. With four workers (T-047 makes the performance cores the Apple
+Silicon default) the forward is 1.3× ahead and the training step ahead;
+the backward pass stays behind, the fusion gap. The M2 Pro gains a
+quarter on the training step the same way (147 K → 183 K) and loses a
+tenth on attention (1 156 → 982), whose whole-head tasks the efficiency
+cores could grind through alone; `FIBERAI_WORKERS=10` gets that back.
 
 ## Cloud VM, 6 vCPU AVX2 (9 September 2026)
 

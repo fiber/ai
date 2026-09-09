@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-09 T-047 — Apple Silicon: default worker count is the performance cores (spec/done/T-047-apple-silicon-default-worker-count-is-the-perfor.md)
 - 2026-09-09 T-046 — Attention v2: online softmax over key blocks and a micro-kernel that reads its left operand row-major, so nothing is packed per row group (spec/done/T-046-attention-v2-online-softmax-over-key-blocks-and.md)
 - 2026-09-09 T-045 — Linux: pin pool workers to distinct physical cores of the affinity mask (spec/done/T-045-linux-pin-pool-workers-to-distinct-physical-core.md)
 - 2026-09-09 T-044 — Result recycling without Release: cheaper forced collections and released exp/tanh rows for the kernel comparison (spec/done/T-044-result-recycling-without-release-cheaper-forced.md)

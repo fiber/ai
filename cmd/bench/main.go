@@ -52,8 +52,8 @@ func timeItWarm(fn func(), warm int) float64 {
 
 func main() {
 	flag.Parse()
-	fmt.Printf("## fiber/ai — %s/%s, %d CPUs, GOMAXPROCS %d, backend %s, Go %s\n\n",
-		runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), runtime.GOMAXPROCS(0), tensor.Backend(), runtime.Version())
+	fmt.Printf("## fiber/ai — %s/%s, %d CPUs, GOMAXPROCS %d, workers %d, backend %s, Go %s\n\n",
+		runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), runtime.GOMAXPROCS(0), tensor.Threads(), tensor.Backend(), runtime.Version())
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)

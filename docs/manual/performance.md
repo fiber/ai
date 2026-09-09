@@ -24,13 +24,22 @@ core: exp 0.51 → 0.27 ns per element, tanh 0.57 → 0.32; attention
 | `FIBERAI_KERNEL=generic\|avx2\|avx512\|neon\|amx` | select an implementation among those the CPU supports (benchmarking, debugging) |
 | `FIBERAI_AMX=0` / `=1` | Apple Silicon (macOS): matrix products on the AMX coprocessor, on by default for the M1–M4; `0` switches to NEON, `1` forces it on a newer chip (see below) |
 | `FIBERAI_KERNEL_FORCE=1` | skip CPU feature detection for the selected implementation — only for emulators such as Rosetta 2 that hide features from CPUID |
-| `GOMAXPROCS` | default goroutine limit; on Linux the default worker count is the number of physical cores in the process's CPU affinity mask (hyperthreads counted once), elsewhere GOMAXPROCS |
+| `GOMAXPROCS` | default goroutine limit; the default worker count is the number of physical cores in the process's CPU affinity mask on Linux (hyperthreads counted once), the performance cores on Apple Silicon, GOMAXPROCS elsewhere |
 | `FIBERAI_WORKERS=n` | override the default worker count |
 | `FIBERAI_PIN=0` / `=1` | Linux: worker threads pinned to distinct physical cores; on by default when the affinity mask lies within one package, `1` forces it across packages, `0` switches it off (see below) |
 | `FIBERAI_BLAS_THRESHOLD=n` | multiply-adds below which a matrix product runs on one core (default 1 048 576) |
 
 `tensor.SetThreads(n)` limits the goroutines used by tensor operations at
 run time; `tensor.Threads()` reads it back.
+
+On Apple Silicon the default leaves the efficiency cores out: every
+parallel round waits for its slowest member, and with all ten cores of
+an M4 MacBook Air (4P + 6E) the MLP forward ran at 666 K samples/s and
+the training step at 163 K; with the four performance cores 1.09 M and
+223 K (PyTorch 815 K and 204 K). The M2 Pro (6P + 4E) gains a quarter on
+the training step the same way and loses a tenth on attention, whose
+tasks are whole heads that an efficiency core can work through alone;
+`FIBERAI_WORKERS=10` gets that back for attention-heavy work.
 
 On Linux each pool worker thread is pinned to its own physical core of
 the process's affinity mask (one per core, package by package; the
