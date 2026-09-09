@@ -32,13 +32,18 @@ late.
   every size (the result released right after the call, like the
   existing `x + y, result released` row); the unreleased rows stay, they
   are what naive code pays.
-- **`collectMapped`**: after `runtime.GC()` poll for the sentinel with
-  `runtime.Gosched()` in a loop bounded by 2 ms instead of blocking on a
-  20 ms timer, and return as soon as the free list of the requested
-  class has an entry (the caller passes the class); if nothing arrives
-  within the bound, map fresh (huge pages make that cheap) and let the
-  next collection reclaim the rest. The decision is refined once the
-  Xeon gctrace shows whether the collection or the wait is the cost.
+- **`collectMapped`**: the pool tracks every outstanding mapped storage
+  through a `weak.Pointer` (plus the buffer and the state word, nothing
+  that keeps the storage alive). After `runtime.GC()` it walks the list:
+  storages whose weak pointer is nil are dead and their buffers go to
+  the free list right there, claimed by compare-and-swap on the state
+  word so the cleanup, when it eventually runs, finds nothing to do;
+  released entries are dropped; the rest stay. No sentinel, no timer.
+  The list is also compacted (and anything an ordinary GC has found
+  dead reclaimed) whenever it doubles. The Xeon gctrace showed the
+  collection itself at about 1 ms, so the 480 µs were fresh mappings
+  (the kernel zeroing 4 MB) because the cleanups did not deliver the
+  dead buffers in time, neither within 20 ms nor within 2 ms.
 
 ## Acceptance
 
@@ -53,3 +58,8 @@ late.
   cost without `Release()` with the measured figures.
 
 ## Notes
+
+- Xeon after the bounded 2 ms wait (da8fdb0): released rows exp 48 µs,
+  tanh 55 µs (PyTorch/MKL 54), gelu 111 µs; unreleased rows unchanged at
+  480 µs; gctrace: forced collections 0.8–1.0 ms clock every ~42 ms.
+  Hence the synchronous reclamation through weak pointers.

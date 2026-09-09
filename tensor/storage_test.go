@@ -330,8 +330,7 @@ func BenchmarkAllocateTouchWarm(b *testing.B) {
 				t := newTensorUninit(Shape{n})
 				parallelClear(t.data)
 				if i%32 == 31 {
-					class, _ := sizeClass(n)
-					collectMapped(class)
+					collectMapped()
 				}
 			}
 		})
@@ -394,5 +393,35 @@ func TestReleaseRefusedWhenShared(t *testing.T) {
 	w.Release()
 	if w.data == nil {
 		t.Fatal("storage released although the tensor requires grad")
+	}
+}
+
+// TestForcedCollectionReclaimsSynchronously: results that were dropped
+// without Release are back on the free list when the forced collection
+// returns, not whenever the cleanup goroutine runs (T-044).
+func TestForcedCollectionReclaimsSynchronously(t *testing.T) {
+	if !mmapSupported {
+		t.Skip("no off-heap storage on this platform")
+	}
+	const n = 1 << 20 // 4 MB each
+	class, _ := sizeClass(n)
+	for i := 0; i < 8; i++ {
+		newTensorUninit(Shape{n}) // dropped, unreleased
+	}
+	mapPool.mu.Lock()
+	mapPool.free[class] = nil // start from an empty free list for this class
+	mapPool.retained = 0
+	for _, l := range mapPool.free {
+		for _, b := range l {
+			mapPool.retained += cap(b) * 4
+		}
+	}
+	mapPool.mu.Unlock()
+	collectMapped()
+	mapPool.mu.Lock()
+	got := len(mapPool.free[class])
+	mapPool.mu.Unlock()
+	if got < 8 {
+		t.Fatalf("forced collection returned %d of 8 dropped buffers to the free list", got)
 	}
 }

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
-	"time"
+	"weak"
 )
 
 // storage is the backing array of a tensor and of every view derived from
@@ -278,7 +278,23 @@ var mapPool = struct {
 	hits     uint64
 	misses   uint64
 	pinned   int // bytes kept mapped for good because Data() escaped them
-}{limit: 512 << 20, gcAt: DefaultMapBudget, enabled: mmapSupported}
+	// tracked lists the outstanding mapped storages through weak pointers,
+	// so that after a forced collection the dead ones are reclaimed here,
+	// synchronously, instead of whenever the cleanup goroutine gets to
+	// them (on a Xeon that was late enough that every result missed the
+	// free list and mapped fresh). trackAt is the length at which the list
+	// is next compacted outside a collection.
+	tracked []mappedRef
+	trackAt int
+}{limit: 512 << 20, gcAt: DefaultMapBudget, enabled: mmapSupported, trackAt: 64}
+
+// mappedRef is an outstanding mapped storage as the pool tracks it: a weak
+// pointer (keeps nothing alive), the whole buffer and the state word.
+type mappedRef struct {
+	wp    weak.Pointer[storage]
+	buf   []float32
+	state *atomic.Int32
+}
 
 var mapBudget = DefaultMapBudget
 
@@ -337,7 +353,7 @@ func getMapped(n int, zero bool) *storage {
 	buf := popMappedLocked(class)
 	if buf == nil && mapPool.live >= mapPool.gcAt {
 		mapPool.mu.Unlock()
-		collectMapped(class)
+		collectMapped()
 		mapPool.mu.Lock()
 		buf = popMappedLocked(class)
 		mapPool.gcAt = max(2*mapPool.live, mapBudget)
@@ -364,7 +380,46 @@ func getMapped(n int, zero bool) *storage {
 	}
 	st := &storage{id: nextStorageID(), buf: buf[:n], mapped: true, state: newState()}
 	runtime.AddCleanup(st, releaseMapped, cleanupArg{buf: buf[:cap(buf)], state: st.state})
+	mapPool.mu.Lock()
+	if len(mapPool.tracked) >= mapPool.trackAt {
+		reclaimDeadLocked() // compacts; reclaims whatever an ordinary GC already found dead
+	}
+	mapPool.tracked = append(mapPool.tracked, mappedRef{wp: weak.Make(st), buf: buf[:cap(buf)], state: st.state})
+	mapPool.mu.Unlock()
 	return st
+}
+
+// reclaimDeadLocked walks the tracked storages: entries already released
+// (by Release, Recycle or the cleanup) are dropped, storages the collector
+// has found unreachable (weak pointer nil) are returned to the free list
+// now, the rest stay tracked. The state word is claimed by compare-and-
+// swap, so a cleanup arriving concurrently finds nothing left to do.
+func reclaimDeadLocked() {
+	kept := mapPool.tracked[:0]
+	for _, r := range mapPool.tracked {
+		switch {
+		case r.state.Load() == stateReleased:
+		case r.wp.Value() == nil:
+			claimDeadLocked(r.buf, r.state)
+		default:
+			kept = append(kept, r)
+		}
+	}
+	clear(mapPool.tracked[len(kept):])
+	mapPool.tracked = kept
+	mapPool.trackAt = max(64, 2*len(kept))
+}
+
+// claimDeadLocked returns a dead storage's buffer to the free list, or
+// pins it when Data() had escaped; whoever wins the state word does it.
+func claimDeadLocked(buf []float32, state *atomic.Int32) {
+	switch {
+	case state.CompareAndSwap(stateLive, stateReleased):
+		putMappedLocked(buf)
+	case state.CompareAndSwap(stateEscaped, stateReleased):
+		mapPool.live -= cap(buf) * 4
+		mapPool.pinned += cap(buf) * 4 // the caller may still hold the slice
+	}
 }
 
 func popMappedLocked(class int) []float32 {
@@ -381,47 +436,18 @@ func popMappedLocked(class int) []float32 {
 	return buf
 }
 
-// collectMapped runs a GC and waits until its cleanups have been
-// dispatched, so that mappings of unreachable results are back on the
-// free list when it returns. A sentinel object's cleanup marks the point;
-// the wait ends early once the free list of the requested class has an
-// entry, and after 2 ms regardless (the caller then maps fresh). It used
-// to block on a 20 ms timer: on a Xeon whose cleanups arrived late that
-// timer, once per 64 unreleased 4 MB results, made every element-wise
-// operation on such a result cost 480 µs whatever it computed.
-func collectMapped(class int) {
-	done := make(chan struct{})
-	armSentinel(done)
+// collectMapped runs a GC and reclaims the mapped storages it found dead
+// right away, through the tracked weak pointers, so that when it returns
+// the mappings of unreachable results are on the free list. It does not
+// depend on the cleanup goroutine: on a Xeon Gold 6130 the cleanups came
+// so late that a fixed 20 ms wait for them expired, every result then
+// mapped fresh, and each element-wise operation on an unreleased 4 MB
+// result cost 480 µs (the kernel zeroing the pages) whatever it computed.
+func collectMapped() {
 	runtime.GC()
-	deadline := time.Now().Add(2 * time.Millisecond)
-	for {
-		select {
-		case <-done:
-			runtime.Gosched() // let concurrently running cleanups finish
-			return
-		default:
-		}
-		mapPool.mu.Lock()
-		ready := len(mapPool.free[class]) > 0
-		mapPool.mu.Unlock()
-		if ready || time.Now().After(deadline) {
-			return
-		}
-		runtime.Gosched()
-	}
-}
-
-// sentinel must not be tiny-allocated (pointer-free objects of 16 bytes
-// or less share blocks and are never individually unreachable), hence the
-// pointer field.
-type sentinel struct {
-	ch chan struct{}
-	_  [48]byte
-}
-
-func armSentinel(done chan struct{}) {
-	s := &sentinel{ch: done}
-	runtime.AddCleanup(s, func(ch chan struct{}) { close(ch) }, done)
+	mapPool.mu.Lock()
+	reclaimDeadLocked()
+	mapPool.mu.Unlock()
 }
 
 // touchPages faults a fresh mapping in with all workers, one write per
@@ -440,18 +466,11 @@ func touchPages(buf []float32) {
 }
 
 func releaseMapped(a cleanupArg) {
-	switch a.state.Load() {
-	case stateReleased:
-		return // Release already returned it
-	case stateEscaped:
-		mapPool.mu.Lock()
-		mapPool.live -= cap(a.buf) * 4
-		mapPool.pinned += cap(a.buf) * 4 // the caller may still hold the slice
-		mapPool.mu.Unlock()
-		return
+	if a.state.Load() == stateReleased {
+		return // Release, Recycle or a forced collection already returned it
 	}
 	mapPool.mu.Lock()
-	putMappedLocked(a.buf)
+	claimDeadLocked(a.buf, a.state)
 	mapPool.mu.Unlock()
 }
 
