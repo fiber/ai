@@ -1,12 +1,13 @@
 ---
 id: T-044
 title: Result recycling without Release: cheaper forced collections and released exp/tanh rows for the kernel comparison
-status: open
+status: done
 scope:
   - cmd/bench/
   - tensor/
 manual:
   - docs/manual/performance.md
+done: 2026-09-09
 created: 2026-09-09
 ---
 
@@ -63,3 +64,12 @@ late.
   tanh 55 µs (PyTorch/MKL 54), gelu 111 µs; unreleased rows unchanged at
   480 µs; gctrace: forced collections 0.8–1.0 ms clock every ~42 ms.
   Hence the synchronous reclamation through weak pointers.
+- Xeon after the weak-pointer reclamation (85ed8f3): unreleased rows
+  still 480 µs with 567 K hits against 1 K misses, GB/s column 17 on
+  every one of them. So neither the wait nor fresh mappings were the
+  cost: the buffer comes back cold after the 256 MiB rotation and the
+  row measures the socket's DRAM bandwidth (12 MB of traffic). Target
+  "unreleased within 2× of released" not met and not reachable without
+  reference counting; the released targets are met (exp 50 µs ≤ 50,
+  tanh 54 ≤ 60, level with PyTorch/MKL). The two allocator changes stay:
+  reclamation no longer depends on the cleanup goroutine's timing.

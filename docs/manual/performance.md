@@ -308,14 +308,20 @@ off-heap memory does not count toward Go's heap goal, the library runs a
 collection itself when the free list is empty and the outstanding mapped
 memory has doubled since the last one (at least 256 MiB), and reclaims
 the results that collection found dead itself, through weak pointers to
-the outstanding storages, before mapping more. It used to wait for the
-GC cleanups to hand them back; on a Xeon those came so late that every
-result mapped fresh and each operation producing an unreleased 4 MB
-result cost 480 µs (the kernel zeroing the pages), `relu` as much as
-`tanh`, against 25 µs released. The free list keeps at most 512 MiB
-(least recently used size classes are unmapped first). A chain of
-unreleased results still pays one collection (about a millisecond) per
-256 MiB of them; `Release()` avoids the collection altogether.
+the outstanding storages, before mapping more (it used to wait for the
+GC cleanups to hand them back). The free list keeps at most 512 MiB
+(least recently used size classes are unmapped first).
+
+What that recycling cannot give back is cache residency, and on a
+machine with little memory bandwidth that is the whole cost. On a Xeon
+Gold 6130 socket (about 17 GB/s effective) every 1M element-wise
+operation on an unreleased result takes 480 µs, `relu` as much as
+`tanh`, because the buffer comes back cold after a rotation through
+256 MiB of them and the 12 MB of DRAM traffic take that long; the same
+operations with `Release()` take 25 µs (add), 50 µs (exp) and 54 µs
+(tanh, level with MKL's vector library at 54). PyTorch does not show the
+effect because Python's reference counting frees a result the moment it
+is dropped; in Go, `Release()` is that moment.
 
 `tensor.SetMappedLimit(bytes)` changes that retention limit; a negative
 value disables off-heap results altogether (environment:

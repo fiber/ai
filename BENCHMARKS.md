@@ -52,7 +52,7 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | x + y, 1M (released) | **43 µs** | 68 µs | **17 µs** | 24 µs |
 | x + y, 16M (released) | 1.51 ms | **1.37 ms** | **13.9 ms** | 17.5 ms |
 | exp, 16M | **1.60 ms** | 3.09 ms | **10.7 ms** | 13.8 ms |
-| tanh, 1M | **123 µs** | 719 µs | 484 µs | **54 µs** |
+| tanh, 1M (released) | **112 µs** | 719 µs | 54 µs (level; 484 unreleased, cold buffer) | 54 µs |
 | sum(), 4096² | 616 µs (level) | 596 µs | 2.40 ms (level) | 2.42 ms |
 | sum(dim=0), 4096² | **744 µs** | 2.18 ms | **2.68 ms** | 6.29 ms |
 | max(dim=1), 4096² | **575 µs** | 1.18 ms | **2.40 ms** | 2.46 ms |
@@ -101,14 +101,14 @@ GEMM on the Xeon.
   candidate) and the micro-kernel's own 60 % of peak.
   The im2col convolution is memory-bound on the Xeon; oneDNN has a
   dedicated primitive, the implicit-GEMM candidate is on the list.
-- **tanh on the Xeon** (9× behind in the 1M row): not the kernel. With
-  the AVX-512 exp and tanh (T-043) one Xeon core does 0.27 and 0.32 ns
-  per element (AVX2: 0.51 and 0.57), yet every 1M element-wise row
-  costs the same 480 µs, `relu` and `x * 2.5` included, while the
-  released variant of `x + y` takes 23 µs. The row measures the
-  recycling of unreleased 4 MB results, a forced GC every 64 of them,
-  which the Xeon pays far more dearly than the M2 (see the allocator
-  note below the Xeon table).
+- **tanh on the Xeon** (9× behind in the unreleased 1M row): not the
+  kernel. With the AVX-512 exp and tanh (T-043) the released rows are
+  tanh 1M 54 µs (MKL 54, level) and exp 50 µs; every unreleased 1M row
+  costs 480 µs, `relu` and `x * 2.5` included, because the result buffer
+  comes back cold after a rotation through 256 MiB of unreleased
+  results and this socket moves 17 GB/s (see the allocator note below
+  the Xeon table). Python's reference counting frees a dropped result
+  at once; in Go that is `Release()`.
 
 The M2 inference rows and the "B packed once" entries were taken after
 T-037 (packed-operand cache); the rest of the table is from the run of
@@ -455,13 +455,18 @@ machine cannot reach PyPI.
 | cluster.Cosine, 768-d pair | **103 ns** | NumPy 4 332 ns |
 | exp / tanh, one core, ns per element (kernel benchmark) | AVX2 0.51 / 0.57 → **AVX-512 0.27 / 0.32** (T-043) | – |
 
-The element-wise 1M rows on this machine (about 480 µs whatever the
-operation, `relu` and `x * 2.5` included; `x + y` released 23 µs) do not
-measure kernels: an unreleased 4 MB result is reclaimed by a forced GC
-once 256 MiB are outstanding, one GC per 64 results, and its cost on 32
-hardware threads is what the row shows. `Release()` removes it; the
-released rows are the kernel comparison. Whether the forced collection
-can be made cheaper or rarer on Linux is an open item (TODO).
+The unreleased element-wise 1M rows on this machine (about 480 µs
+whatever the operation, `relu` and `x * 2.5` included) do not measure
+kernels but DRAM: an unreleased 4 MB result is reclaimed by a forced
+collection once 256 MiB are outstanding, so each one comes back cold,
+and 12 MB of traffic at this socket's 17 GB/s is 480 µs. The forced
+collection itself is about 1 ms per 64 results (gctrace) and the
+buffers are reused (567 K hits against 1 K misses over the section); two
+allocator changes on the way to that finding (a bounded wait, then
+synchronous reclamation through weak pointers, T-044) made the
+recycling deterministic but not faster, because it never was the cost.
+The released rows are the kernel comparison: exp 50 µs, tanh 54 (MKL
+54), gelu 119.
 | cluster.Similarities 1 000×10 000 | **15.5 ms** | NumPy/OpenBLAS 85 ms |
 
 PyTorch 2.14.0+cpu with MKL and oneDNN, pinned to the same socket with
