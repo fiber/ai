@@ -233,6 +233,19 @@ func benchAttention() {
 		t = timeIt(func() { tensor.Attention(q, k, v, mask).Release() })
 		fmt.Printf("| same with causal mask | %s | %.1f |\n", fmtDur(t), flops/t/1e9)
 	})
+	q.Release()
+	k.Release()
+	v.Release()
+	mask.Release()
+	// A long sequence with few heads: long score rows, packed K and V of
+	// 1 MB per head, few tasks.
+	b, n = 1, 2048
+	q, k, v = tensor.Randn(b, h, n, d), tensor.Randn(b, h, n, d), tensor.Randn(b, h, n, d)
+	flops = 2.0 * 2 * float64(b*h) * float64(n) * float64(n) * float64(d)
+	tensor.NoGrad(func() {
+		t := timeIt(func() { tensor.Attention(q, k, v, nil).Release() })
+		fmt.Printf("| [%d×%d×%d×%d] long sequence | %s | %.1f |\n", b, h, n, d, fmtDur(t), flops/t/1e9)
+	})
 	fmt.Println()
 }
 

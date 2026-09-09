@@ -24,6 +24,7 @@ var generic = impl{
 	max:       genericMax,
 	gemmZero:  genericGemmZero,
 	exp:       genericExp,
+	expSum:    genericExpSum,
 	tanh:      genericTanh,
 	log:       genericLog,
 	sqrt:      genericSqrt,
@@ -258,6 +259,22 @@ const (
 // genericExp is the portable implementation of Exp, ~5× faster than
 // math.Exp per element and bit-compatible with the SIMD kernels up to FMA
 // contraction.
+// genericExpSum is Exp with the sum of the results accumulated in the
+// same loop (the portable ExpSum and the tail of the vector versions).
+func genericExpSum(x, z []float32, a, b float32) float32 {
+	n := checkLen2(x, z)
+	x, z = x[:n], z[:n]
+	for i, v := range x {
+		z[i] = a*v + b
+	}
+	genericExp(z, z)
+	var s float32
+	for _, v := range z {
+		s += v
+	}
+	return s
+}
+
 func genericExp(x, z []float32) {
 	n := checkLen2(x, z)
 	x, z = x[:n], z[:n]

@@ -106,17 +106,27 @@ func WindowMask(n, w int) *Tensor {
 	return m
 }
 
-// attentionRows is the number of query rows one fused task handles: as
-// many as keep the [rows × S] scores within about 512 KiB (256 rows at
-// S = 512, which measured best on the M2 Pro: fewer rows repack K and V
-// more often, more spill L2), never fewer than 32.
-func attentionRows(S int) int {
-	return max(32, min(256, (512<<10)/(4*S)))
+// attentionRows is the number of query rows one fused task handles. The
+// per-task working set no longer depends on it (see blas.AttentionBlock),
+// so it only balances the load: 256 rows unless that leaves fewer than
+// four tasks per worker, then halved down to 32.
+func attentionRows(nb, T int) int {
+	block := 256
+	for block > 32 && nb*((T+block-1)/block) < 4*parallel.Workers() {
+		block /= 2
+	}
+	return block
 }
+
+// attentionPackBudget bounds the packed keys and values held at once
+// (floats); heads are processed in groups that fit.
+const attentionPackBudget = 16 << 20
 
 // attentionFused returns nil when the shapes need the composed path
 // (leading dimensions that differ between q, k and v, or a mask whose
-// key dimension is not contiguous).
+// key dimension is not contiguous). Otherwise it packs K and V once per
+// head (heads that share storage, as grouped-query Expand views do, share
+// the packing) and runs blas.AttentionBlock over (head, row block) tasks.
 func attentionFused(q, k, v, mask *Tensor, scale float32) *Tensor {
 	nd := len(q.shape)
 	lead := q.shape[:nd-2]
@@ -165,37 +175,66 @@ func attentionFused(q, k, v, mask *Tensor, scale float32) *Tensor {
 		mRowStride, mColStride = ms[nd-2], ms[nd-1]
 	}
 
-	block := attentionRows(S)
+	workers := parallel.Workers()
+	block := attentionRows(nb, T)
 	blocks := (T + block - 1) / block
-	parallel.For(nb*blocks, func(task int) {
-		b, blk := task/blocks, task%blocks
-		i0 := blk * block
-		rows := min(block, T-i0)
-		scratch := blas.GetBuf(rows * S)
-		defer blas.PutBuf(scratch)
-		scores := blas.Contiguous(scratch, rows, S)
-		qb := blas.Mat{Data: qd[qoff[b]+i0*q.strides[nd-2]:], Rows: rows, Cols: D, RS: q.strides[nd-2], CS: q.strides[nd-1]}
-		kt := blas.Mat{Data: kd[koff[b]:], Rows: D, Cols: S, RS: k.strides[nd-1], CS: k.strides[nd-2]}
-		blas.GemmZeroWorkers(scores, qb, kt, 1)
-		for r := 0; r < rows; r++ {
-			row := scratch[r*S : (r+1)*S]
-			kernel.Scale(row, scale, row)
+	per := blas.PackedKVSize(S, D)
+	headsPerGroup := max(1, attentionPackBudget/per)
+	buf := blas.GetBuf(headsPerGroup * per)
+	defer blas.PutBuf(buf)
+	type kvKey struct{ k, v int }
+	for b0 := 0; b0 < nb; {
+		// Take heads while their distinct (k, v) storages fit the budget.
+		idx := map[kvKey]int{}
+		keys := []kvKey{}
+		b1 := b0
+		for ; b1 < nb; b1++ {
+			kk := kvKey{koff[b1], voff[b1]}
+			if _, ok := idx[kk]; !ok {
+				if len(keys) == headsPerGroup {
+					break
+				}
+				idx[kk] = len(keys)
+				keys = append(keys, kk)
+			}
+		}
+		packs := make([]blas.PackedKV, len(keys))
+		packOne := func(i, w int) {
+			kk := keys[i]
+			kt := blas.Mat{Data: kd[kk.k:], Rows: D, Cols: S, RS: k.strides[nd-1], CS: k.strides[nd-2]}
+			vb := blas.Mat{Data: vd[kk.v:], Rows: S, Cols: D, RS: v.strides[nd-2], CS: v.strides[nd-1]}
+			packs[i] = blas.PackKV(buf[i*per:(i+1)*per], kt, vb, w)
+		}
+		if len(keys) >= workers {
+			parallel.For(len(keys), func(i int) { packOne(i, 1) })
+		} else {
+			for i := range keys {
+				packOne(i, workers)
+			}
+		}
+		heads := b1 - b0
+		parallel.For(heads*blocks, func(task int) {
+			b, blk := b0+task/blocks, task%blocks
+			i0 := blk * block
+			rows := min(block, T-i0)
+			p := packs[idx[kvKey{koff[b], voff[b]}]]
+			qb := blas.Mat{Data: qd[qoff[b]+i0*q.strides[nd-2]:], Rows: rows, Cols: D, RS: q.strides[nd-2], CS: q.strides[nd-1]}
+			ob := blas.Mat{Data: out.data[(b*T+i0)*D:], Rows: rows, Cols: D, RS: D, CS: 1}
+			var addMask func(r int, row []float32, invScale float32)
 			if md != nil {
-				base := moff[b] + (i0+r)*mRowStride
-				if mColStride == 1 {
-					kernel.Add(row, md[base:base+S], row)
-				} else { // one mask value for the whole row
-					kernel.AddScalar(row, md[base], row)
+				addMask = func(r int, row []float32, invScale float32) {
+					base := moff[b] + (i0+r)*mRowStride
+					if mColStride == 1 {
+						kernel.Axpy(invScale, md[base:base+S], row)
+					} else { // one mask value for the whole row
+						kernel.AddScalar(row, md[base]*invScale, row)
+					}
 				}
 			}
-			kernel.AddScalar(row, -kernel.Max(row), row)
-			kernel.Exp(row, row)
-			kernel.Scale(row, 1/kernel.Sum(row), row)
-		}
-		ob := blas.Mat{Data: out.data[(b*T+i0)*D:], Rows: rows, Cols: D, RS: D, CS: 1}
-		vb := blas.Mat{Data: vd[voff[b]:], Rows: S, Cols: D, RS: v.strides[nd-2], CS: v.strides[nd-1]}
-		blas.GemmZeroWorkers(ob, scores, vb, 1)
-	})
+			blas.AttentionBlock(ob, qb, p, scale, addMask)
+		})
+		b0 = b1
+	}
 	runtime.KeepAlive(q)
 	runtime.KeepAlive(k)
 	runtime.KeepAlive(v)

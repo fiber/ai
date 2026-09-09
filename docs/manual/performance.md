@@ -190,6 +190,41 @@ per-call overhead, not by the passes between them. The transformer gains
 13 % on the M2, whose memory bandwidth was never the bottleneck; the
 server, where it is, is measured in BENCHMARKS.md.
 
+## Attention from the micro-kernel
+
+Without gradients recording, `Attention` and `AttentionScaled` do not go
+through the GEMM driver. Per head, K and V are packed once into
+micro-kernel panels (heads that share storage, as grouped-query `Expand`
+views do, share one packing; the packed operands are held in groups of
+at most 64 MB). Each task, a head and a block of query rows, packs its
+query rows once and works through them in MR-row groups: the scores of
+the group against every key go into L1-sized scratch straight from the
+micro-kernel, the softmax runs on them, the probabilities are packed as
+the left operand and multiplied with the packed V, and the rows leave
+scaled by their 1/Σ, a D-wide pass instead of an S-wide one. The softmax
+is three passes: the mask joins the raw scores, one `Max`, and
+`kernel.ExpSum`, which applies the scale and the shift, exponentiates
+and sums in one pass (NEON and AVX2 assembly). Before, each task ran two
+general GEMMs of depth 64 with their own packing (K and V repacked for
+every row block, the probabilities packed a second time after the
+softmax) and a seven-pass softmax.
+
+M2 Pro, GFLOPS over the two products, PyTorch 2.14 same day:
+
+| shape | before | now | PyTorch |
+|---|---:|---:|---:|
+| [8×8×512×64] | 947 | 1 110 | 553 |
+| same, causal mask | ~900 | 1 070 | 566 |
+| [1×8×2048×64], long sequence | – | 1 120 | 652.5 |
+
+What remains on the M2 is arithmetic, not overhead: half the task time
+is the AMX products (the score product has depth 64, so every 32×32
+tile pays its store after 64 steps), a third the exponential (16.8 M of
+them per call at 0.4 ns each on one core), the rest the probability
+packing and the row scaling. The removed packing and dispatch weighed
+more on the Xeon, where attention was 2.3× behind PyTorch; that row is
+in BENCHMARKS.md.
+
 ## Denormals and masks
 
 x86 cores process denormal floats (below about 1.2e−38) through

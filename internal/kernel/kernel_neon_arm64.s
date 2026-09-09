@@ -629,6 +629,165 @@ done:
 	RET
 
 // ---------------------------------------------------------------------------
+// func expSumNEON(x, z *float32, n int, a, b float32) float32   (n % 4 == 0)
+//
+// expNEON of a·x + b with the stored results accumulated in V29/V30 and reduced at
+// the end: the softmax normaliser from the same pass.
+// ---------------------------------------------------------------------------
+TEXT ·expSumNEON(SB), NOSPLIT, $0-36
+	MOVD x+0(FP), R0
+	MOVD z+8(FP), R2
+	MOVD n+16(FP), R3
+	VEOR V29.B16, V29.B16, V29.B16 // two sum accumulators
+	VEOR V30.B16, V30.B16, V30.B16
+	FMOVS a+24(FP), F15
+	VDUP V15.S[0], V15.S4 // a
+	FMOVS b+28(FP), F31
+	VDUP V31.S[0], V31.S4 // b
+	MOVD $0x3FB8AA3B, R4  // log2e
+	VDUP R4, V16.S4
+	MOVD $0x4B400000, R4  // magic 1.5·2^23
+	VDUP R4, V17.S4
+	MOVD $0x3F318000, R4  // ln2 hi
+	VDUP R4, V18.S4
+	MOVD $0xB95E8083, R4  // ln2 lo
+	VDUP R4, V19.S4
+	MOVD $0x42B0C0A5, R4  // clamp hi
+	VDUP R4, V20.S4
+	MOVD $0xC2AE0000, R4  // clamp lo (-87.0)
+	VDUP R4, V21.S4
+	MOVD $0x39506967, R4  // c0
+	VDUP R4, V22.S4
+	MOVD $0x3AB743CE, R4  // c1
+	VDUP R4, V23.S4
+	MOVD $0x3C088908, R4  // c2
+	VDUP R4, V24.S4
+	MOVD $0x3D2AA9C1, R4  // c3
+	VDUP R4, V25.S4
+	MOVD $0x3E2AAAAA, R4  // c4
+	VDUP R4, V26.S4
+	MOVD $0x3F000000, R4  // c5
+	VDUP R4, V27.S4
+	MOVD $0x3F800000, R4  // 1.0
+	VDUP R4, V28.S4
+	LSR  $2, R3, R3
+	CBZ  R3, done
+	// Two vectors per iteration: the FMA chains of the two are
+	// independent, so the second fills the latency bubbles of the first.
+	LSR  $1, R3, R5
+	CBZ  R5, tail
+loop2:
+	VLD1.P 16(R0), [V0.S4]
+	VMOV V31.B16, V7.B16
+	VFMLA V15.S4, V0.S4, V7.S4 // a·x + b
+	VMOV V7.B16, V0.B16
+	VLD1.P 16(R0), [V8.S4]
+	VMOV V31.B16, V7.B16
+	VFMLA V15.S4, V8.S4, V7.S4
+	VMOV V7.B16, V8.B16
+	VFCMGE4(6, 0, 21)              // keep mask: x >= lo (below: result 0)
+	VFCMGE4(14, 8, 21)
+	VFMAX4(0, 0, 21)
+	VFMAX4(8, 8, 21)
+	VFMIN4(0, 0, 20)
+	VFMIN4(8, 8, 20)
+	VFMUL4(1, 0, 16)
+	VFMUL4(9, 8, 16)
+	VFADD4(1, 1, 17)
+	VFADD4(9, 9, 17)
+	VFSUB4(2, 1, 17)
+	VFSUB4(10, 9, 17)
+	VFMLS V18.S4, V2.S4, V0.S4
+	VFMLS V18.S4, V10.S4, V8.S4
+	VFMLS V19.S4, V2.S4, V0.S4
+	VFMLS V19.S4, V10.S4, V8.S4
+	VMOV  V23.B16, V4.B16
+	VMOV  V23.B16, V12.B16
+	VFMLA V0.S4, V22.S4, V4.S4     // p = c1 + c0·r
+	VFMLA V8.S4, V22.S4, V12.S4
+	VMOV  V24.B16, V3.B16
+	VMOV  V24.B16, V11.B16
+	VFMLA V0.S4, V4.S4, V3.S4      // p = c2 + p·r
+	VFMLA V8.S4, V12.S4, V11.S4
+	VMOV  V25.B16, V4.B16
+	VMOV  V25.B16, V12.B16
+	VFMLA V0.S4, V3.S4, V4.S4
+	VFMLA V8.S4, V11.S4, V12.S4
+	VMOV  V26.B16, V3.B16
+	VMOV  V26.B16, V11.B16
+	VFMLA V0.S4, V4.S4, V3.S4
+	VFMLA V8.S4, V12.S4, V11.S4
+	VMOV  V27.B16, V4.B16
+	VMOV  V27.B16, V12.B16
+	VFMLA V0.S4, V3.S4, V4.S4      // p = c5 + p·r
+	VFMLA V8.S4, V11.S4, V12.S4
+	VFMUL4(3, 0, 0)                // r²
+	VFMUL4(11, 8, 8)
+	VMOV  V0.B16, V5.B16           // p·r² + r + 1, with FMLA into r
+	VMOV  V8.B16, V13.B16
+	VFMLA V3.S4, V4.S4, V5.S4      // r + p·r²
+	VFMLA V11.S4, V12.S4, V13.S4
+	VFADD4(5, 5, 28)               // + 1
+	VFADD4(13, 13, 28)
+	VSUB  V17.S4, V1.S4, V1.S4     // n = bits(t) - bits(magic)
+	VSUB  V17.S4, V9.S4, V9.S4
+	VSHL  $23, V1.S4, V1.S4
+	VSHL  $23, V9.S4, V9.S4
+	VADD  V1.S4, V5.S4, V5.S4      // p · 2^n via the exponent field
+	VADD  V9.S4, V13.S4, V13.S4
+	VAND  V6.B16, V5.B16, V5.B16   // flush lanes below the clamp to 0
+	VAND  V14.B16, V13.B16, V13.B16
+	VST1.P [V5.S4], 16(R2)
+	VFADD4(29, 29, 5)
+	VST1.P [V13.S4], 16(R2)
+	VFADD4(30, 30, 13)
+	SUBS $1, R5, R5
+	BNE  loop2
+	ANDS $1, R3, R3
+	BEQ  done
+tail:
+	VLD1.P 16(R0), [V0.S4]
+	VMOV V31.B16, V7.B16
+	VFMLA V15.S4, V0.S4, V7.S4 // a·x + b
+	VMOV V7.B16, V0.B16
+	VFCMGE4(6, 0, 21)              // keep mask: x >= lo
+	VFMAX4(0, 0, 21)               // x = max(x, lo)
+	VFMIN4(0, 0, 20)               // x = min(x, hi)
+	VFMUL4(1, 0, 16)               // t = x·log2e
+	VFADD4(1, 1, 17)               // t += magic  (low mantissa bits now hold n)
+	VFSUB4(2, 1, 17)               // nf = t - magic
+	VFMLS V18.S4, V2.S4, V0.S4     // r = x - nf·ln2hi
+	VFMLS V19.S4, V2.S4, V0.S4     // r -= nf·ln2lo
+	VMOV  V23.B16, V4.B16
+	VFMLA V0.S4, V22.S4, V4.S4     // p = c1 + c0·r
+	VMOV  V24.B16, V3.B16
+	VFMLA V0.S4, V4.S4, V3.S4      // p = c2 + p·r
+	VMOV  V25.B16, V4.B16
+	VFMLA V0.S4, V3.S4, V4.S4      // p = c3 + p·r
+	VMOV  V26.B16, V3.B16
+	VFMLA V0.S4, V4.S4, V3.S4      // p = c4 + p·r
+	VMOV  V27.B16, V4.B16
+	VFMLA V0.S4, V3.S4, V4.S4      // p = c5 + p·r
+	VFMUL4(3, 0, 0)                // r²
+	VMOV  V0.B16, V5.B16
+	VFMLA V3.S4, V4.S4, V5.S4      // r + p·r²
+	VFADD4(5, 5, 28)               // + 1
+	VSUB  V17.S4, V1.S4, V1.S4     // n = bits(t) - bits(magic)
+	VSHL  $23, V1.S4, V1.S4        // n << 23
+	VADD  V1.S4, V5.S4, V5.S4      // p · 2^n via the exponent field
+	VAND  V6.B16, V5.B16, V5.B16   // flush lanes below the clamp to 0
+	VST1.P [V5.S4], 16(R2)
+	VFADD4(29, 29, 5)
+	SUBS $1, R3, R3
+	BNE  tail
+done:
+	VFADD4(29, 29, 30)
+	VFADDP4(29, 29, 29)
+	VFADDP4(29, 29, 29)
+	FMOVS F29, ret+32(FP)
+	RET
+
+// ---------------------------------------------------------------------------
 // func tanhNEON(x, z *float32, n int)     (n % 4 == 0)
 //
 // Rational approximation, see genericTanh. Constants in V16..V29.

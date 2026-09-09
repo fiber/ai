@@ -64,6 +64,11 @@ var (
 	// approximation (relative error ≈ 1 ulp; inputs are clamped to the
 	// representable range, so there is no Inf/NaN for large |x|).
 	Exp func(x, z []float32)
+	// ExpSum computes z[i] = exp(a·x[i] + b) and returns the sum of z from
+	// the same pass: a softmax row from raw scores (a the scale, b = −a·max)
+	// without separate scale, shift and sum passes. Same clamping and
+	// flush as Exp.
+	ExpSum func(x, z []float32, a, b float32) float32
 	// Tanh computes z[i] = tanh(x[i]) by a rational approximation
 	// (relative error ≈ 2e-6 or better over the whole range).
 	Tanh func(x, z []float32)
@@ -117,6 +122,7 @@ type impl struct {
 	dotNorms                    func(x, y []float32) (dot, xx, yy float32)
 	sum, max                    func(x []float32) float32
 	exp, tanh, log, sqrt        func(x, z []float32)
+	expSum                      func(x, z []float32, a, b float32) float32
 	gemm, gemmZero              GemmFunc
 	mr, nr                      int
 	gemmBegin, gemmEnd          func() // nil: nothing to do
@@ -143,6 +149,7 @@ func use(i *impl) {
 	Axpy, Dot, Sum, Max = i.axpy, i.dot, i.sum, i.max
 	DotNorms = i.dotNorms
 	Exp, Tanh, Log, Sqrt = i.exp, i.tanh, i.log, i.sqrt
+	ExpSum = i.expSum
 	Gemm, MR, NR = i.gemm, i.mr, i.nr
 	GemmZero = i.gemmZero
 	GemmBegin, GemmEnd = noop, noop
@@ -279,6 +286,12 @@ func verify(c *impl) error {
 			if math.Abs(float64(got[i]-want[i])) > 2e-6*math.Abs(float64(want[i])) {
 				return fmt.Errorf("exp mismatch at n=%d i=%d: %v vs %v", n, i, got[i], want[i])
 			}
+		}
+		for i := range xe { // exp-sum: a softmax-like range, no overflow of the sum
+			xe[i] = rng.Float32()*20 - 15
+		}
+		if a, b := c.expSum(xe, got, 0.75, -2), generic.expSum(xe, want, 0.75, -2); !close(a, b) || !closeSlices(got, want) {
+			return fmt.Errorf("expSum mismatch at n=%d: %v vs %v", n, a, b)
 		}
 		for i := range xe {
 			xe[i] = rng.Float32()*20 - 10
@@ -427,6 +440,23 @@ func wrapSum(f func(x *float32, n int) float32) func(x []float32) float32 {
 			return 0
 		}
 		return f(&x[0], len(x))
+	}
+}
+
+// wrapExpSum runs the fused exp-and-sum routine on the largest multiple
+// of width and the portable code on the remainder.
+func wrapExpSum(f func(x, z *float32, n int, a, b float32) float32, width int) func(x, z []float32, a, b float32) float32 {
+	return func(x, z []float32, a, b float32) float32 {
+		n := checkLen2(x, z)
+		nv := n &^ (width - 1)
+		var s float32
+		if nv > 0 {
+			s = f(&x[0], &z[0], nv, a, b)
+		}
+		if nv < n {
+			s += genericExpSum(x[nv:n], z[nv:n], a, b)
+		}
+		return s
 	}
 }
 

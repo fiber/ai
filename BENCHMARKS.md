@@ -59,7 +59,7 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | softmax(dim=1), 4096² | **2.22 ms** | 6.27 ms | **11.0 ms** | 14.4 ms |
 | layernorm, 4096² | **1.85 ms** | 2.21 ms | **11.0 ms** | 14.1 ms |
 | transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
-| attention [8×8×512×64] (GFLOPS) | **947** | 553 | 479 | **1 091** |
+| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 479 | **1 091** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
 | MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **384 K** | 361 K |
 | MLP forward + backward | 179 K | **221 K** | 72 K | **124 K** |
@@ -89,10 +89,13 @@ GEMM on the Xeon.
   on the Xeon: PyTorch's autograd fuses more and allocates less; our
   backward builds each gradient as its own tensor. The Adam step wins
   it back on the M2 (fused kernel) and is level on the Xeon.
-- **Attention on x86** (2.3× behind) and **convolution on x86** (6×):
-  each fused attention task is a K=64 product with its own packing, and
-  the im2col convolution is memory-bound on the Xeon; oneDNN has
-  dedicated primitives for both. Both are on the candidate list.
+- **Attention on x86** (2.3× behind at the last Xeon run) and
+  **convolution on x86** (6×): each fused attention task was a K=64
+  product through the general GEMM driver with its own packing; T-041
+  replaced that with a micro-kernel driver that packs K and V once per
+  head (M2: 947 → 1 110 GFLOPS), the Xeon re-measurement is pending.
+  The im2col convolution is memory-bound on the Xeon; oneDNN has a
+  dedicated primitive, the implicit-GEMM candidate is on the list.
 - **tanh on the Xeon** (9× behind): MKL's vector math library against
   our AVX2 rational approximation; the Apple NEON version of the same
   kernel is 6× ahead of PyTorch, so this is the x86 kernel, not the
@@ -297,8 +300,9 @@ of a 65-token sentence as one batch.
 
 | row | PyTorch | fiber/ai |
 |---|---:|---:|
-| attention [8×8×512×64], GFLOPS over the two products | 561 | ~950 |
-| same with a causal mask | 566 | ~900 |
+| attention [8×8×512×64], GFLOPS over the two products | 561 | 1 110 |
+| same with a causal mask | 566 | 1 070 |
+| attention [1×8×2048×64], long sequence | 652.5 | 1 120 |
 | conv2d [32×64×56×56] · 64 filters 3×3, GFLOPS | 314 | 367 |
 | EmbeddingGemma, sentences/s | 91 | 106 |
 
@@ -476,8 +480,10 @@ runs at about 42 % of the GEMM rate on both machines (479 of 1 156 on the
 Xeon, 981 of 2 300 on the M2): each fused task is a K=64 product with
 its own packing, where the blocked GEMM is at its weakest. oneDNN's
 fused attention primitive gets twice that; an attention micro-kernel
-that packs K and V once per head and skips the general GEMM is the
-candidate.
+that packs K and V once per head and skips the general GEMM was the
+candidate and is now in (T-041): 947 → 1 110 GFLOPS on the M2, where
+what remains is the AMX tile store at depth 64 and the exponential; the
+Xeon figure follows with the next pinned run.
 
 The two-socket run (all 64 hardware threads, no pinning) is in
 [results/skylake-sp-6130-2socket/](benchmarks/results/skylake-sp-6130-2socket/)

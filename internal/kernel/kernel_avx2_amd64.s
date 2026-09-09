@@ -720,6 +720,124 @@ expAVX2_done:
 	RET
 
 // ---------------------------------------------------------------------------
+// func expSumAVX2(x, z *float32, n int, a, b float32) float32   (n % 8 == 0)
+//
+// expAVX2 of a·x + b with the stored results accumulated in Y12/Y13 and reduced at
+// the end: the softmax normaliser from the same pass.
+// ---------------------------------------------------------------------------
+TEXT ·expSumAVX2(SB), NOSPLIT, $0-36
+	MOVQ x+0(FP), SI
+	MOVQ z+8(FP), DX
+	MOVQ n+16(FP), CX
+	VXORPS Y12, Y12, Y12 // two sum accumulators
+	VXORPS Y13, Y13, Y13
+	VBROADCASTSS a+24(FP), Y14
+	VBROADCASTSS b+28(FP), Y15
+	SHRQ $3, CX
+	JZ   expSumAVX2_done
+	// Two vectors per iteration with independent registers: consecutive
+	// iterations of the single-vector loop did not overlap (1.7 ns per
+	// element on Skylake-SP, 1.4 on Apple M2 for the NEON version).
+	MOVQ CX, BX
+	SHRQ $1, BX
+	JZ   expSumAVX2_tail
+expSumAVX2_loop2:
+	VMOVUPS (SI), Y0
+	VFMADD132PS Y14, Y15, Y0 // a·x + b
+	VMOVUPS 32(SI), Y5
+	VFMADD132PS Y14, Y15, Y5
+	// Lanes below the low clamp return exactly 0 (see genericExp): the
+	// mask is taken before clamping and applied before the store.
+	VCMPPS $1, ·expConsts+128(SB), Y0, Y10
+	VCMPPS $1, ·expConsts+128(SB), Y5, Y11
+	VMAXPS ·expConsts+128(SB), Y0, Y0
+	VMAXPS ·expConsts+128(SB), Y5, Y5
+	VMINPS ·expConsts+96(SB), Y0, Y0
+	VMINPS ·expConsts+96(SB), Y5, Y5
+	VMULPS ·expConsts+0(SB), Y0, Y1
+	VMULPS ·expConsts+0(SB), Y5, Y6
+	VROUNDPS $0, Y1, Y1
+	VROUNDPS $0, Y6, Y6
+	VCVTPS2DQ Y1, Y2
+	VCVTPS2DQ Y6, Y7
+	VFNMADD231PS ·expConsts+32(SB), Y1, Y0
+	VFNMADD231PS ·expConsts+32(SB), Y6, Y5
+	VFNMADD231PS ·expConsts+64(SB), Y1, Y0
+	VFNMADD231PS ·expConsts+64(SB), Y6, Y5
+	VMOVUPS ·expConsts+160(SB), Y3
+	VMOVUPS ·expConsts+160(SB), Y8
+	VFMADD213PS ·expConsts+192(SB), Y0, Y3
+	VFMADD213PS ·expConsts+192(SB), Y5, Y8
+	VFMADD213PS ·expConsts+224(SB), Y0, Y3
+	VFMADD213PS ·expConsts+224(SB), Y5, Y8
+	VFMADD213PS ·expConsts+256(SB), Y0, Y3
+	VFMADD213PS ·expConsts+256(SB), Y5, Y8
+	VFMADD213PS ·expConsts+288(SB), Y0, Y3
+	VFMADD213PS ·expConsts+288(SB), Y5, Y8
+	VFMADD213PS ·expConsts+320(SB), Y0, Y3
+	VFMADD213PS ·expConsts+320(SB), Y5, Y8
+	VMULPS Y0, Y0, Y4
+	VMULPS Y5, Y5, Y9
+	VFMADD213PS Y0, Y4, Y3
+	VFMADD213PS Y5, Y9, Y8
+	VADDPS ·expConsts+352(SB), Y3, Y3
+	VADDPS ·expConsts+352(SB), Y8, Y8
+	VPSLLD $23, Y2, Y2
+	VPSLLD $23, Y7, Y7
+	VPADDD Y2, Y3, Y3
+	VPADDD Y7, Y8, Y8
+	VANDNPS Y3, Y10, Y3
+	VANDNPS Y8, Y11, Y8
+	VMOVUPS Y3, (DX)
+	VADDPS Y3, Y12, Y12
+	VMOVUPS Y8, 32(DX)
+	VADDPS Y8, Y13, Y13
+	ADDQ $64, SI
+	ADDQ $64, DX
+	DECQ BX
+	JNZ  expSumAVX2_loop2
+	ANDQ $1, CX
+	JZ   expSumAVX2_done
+expSumAVX2_tail:
+	VMOVUPS (SI), Y0
+	VFMADD132PS Y14, Y15, Y0 // a·x + b
+	VCMPPS $1, ·expConsts+128(SB), Y0, Y10
+	VMAXPS ·expConsts+128(SB), Y0, Y0
+	VMINPS ·expConsts+96(SB), Y0, Y0
+	VMULPS ·expConsts+0(SB), Y0, Y1
+	VROUNDPS $0, Y1, Y1
+	VCVTPS2DQ Y1, Y2
+	VFNMADD231PS ·expConsts+32(SB), Y1, Y0
+	VFNMADD231PS ·expConsts+64(SB), Y1, Y0
+	VMOVUPS ·expConsts+160(SB), Y3
+	VFMADD213PS ·expConsts+192(SB), Y0, Y3
+	VFMADD213PS ·expConsts+224(SB), Y0, Y3
+	VFMADD213PS ·expConsts+256(SB), Y0, Y3
+	VFMADD213PS ·expConsts+288(SB), Y0, Y3
+	VFMADD213PS ·expConsts+320(SB), Y0, Y3
+	VMULPS Y0, Y0, Y4
+	VFMADD213PS Y0, Y4, Y3
+	VADDPS ·expConsts+352(SB), Y3, Y3
+	VPSLLD $23, Y2, Y2
+	VPADDD Y2, Y3, Y3
+	VANDNPS Y3, Y10, Y3
+	VMOVUPS Y3, (DX)
+	VADDPS Y3, Y12, Y12
+	ADDQ $32, SI
+	ADDQ $32, DX
+	DECQ CX
+	JNZ  expSumAVX2_tail
+expSumAVX2_done:
+	VADDPS Y13, Y12, Y12
+	VEXTRACTF128 $1, Y12, X13
+	VADDPS X13, X12, X12
+	VHADDPS X12, X12, X12
+	VHADDPS X12, X12, X12
+	VMOVSS X12, ret+32(FP)
+	VZEROUPPER
+	RET
+
+// ---------------------------------------------------------------------------
 // func tanhAVX2(x, z *float32, n int)     (n % 8 == 0)
 //
 // Rational approximation (see genericTanh): odd degree-13 numerator over

@@ -204,6 +204,11 @@ def bench_attention():
     print(f"| [{b}×{h}×{n}×{d}] q·kᵀ, softmax, ·v | {fmt_dur(t)} | {flops / t / 1e9:.1f} |")
     t = time_it(lambda: sdpa(q, k, v, is_causal=True))
     print(f"| same with causal mask | {fmt_dur(t)} | {flops / t / 1e9:.1f} |")
+    b, n = 1, 2048
+    q, k, v = torch.randn(b, h, n, d), torch.randn(b, h, n, d), torch.randn(b, h, n, d)
+    flops = 2.0 * 2 * b * h * n * n * d
+    t = time_it(lambda: sdpa(q, k, v))
+    print(f"| [{b}×{h}×{n}×{d}] long sequence | {fmt_dur(t)} | {flops / t / 1e9:.1f} |")
     print()
 
 

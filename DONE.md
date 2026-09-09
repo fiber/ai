@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-09 T-041 — Attention from the micro-kernel: K and V packed once per head, probabilities packed once, fused exp-sum softmax (spec/done/T-041-attention-from-the-micro-kernel-k-and-v-packed-o.md)
 - 2026-09-09 T-040 — "GEMM epilogue fusion for inference: bias, activation, gated product, residual and row scale applied on the hot output block" (spec/done/T-040-gemm-epilogue-fusion-for-inference-bias-activati.md)
 - 2026-09-09 T-039 — "bench: warm the packed-operand cache before timing (two warm-up calls for reused-weight rows)" (spec/done/T-039-bench-warm-the-packed-operand-cache-before-timin.md)
 - 2026-09-09 T-038 — "Packed-operand cache: protect the working set from eviction thrash, report evictions and invalidations" (spec/done/T-038-packed-operand-cache-protect-the-working-set-fro.md)

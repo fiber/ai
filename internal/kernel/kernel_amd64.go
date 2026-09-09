@@ -20,10 +20,11 @@ func dotAVX2(x, y *float32, n int) float32
 func dotNormsAVX2(x, y *float32, n int, out *[3]float32)
 func sumAVX2(x *float32, n int) float32
 func maxAVX2(x *float32, n int) float32
-func expAVX2(x, z *float32, n int)  // n % 8 == 0
-func tanhAVX2(x, z *float32, n int) // n % 8 == 0
-func logAVX2(x, z *float32, n int)  // n % 8 == 0
-func sqrtAVX2(x, z *float32, n int) // n % 8 == 0
+func expAVX2(x, z *float32, n int)                          // n % 8 == 0
+func expSumAVX2(x, z *float32, n int, a, b float32) float32 // n % 8 == 0
+func tanhAVX2(x, z *float32, n int)                         // n % 8 == 0
+func logAVX2(x, z *float32, n int)                          // n % 8 == 0
+func sqrtAVX2(x, z *float32, n int)                         // n % 8 == 0
 func gemmAVX2(k int, a, b, c *float32, ldc int)
 func gemmZeroAVX2(k int, a, b, c *float32, ldc int)
 func gemmAVX2Body(k int, a, b, c *float32, ldc int)
@@ -52,6 +53,7 @@ var avx2 = impl{
 	sum:       wrapSum(sumAVX2),
 	max:       wrapMax(maxAVX2),
 	exp:       wrapExp(expAVX2, 8),
+	expSum:    wrapExpSum(expSumAVX2, 8),
 	tanh:      wrapUnary(tanhAVX2, 8, genericTanh),
 	log:       wrapUnary(logAVX2, 8, genericLog),
 	sqrt:      wrapUnary(sqrtAVX2, 8, genericSqrt),

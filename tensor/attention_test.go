@@ -1,6 +1,7 @@
 package tensor
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"testing"
@@ -194,6 +195,67 @@ func TestFusedAttentionMatchesComposed(t *testing.T) {
 	Attention(qg, k3.Narrow(0, 0, 1).Narrow(1, 0, 5).Unsqueeze(0).Narrow(3, 0, 4), v3.Narrow(0, 0, 1).Narrow(1, 0, 5).Unsqueeze(0).Narrow(3, 0, 4), nil).Sum().Backward()
 	if qg.Grad() == nil {
 		t.Fatal("no gradient through Attention")
+	}
+}
+
+// TestFusedAttentionShapes runs the fused path against the composed one
+// over the shapes the micro-kernel driver has to pad: rows that are not a
+// multiple of MR, keys that are not a multiple of NR, small and odd head
+// dimensions, single rows, long sequences; with no mask, a random [T×S]
+// mask, a padding mask, and (square) causal and window masks; on 3-D,
+// 4-D and 5-D inputs; and grouped-query views where every head of a batch
+// shares one packed K and V.
+func TestFusedAttentionShapes(t *testing.T) {
+	rng := rand.New(rand.NewPCG(21, 22))
+	shapes := []struct{ T, S, D int }{
+		{512, 512, 64}, {65, 65, 40}, {33, 7, 3}, {1, 512, 64}, {65, 1753, 256},
+		{512, 65, 64}, {33, 1753, 64}, {1, 7, 3}, {65, 512, 40}, {7, 7, 1},
+	}
+	check := func(name string, q, k, v, mask *Tensor, D int) {
+		t.Helper()
+		sc := float32(1 / math.Sqrt(float64(D)))
+		fused := attentionFused(q, k, v, mask, sc)
+		if fused == nil {
+			t.Fatalf("%s: fused path declined", name)
+		}
+		composed := attentionComposed(q, k, v, mask, sc)
+		if !fused.AllClose(composed, 1e-4, 1e-5) {
+			t.Fatalf("%s: fused and composed differ", name)
+		}
+	}
+	for _, sh := range shapes {
+		T, S, D := sh.T, sh.S, sh.D
+		B, H := 2, 3
+		if T*S*D > 1<<24 {
+			B, H = 1, 2
+		}
+		q := RandnFrom(rng, B, H, T, D)
+		k := RandnFrom(rng, B, H, S, D)
+		v := RandnFrom(rng, B, H, S, D)
+		lens := make([]int, B) // full length for batch 0, half for the rest
+		for i := range lens {
+			lens[i] = S
+			if i > 0 {
+				lens[i] = max(1, S/2)
+			}
+		}
+		masks := map[string]*Tensor{"none": nil, "TxS": RandnFrom(rng, T, S), "padding": PaddingMask(lens, S)}
+		if T == S {
+			masks["causal"] = CausalMask(T)
+			masks["window"] = WindowMask(T, max(1, T/4))
+		}
+		for name, mask := range masks {
+			check(fmt.Sprintf("[%d×%d×%d×%d] %s", B, H, T, D, name), q, k, v, mask, D)
+		}
+		// grouped-query: one key/value head per batch, expanded over H
+		k1 := RandnFrom(rng, B, 1, S, D)
+		v1 := RandnFrom(rng, B, 1, S, D)
+		check(fmt.Sprintf("[%d×%d×%d×%d] gqa", B, H, T, D), q, k1.Expand(B, H, S, D), v1.Expand(B, H, S, D), masks["padding"], D)
+		// 3-D and 5-D leading shapes
+		check(fmt.Sprintf("[%d×%d×%d] 3-D", H, T, D), q.Narrow(0, 0, 1).Squeeze(0), k.Narrow(0, 0, 1).Squeeze(0), v.Narrow(0, 0, 1).Squeeze(0), masks["TxS"], D)
+		if T*S*D <= 1<<22 {
+			check(fmt.Sprintf("5-D [%d×%d×%d]", T, S, D), RandnFrom(rng, 2, 2, 2, T, D), RandnFrom(rng, 2, 2, 2, S, D), RandnFrom(rng, 2, 2, 2, S, D), nil, D)
+		}
 	}
 }
 
