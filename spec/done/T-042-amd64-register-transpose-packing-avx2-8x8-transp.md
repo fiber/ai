@@ -70,4 +70,13 @@ probabilities and Kᵀ so. Give amd64 a register-transpose packing.
 - `packTranspose` is a variable on amd64, off when the kernel package
   runs generic code (no AVX): the pack kernel is AVX1/AVX2 and must not
   run on a CPU without it.
-- Xeon measurement pending (targets in Acceptance).
+- Xeon pinned results (2026-09-09): attention 533 → 618 GFLOPS (target
+  650 missed by 5 %; causal 515 → 595, long sequence 539 → 698), MLP
+  forward 415 K → 473 K (target 450 K met), forward+backward 70 → 74 K,
+  Adam 66 → 71 K, [64×1024] 551 → 699, projection 1 240 → 1 331 packed
+  once / 1 014 → 1 111 per call, 512² 923 → 1 002, 256² 425 → 540. SGEMM
+  1024² unchanged at 1 217 (target 1 300 missed: the square product
+  packs A once per K block and amortises it over 1024 columns, the
+  Go loop was never its cost) and EmbeddingGemma unchanged at 58
+  (target 62 missed: its time is in the element-wise passes and the
+  products, not the packing).

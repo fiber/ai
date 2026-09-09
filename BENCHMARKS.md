@@ -42,12 +42,12 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | Workload | M2 Pro fiber/ai | M2 Pro PyTorch | Xeon fiber/ai | Xeon PyTorch |
 |---|---:|---:|---:|---:|
 | SGEMM 2048², all cores (GFLOPS) | 2 269 (level) | 2 227 | **1 156** | 780 |
-| SGEMM 1024² | 2 135 (2 471 with B packed once) | **2 682** | 1 145 | **1 434** |
-| SGEMM 512² | 1 509 | **2 154** | 923 | 991 (level) |
-| SGEMM 256² | 916 | **1 116** | 425 | **627** |
+| SGEMM 1024² | 2 135 (2 471 with B packed once) | **2 682** | 1 217 (1 327 with B packed once) | **1 434** |
+| SGEMM 512² | 1 509 | **2 154** | **1 002** | 991 (level) |
+| SGEMM 256² | 916 | **1 116** | 540 | **627** |
 | SGEMM 128² | 369 | **755** | 99 | **236** |
-| [256×768]·[768×3072], B packed per call | 1 795 | **2 358** | 1 016 (level) | 980 |
-| [256×768]·[768×3072], B packed once (weights) | **2 594** | 2 358 | **1 240** | 980 |
+| [256×768]·[768×3072], B packed per call | 1 795 | **2 358** | **1 111** | 980 |
+| [256×768]·[768×3072], B packed once (weights) | **2 594** | 2 358 | **1 331** | 980 |
 | [1×4096]·[4096×4096] | **13.4** | 11.3 | **13.0** | 11.0 |
 | x + y, 1M (released) | **43 µs** | 68 µs | **17 µs** | 24 µs |
 | x + y, 16M (released) | 1.51 ms | **1.37 ms** | **13.9 ms** | 17.5 ms |
@@ -59,11 +59,11 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | softmax(dim=1), 4096² | **2.22 ms** | 6.27 ms | **11.0 ms** | 14.4 ms |
 | layernorm, 4096² | **1.85 ms** | 2.21 ms | **11.0 ms** | 14.1 ms |
 | transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
-| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 533 | **1 141** |
+| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 618 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
-| MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **415 K** | 361 K |
-| MLP forward + backward | 179 K | **221 K** | 72 K | **124 K** |
-| MLP train step (Adam) | **148 K** | 121 K | 67 K | 71 K (level) |
+| MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **473 K** | 361 K |
+| MLP forward + backward | 179 K | **221 K** | 74 K | **124 K** |
+| MLP train step (Adam) | **148 K** | 121 K | 71 K (level) | 71 K |
 | EmbeddingGemma, 32 × 65 tokens (sentences/s) | **106** | 88 | **58** | 37 |
 
 **Where fiber/ai is ahead:** everything memory-bound that we wrote
@@ -94,8 +94,11 @@ GEMM on the Xeon.
   product through the general GEMM driver with its own packing; T-041
   replaced that with a micro-kernel driver that packs K and V once per
   head (M2: 947 → 1 110 GFLOPS; Xeon pinned 479 → 533, both sockets
-  437 → 747), still 2.1× behind MKL/oneDNN on the pinned socket; the
-  next step there is a profile, not a guess.
+  437 → 747); the profile then showed a third of the Xeon's time in Go
+  packing loops, and the AVX2 register-transpose packing (T-042) took
+  it to 618 pinned. Still 1.8× behind oneDNN's fused attention; what
+  is left there is the AVX2 exponential (an AVX-512 version is the
+  candidate) and the micro-kernel's own 60 % of peak.
   The im2col convolution is memory-bound on the Xeon; oneDNN has a
   dedicated primitive, the implicit-GEMM candidate is on the list.
 - **tanh on the Xeon** (9× behind): MKL's vector math library against
@@ -433,17 +436,17 @@ machine cannot reach PyPI.
 | SGEMM 1024², all cores, tensor level | 1 145 | – |
 | SGEMM 2048², all cores, tensor level | 1 156 | – |
 | [256×768]·[768×3072] | 1 016 | – |
-| MLP forward, batch 256 (samples/s) | 288 K → 384 K → **415 K** (T-040) | 361 K |
+| MLP forward, batch 256 (samples/s) | 288 K → 384 K → 415 K (T-040) → **473 K** (T-042) | 361 K |
 | MLP forward + backward (samples/s) | 65 K → 72 K | 124 K |
 | MLP train step (samples/s) | 64 K → 67 K | 71 K |
-| attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) | **1 141** |
-| same with causal mask | 470 (was 39) → 515 | **1 129** |
-| attention [1×8×2048×64], long sequence | 539 | **1 141** |
+| attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) → 618 (T-042) | **1 141** |
+| same with causal mask | 470 (was 39) → 515 → 595 | **1 129** |
+| attention [1×8×2048×64], long sequence | 539 → 698 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **438** |
 | EmbeddingGemma, 32 × 65 tokens (sentences/s) | **49 → 58** (T-040, pre-norms folded, gated FFN fused) | 37 |
-| [64×1024]·[1024×1024], B packed once (T-037) | **551** (409 per call) | 699 |
+| [64×1024]·[1024×1024], B packed once (T-037) | 551 → **699** (541 per call, T-042) | 699 (level) |
 | [8×4096]·[4096×4096], B packed once | **89** (58 per call) | 58 |
-| [256×768]·[768×3072], B packed once | **1 240** (1 014 per call) | 980 |
+| [256×768]·[768×3072], B packed once | 1 240 → **1 331** (1 111 per call, T-042) | 980 |
 | EmbeddingGemma with the cache warm (all hits) | 43–47, no gain on this machine | 37 |
 | cluster.Cosine, 768-d pair | **103 ns** | NumPy 4 332 ns |
 | cluster.Similarities 1 000×10 000 | **15.5 ms** | NumPy/OpenBLAS 85 ms |

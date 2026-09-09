@@ -134,7 +134,11 @@ stores on amd64 (`packRows8`), so a 6-row group, the tail of the 14-row
 AVX-512 tile and the whole of the AVX2 one, costs the same as a full
 group. Before, amd64 streamed each row with a scalar store every MR
 floats, and the pinned Xeon spent a third of the attention benchmark in
-those loops (21 % `packA`, 11 % `packBPanel` in the profile).
+those loops (21 % `packA`, 11 % `packBPanel` in the profile). Worth on
+the pinned Xeon: attention 533 → 618 GFLOPS, MLP forward 415 K → 473 K
+samples/s, [64×1024]·[1024×1024] 551 → 699 GFLOPS, the transformer
+projection 1 240 → 1 331; the square products and the EmbeddingGemma
+encoder did not move, their time is not in the A packing.
 
 **Eviction.** Least recently used, with one guard: an entry is only
 evicted when it has not been hit within the last pass over the working
