@@ -13,7 +13,7 @@ import torch
 parser = argparse.ArgumentParser()
 parser.add_argument("--quick", action="store_true")
 parser.add_argument("-d", type=float, default=0.7, help="seconds per case")
-parser.add_argument("--only", default="", help="comma-separated sections: gemm,elementwise,reductions,mlp,attention,conv,embed")
+parser.add_argument("--only", default="", help="comma-separated sections: gemm,small,elementwise,reductions,mlp,attention,conv,embed")
 args = parser.parse_args()
 DURATION = args.d
 
@@ -152,6 +152,49 @@ def bench_reductions():
     print()
 
 
+def bench_small():
+    """Small products and the tiny autoencoder, the cmd/bench 'small' section."""
+    print("### Small products (PyTorch)\n")
+    print("| shape | time | GFLOPS |")
+    print("|---|---:|---:|")
+    with torch.no_grad():
+        for n in [32, 64, 96, 128, 160, 192, 256]:
+            a, b = torch.randn(n, n), torch.randn(n, n)
+            t = time_it(lambda: a @ b)
+            print(f"| {n}² | {fmt_dur(t)} | {2 * n**3 / t / 1e9:.1f} |")
+        for m, k, n in [(64, 24, 16), (64, 16, 3), (256, 24, 16)]:
+            a, b = torch.randn(m, k), torch.randn(k, n)
+            t = time_it(lambda: a @ b)
+            print(f"| [{m}×{k}]·[{k}×{n}] | {fmt_dur(t)} | {2 * m * n * k / t / 1e9:.1f} |")
+    print()
+    print("### Tiny autoencoder 24→16→3→16→24, batch 64 (PyTorch)\n")
+    print("| phase | time / batch | samples/s |")
+    print("|---|---:|---:|")
+    batch = 64
+    model = torch.nn.Sequential(torch.nn.Linear(24, 16), torch.nn.GELU(), torch.nn.Linear(16, 3),
+                                torch.nn.Linear(3, 16), torch.nn.GELU(), torch.nn.Linear(16, 24))
+    opt = torch.optim.Adam(model.parameters(), lr=2e-3)
+    x = torch.randn(batch, 24)
+    loss_fn = torch.nn.MSELoss()
+
+    def inference():
+        with torch.no_grad():
+            model(x)
+
+    def step():
+        with torch.enable_grad():
+            loss = loss_fn(model(x), x)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+
+    t = time_it(inference)
+    print(f"| forward (no_grad) | {fmt_dur(t)} | {fmt_n(batch / t)} |")
+    t = time_it(step)
+    print(f"| forward + backward + Adam step | {fmt_dur(t)} | {fmt_n(batch / t)} |")
+    print()
+
+
 def bench_mlp():
     print("### MLP 784→512→512→10, batch 256 (PyTorch)\n")
     print("| phase | time / batch | samples/s |")
@@ -254,8 +297,8 @@ def bench_embed():
 
 
 SECTIONS = {"gemm": bench_gemm, "elementwise": bench_elementwise, "reductions": bench_reductions,
-            "mlp": bench_mlp, "attention": bench_attention, "conv": bench_conv, "embed": bench_embed}
-order = [s.strip() for s in args.only.split(",") if s.strip()] or ["gemm", "elementwise", "reductions", "attention", "conv", "mlp", "embed"]
+            "mlp": bench_mlp, "attention": bench_attention, "conv": bench_conv, "embed": bench_embed, "small": bench_small}
+order = [s.strip() for s in args.only.split(",") if s.strip()] or ["gemm", "small", "elementwise", "reductions", "attention", "conv", "mlp", "embed"]
 for name in order:
     if name not in SECTIONS:
         sys.exit(f"unknown section {name!r}")

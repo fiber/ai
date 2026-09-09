@@ -144,3 +144,113 @@ stz:
 	CMP  $32, R5
 	BNE  stz
 	RET
+
+
+// LOADB is LOAD with B read in place: the B pointer advances by ldb·4
+// bytes (R12) instead of one packed panel row.
+#define LOADB(s) MOVD $(((2*(s))<<56) | (1<<62)), R11; ORR R1, R11, R10; AMX_LDY; ORR R2, R11, R10; AMX_LDX; ADD $128, R1, R1; ADD R12, R2, R2
+
+// func gemmRBAMX(k int, a, b *float32, ldb int, c *float32, ldc int)
+//
+// gemmAMX with B row-major: 32 consecutive floats of every row of B, rows
+// ldb floats apart, so a small product reads B where it is (T-050).
+TEXT ·gemmRBAMX(SB), NOSPLIT, $0-48
+	MOVD $1, R19
+	B    ·gemmRBAMXBody(SB)
+
+TEXT ·gemmRBZeroAMX(SB), NOSPLIT, $0-48
+	MOVD $0, R19
+	B    ·gemmRBAMXBody(SB)
+
+TEXT ·gemmRBAMXBody(SB), NOSPLIT, $0-48
+	MOVD k+0(FP), R0
+	MOVD a+8(FP), R1
+	MOVD b+16(FP), R2
+	MOVD ldb+24(FP), R12
+	LSL  $2, R12, R12
+	MOVD c+32(FP), R3
+	MOVD ldc+40(FP), R4
+	LSL  $2, R4, R4
+	CBNZ R19, loadcrb
+	// overwrite: peel step 0 with Z ignored, then continue accumulating
+	LOADB(0)
+	FMA4Z(0)
+	SUB  $1, R0, R0
+	B    kstartrb
+loadcrb:
+	MOVD $0, R5
+	MOVD R3, R6
+ldzrb:
+	AND  $15, R5, R7
+	LSL  $2, R7, R7
+	LSR  $4, R5, R8
+	LSL  $1, R8, R8
+	ADD  R8, R7, R7
+	LSL  $56, R7, R9
+	ORR  R6, R9, R10
+	AMX_LDZ
+	ADD  $1, R7, R7
+	LSL  $56, R7, R9
+	ADD  $64, R6, R11
+	ORR  R11, R9, R10
+	AMX_LDZ
+	ADD  R4, R6, R6
+	ADD  $1, R5, R5
+	CMP  $32, R5
+	BNE  ldzrb
+kstartrb:
+	// pipelined main loop: 4 steps per iteration; loads for slot s of the
+	// next block are issued right after the FMAs of slot s.
+	CMP  $8, R0
+	BLT  tailrb
+	LOADB(0)
+	LOADB(1)
+	LOADB(2)
+	LOADB(3)
+	SUB  $4, R0, R0
+klooprb:
+	FMA4(0)
+	LOADB(0)
+	FMA4(1)
+	LOADB(1)
+	FMA4(2)
+	LOADB(2)
+	FMA4(3)
+	LOADB(3)
+	SUB  $4, R0, R0
+	CMP  $4, R0
+	BGE  klooprb
+	// drain the four preloaded slots
+	FMA4(0)
+	FMA4(1)
+	FMA4(2)
+	FMA4(3)
+tailrb:
+	CBZ  R0, storerb
+tlooprb:
+	LOADB(0)
+	FMA4(0)
+	SUBS $1, R0, R0
+	BNE  tlooprb
+storerb:
+	MOVD $0, R5
+	MOVD R3, R6
+stzrb:
+	AND  $15, R5, R7
+	LSL  $2, R7, R7
+	LSR  $4, R5, R8
+	LSL  $1, R8, R8
+	ADD  R8, R7, R7
+	LSL  $56, R7, R9
+	ORR  R6, R9, R10
+	AMX_STZ
+	ADD  $1, R7, R7
+	LSL  $56, R7, R9
+	ADD  $64, R6, R11
+	ORR  R11, R9, R10
+	AMX_STZ
+	ADD  R4, R6, R6
+	ADD  $1, R5, R5
+	CMP  $32, R5
+	BNE  stzrb
+	RET

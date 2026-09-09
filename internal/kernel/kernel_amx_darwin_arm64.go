@@ -27,6 +27,9 @@ func amxClr()
 func gemmAMX(k int, a, b, c *float32, ldc int)
 func gemmZeroAMX(k int, a, b, c *float32, ldc int)
 func gemmAMXBody(k int, a, b, c *float32, ldc int)
+func gemmRBAMX(k int, a, b *float32, ldb int, c *float32, ldc int)
+func gemmRBZeroAMX(k int, a, b *float32, ldb int, c *float32, ldc int)
+func gemmRBAMXBody(k int, a, b *float32, ldb int, c *float32, ldc int)
 
 func amxBegin() {
 	runtime.LockOSThread()
@@ -42,6 +45,7 @@ var amx = func() impl {
 	i := neon
 	i.name = "amx"
 	i.gemm, i.gemmZero = gemmAMX, gemmZeroAMX
+	i.gemmRB, i.gemmRBZero = gemmRBAMX, gemmRBZeroAMX
 	i.mr, i.nr = 32, 32
 	i.gemmBegin, i.gemmEnd = amxBegin, amxEnd
 	// KC=1024 amortises the 64 Z loads and stores per tile (n=2048: 1.93 →

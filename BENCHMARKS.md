@@ -392,6 +392,36 @@ rotate through a thousand fresh mappings before the first forced
 collection. A lower collection budget for small size classes on such
 hosts, or the heap path for them, is the candidate (TODO).
 
+## Small products and the tiny autoencoder (M2 Pro, 10 September 2026)
+
+Below about 160² a product takes one call with micro-kernels that read
+their operands in place (T-050) instead of the blocked driver. Fresh
+operands, result released; PyTorch 2.14 on Accelerate the same day
+(`bench.py --only small`).
+
+| shape | before | fiber/ai | PyTorch |
+|---|---:|---:|---:|
+| 32² (GFLOPS) | 42 | **63** | 47 |
+| 64² | 156 | 217 | **288** |
+| 96² | 264 | 363 | **555** |
+| 128² | 379 | 562 | **777** |
+| 160² | 526 | 674 | **909** |
+| 192² (driver) | 732 | 718 | **1 005** |
+| 256² (driver) | 1 082 | 1 131 | 1 156 (level) |
+| [64×24]·[24×16] | – | 25 | **35** |
+| [64×16]·[16×3] | – | **4.0** | 2.9 |
+| [256×24]·[24×16] | – | 36 | **92** |
+| tiny autoencoder 24→16→3→16→24, batch 64, forward (samples/s) | – | **3.06 M** | 2.38 M |
+| same, forward + backward + Adam step | – | **1.18 M** | 284 K |
+
+The training step of a netwatch-sized model is 4.2× ahead: at this size
+a step is per-operation overhead, and that is where Python pays. The
+squares are still behind Accelerate by 1.3–1.5× below 160² (they were
+1.8–2.1× behind): what remains on the M2 is the AMX tile store per
+k-step block and the result recycling, not packing. Narrow products
+([256×24]·[24×16]) stay behind because the 32-wide AMX tile half idles at
+n = 16. Xeon and VM: pending.
+
 ## Attention, convolution and EmbeddingGemma (M2 Pro, AMX)
 
 Rows added with the transformer work; PyTorch 2.14 (Accelerate BLAS, 6

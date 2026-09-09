@@ -67,8 +67,8 @@ func main() {
 		}
 		defer pprof.StopCPUProfile()
 	}
-	sections := map[string]func(){"gemm": benchGemm, "elementwise": benchElementwise, "reductions": benchReductions, "attention": benchAttention, "conv": benchConv, "mlp": benchMLP, "embed": benchEmbed}
-	order := []string{"gemm", "elementwise", "reductions", "attention", "conv", "mlp", "embed"}
+	sections := map[string]func(){"gemm": benchGemm, "small": benchSmall, "elementwise": benchElementwise, "reductions": benchReductions, "attention": benchAttention, "conv": benchConv, "mlp": benchMLP, "embed": benchEmbed}
+	order := []string{"gemm", "small", "elementwise", "reductions", "attention", "conv", "mlp", "embed"}
 	if *only != "" {
 		order = strings.Split(*only, ",")
 	}
@@ -304,6 +304,49 @@ func benchEmbed() {
 	fmt.Println("| shape | time / batch | sentences/s |")
 	fmt.Println("|---|---:|---:|")
 	fmt.Printf("| 32 × %d tokens, dim %d | %s | %.0f |\n", ntok, m.Dim(), fmtDur(t), 32/t)
+	fmt.Println()
+}
+
+// benchSmall times the products below the blocked driver's reach (T-050):
+// small squares with fresh operands, the products of a tiny autoencoder,
+// and that autoencoder's training step, batch 64.
+func benchSmall() {
+	fmt.Println("### Small products (fresh operands, result released)")
+	fmt.Println()
+	fmt.Println("| shape | time | GFLOPS |")
+	fmt.Println("|---|---:|---:|")
+	tensor.NoGrad(func() {
+		for _, n := range []int{32, 64, 96, 128, 160, 192, 256} {
+			a, b := tensor.Randn(n, n), tensor.Randn(n, n)
+			t := timeIt(func() { a.MatMul(b).Release() })
+			fmt.Printf("| %d² | %s | %.1f |\n", n, fmtDur(t), 2*float64(n)*float64(n)*float64(n)/t/1e9)
+		}
+		for _, sh := range [][3]int{{64, 24, 16}, {64, 16, 3}, {256, 24, 16}} {
+			m, k, n := sh[0], sh[1], sh[2]
+			a, b := tensor.Randn(m, k), tensor.Randn(k, n)
+			t := timeIt(func() { a.MatMul(b).Release() })
+			fmt.Printf("| [%d×%d]·[%d×%d] | %s | %.1f |\n", m, k, k, n, fmtDur(t), 2*float64(m)*float64(n)*float64(k)/t/1e9)
+		}
+	})
+	fmt.Println()
+	fmt.Println("### Tiny autoencoder 24→16→3→16→24, batch 64 (all threads)")
+	fmt.Println()
+	fmt.Println("| phase | time / batch | samples/s |")
+	fmt.Println("|---|---:|---:|")
+	const batch = 64
+	enc := nn.Sequential{nn.NewLinear(24, 16), nn.GELU{}, nn.NewLinear(16, 3)}
+	dec := nn.Sequential{nn.NewLinear(3, 16), nn.GELU{}, nn.NewLinear(16, 24)}
+	opt := optim.NewAdam(append(enc.Params(), dec.Params()...), 2e-3)
+	x := tensor.Randn(batch, 24)
+	tInf := timeIt(func() { tensor.NoGrad(func() { dec.Forward(enc.Forward(x)).Release() }) })
+	fmt.Printf("| forward (NoGrad) | %s | %s |\n", fmtDur(tInf), fmtN(int(batch/tInf)))
+	tStep := timeIt(func() {
+		loss := tensor.MSELoss(dec.Forward(enc.Forward(x)), x)
+		opt.ZeroGrad()
+		loss.Backward()
+		opt.Step()
+	})
+	fmt.Printf("| forward + backward + Adam step | %s | %s |\n", fmtDur(tStep), fmtN(int(batch/tStep)))
 	fmt.Println()
 }
 

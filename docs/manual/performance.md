@@ -129,6 +129,27 @@ clock and reports three times the real cost.
   [4096×4096] layer norm reads its input once and writes the output once
   (M2 Pro 1.9 ms against PyTorch's 2.35).
 
+## Small products: one call, nothing packed
+
+Below about 160² a product does not go through the blocked driver at
+all. The driver's fixed cost, two operands packed through the buffer
+pool, a packing round and a compute round with their barriers, K-block
+bookkeeping, was most of such a call: 128² ran at 359 GFLOPS on the M2
+Pro against Accelerate's 764 whether one worker or six did the work,
+and a profile of the call was 35 % micro-kernel, 45 % packing and 18 %
+allocating the result. Products with m·n·k up to `blas.SmallLimit`
+(160³; `FIBERAI_BLAS_SMALL` overrides, 0 disables) take one call on the
+calling goroutine with micro-kernels that read their operands where they
+are: on AVX2 and AVX-512 both operands row-major (`GemmRMB`), on the
+AMX unit A packed and B row-major (`GemmRB`, the unit needs one operand
+in its own layout), on NEON and the generic back-end both packed as
+before but without rounds. Only the ragged last column panel of B and a
+partial last row group of A pass through small zero-padded scratch. The
+result of a 128² product (64 KiB) is recycled by the mapped pool now
+instead of allocated and zeroed on the heap. What this is for is not
+square matrices but the products of small models, a 24 → 16 → 3
+autoencoder on batches of 64 for instance, which are nothing else.
+
 ## Packed operands: weights are packed once
 
 The GEMM driver works on operands repacked into panel layout. In
@@ -320,7 +341,7 @@ Go zero-fills every allocation on the allocating goroutine, and fresh
 pages fault in one at a time. On a 16-core Xeon a 1M-element result cost
 647 µs that way (16M: 10 ms, about 6.5 GB/s) while the addition itself
 takes a few tens of microseconds across the cores; `x + y` on 1M elements
-was three quarters allocation. Results of 128 KiB and more therefore do
+was three quarters allocation. Results of 64 KiB and more therefore do
 not live on the Go heap: they are mapped with `mmap` (on Linux with a
 request for transparent huge pages). Nothing zero-fills them; the kernel
 hands out pages on first touch, which happens inside the parallel
@@ -393,9 +414,9 @@ from `Data()` is safe because of the pinning, but code that reaches into
 
 ## Heap storage reuse (opt-in, small results)
 
-Below 128 KiB results stay on the Go heap. `tensor.SetPoolLimit(bytes)`
+Below 64 KiB results stay on the Go heap. `tensor.SetPoolLimit(bytes)`
 turns on recycling for them: when a tensor and all its views become
-unreachable, a GC cleanup returns buffers between 4 KiB and 128 KiB to a
+unreachable, a GC cleanup returns buffers between 4 KiB and 64 KiB to a
 pool, and the next result of similar size reuses memory instead of paying
 for a zero-filled allocation. `tensor.PoolStats()` reports hits, misses
 and the bytes held.

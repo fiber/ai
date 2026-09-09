@@ -132,6 +132,9 @@ func init() {
 	if v, err := strconv.Atoi(os.Getenv("FIBERAI_BLAS_THRESHOLD")); err == nil && v >= 0 {
 		ParallelThreshold = v
 	}
+	if v, err := strconv.Atoi(os.Getenv("FIBERAI_BLAS_SMALL")); err == nil && v >= 0 {
+		SmallLimit = v
+	}
 	if v, err := strconv.Atoi(os.Getenv("FIBERAI_BLAS_FEWROWS")); err == nil && v >= 0 {
 		FewRows = v
 	}
@@ -246,6 +249,16 @@ func gemmWorkersFull(c, a, b Mat, p *PackedB, e Epilogue, workers int, zero bool
 		}
 		fewRows(c, a, b, workers)
 		e.applyAll(c, workers)
+		return
+	}
+	// Small products: one call on this goroutine, nothing packed that the
+	// kernel can read in place, no rounds (see gemmSmall).
+	if float64(m)*float64(n)*float64(k) <= float64(SmallLimit) && (p == nil || len(p.blocks) == 1) {
+		var pre []float32
+		if p != nil {
+			pre = p.blocks[0]
+		}
+		gemmSmall(c, a, b, pre, e, zero)
 		return
 	}
 	gemm(c, a, b, p, e, workers, zero)
@@ -912,4 +925,159 @@ func packBPanel(dst []float32, b Mat, p0, j0, pb, jb, nr, pi int) {
 			}
 		}
 	}
+}
+
+// SmallLimit is the m·n·k up to which a product takes the small path:
+// one call on the calling goroutine instead of the blocked driver. Below
+// about 200² the driver's fixed cost (two operands packed through the
+// pool, a packing round and a compute round, K-block bookkeeping) is most
+// of the call: 128² ran at 359 GFLOPS on an M2 Pro against Accelerate's
+// 764 with one worker or six alike. FIBERAI_BLAS_SMALL overrides, 0
+// disables.
+var SmallLimit = 160 * 160 * 160
+
+// gemmSmall computes C (=|+=) A·B for a product under SmallLimit: one
+// call on the calling goroutine, nothing packed that a kernel can read in
+// place. With GemmRMB (AVX2, AVX-512) both operands are read row-major;
+// with GemmRB (AMX) only A is packed; elsewhere both are. B's ragged last
+// column panel (fewer than NR columns) and A's partial last row group go
+// through zero-padded scratch so no kernel reads past a matrix. A B that
+// arrives packed (pre, one block of the packed-operand cache) is used as
+// is. Tiles come straight from the micro-kernel, edge tiles through a
+// scratch tile; the epilogue runs over the whole output at the end.
+func gemmSmall(c, a, b Mat, pre []float32, e Epilogue, zero bool) {
+	mr, nr := kernel.MR, kernel.NR
+	m, n, k := a.Rows, b.Cols, a.Cols
+	nPad := roundUp(n, nr)
+	aRow := (kernel.GemmRMB != nil || kernel.GemmRM != nil) && a.CS == 1 // A read in place
+	bRow := pre == nil && b.CS == 1 && (kernel.GemmRMB != nil && aRow || kernel.GemmRB != nil && !aRow)
+
+	// B: packed panels, or in place with a scratch for the ragged panel
+	var bp, bEdge []float32
+	switch {
+	case pre != nil:
+		bp = pre
+	case bRow:
+		if n%nr != 0 {
+			bEdge = getBuf(k * nr)[:k*nr]
+			defer putBuf(bEdge)
+			packBPanel(bEdge, b, 0, n-n%nr, k, n%nr, nr, 0)
+		}
+	default:
+		bp = getBuf(k * nPad)[:k*nPad]
+		defer putBuf(bp)
+		packB(bp, b, 0, 0, k, n, nr, 1)
+	}
+	// A: in place with a scratch for the partial last group, or packed
+	var ap []float32
+	switch {
+	case aRow && m%mr != 0:
+		ap = getBuf(mr * k)[:mr*k]
+		defer putBuf(ap)
+		clear(ap)
+		ir := m - m%mr
+		for i := 0; i < m-ir; i++ {
+			copy(ap[i*k:(i+1)*k], a.Data[(ir+i)*a.RS:(ir+i)*a.RS+k])
+		}
+	case !aRow:
+		ap = getBuf(roundUp(m, mr) * k)[:roundUp(m, mr)*k]
+		defer putBuf(ap)
+		packA(ap, a, 0, 0, m, k, mr)
+	}
+	tmp := getBuf(mr * nr)[:mr*nr]
+	defer putBuf(tmp)
+	if kernel.GemmHooks {
+		kernel.GemmBegin()
+		defer kernel.GemmEnd()
+	}
+	// one tile: A operand (row pointer + lda, or panel), B operand (row
+	// pointer + ldb, or panel), accumulate into dst, or overwrite when ovw
+	tile := func(arow *float32, lda int, apanel *float32, brow *float32, ldb int, bpanel *float32, dst *float32, ldc int, ovw bool) {
+		switch {
+		case arow != nil && brow != nil:
+			if ovw && kernel.GemmRMBZero != nil {
+				kernel.GemmRMBZero(k, arow, lda, brow, ldb, dst, ldc)
+				return
+			}
+			kernel.GemmRMB(k, arow, lda, brow, ldb, dst, ldc)
+		case arow != nil:
+			if ovw && kernel.GemmRMZero != nil {
+				kernel.GemmRMZero(k, arow, lda, bpanel, dst, ldc)
+				return
+			}
+			kernel.GemmRM(k, arow, lda, bpanel, dst, ldc)
+		case brow != nil:
+			if ovw && kernel.GemmRBZero != nil {
+				kernel.GemmRBZero(k, apanel, brow, ldb, dst, ldc)
+				return
+			}
+			kernel.GemmRB(k, apanel, brow, ldb, dst, ldc)
+		default:
+			if ovw && kernel.GemmZero != nil {
+				kernel.GemmZero(k, apanel, bpanel, dst, ldc)
+				return
+			}
+			kernel.Gemm(k, apanel, bpanel, dst, ldc)
+		}
+	}
+	overwriting := func(arow, brow *float32) bool { // does an overwriting kernel exist for this combination?
+		switch {
+		case arow != nil && brow != nil:
+			return kernel.GemmRMBZero != nil
+		case arow != nil:
+			return kernel.GemmRMZero != nil
+		case brow != nil:
+			return kernel.GemmRBZero != nil
+		}
+		return kernel.GemmZero != nil
+	}
+	for ir := 0; ir < m; ir += mr {
+		rows := min(mr, m-ir)
+		var arow, apanel *float32
+		lda := a.RS
+		if aRow {
+			if rows == mr {
+				arow = &a.Data[ir*a.RS]
+			} else {
+				arow, lda = &ap[0], k
+			}
+		} else {
+			apanel = &ap[ir*k]
+		}
+		for jr := 0; jr < nPad; jr += nr {
+			cols := min(nr, n-jr)
+			var brow, bpanel *float32
+			ldb := b.RS
+			switch {
+			case bRow && cols == nr:
+				brow = &b.Data[jr]
+			case bRow:
+				brow, ldb = &bEdge[0], nr
+			default:
+				bpanel = &bp[jr*k]
+			}
+			if rows == mr && cols == nr {
+				dst := &c.Data[ir*c.RS+jr]
+				if zero && !overwriting(arow, brow) {
+					for i := 0; i < mr; i++ {
+						clear(c.Data[(ir+i)*c.RS+jr : (ir+i)*c.RS+jr+nr])
+					}
+				}
+				tile(arow, lda, apanel, brow, ldb, bpanel, dst, c.RS, zero)
+				continue
+			}
+			// edge tile: accumulate into scratch, copy the valid part back
+			clear(tmp)
+			if !zero {
+				for i := 0; i < rows; i++ {
+					copy(tmp[i*nr:i*nr+cols], c.Data[(ir+i)*c.RS+jr:(ir+i)*c.RS+jr+cols])
+				}
+			}
+			tile(arow, lda, apanel, brow, ldb, bpanel, &tmp[0], nr, false)
+			for i := 0; i < rows; i++ {
+				copy(c.Data[(ir+i)*c.RS+jr:(ir+i)*c.RS+jr+cols], tmp[i*nr:i*nr+cols])
+			}
+		}
+	}
+	e.applyAll(c, 1)
 }

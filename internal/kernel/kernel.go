@@ -43,6 +43,14 @@ type GemmFunc func(k int, a, b, c *float32, ldc int)
 // GemmFunc.
 type GemmRMFunc func(k int, a *float32, lda int, b, c *float32, ldc int)
 
+// GemmRBFunc is a micro-kernel with A packed and B row-major: NR
+// consecutive floats of every row of B, rows ldb floats apart.
+type GemmRBFunc func(k int, a, b *float32, ldb int, c *float32, ldc int)
+
+// GemmRMBFunc reads both operands row-major: A with row stride lda, B with
+// row stride ldb. The small-product kernel: nothing packed.
+type GemmRMBFunc func(k int, a *float32, lda int, b *float32, ldb int, c *float32, ldc int)
+
 // Active kernels. They are assigned at init and may be re-pointed by tests.
 var (
 	Add       BinaryFunc // z = x + y
@@ -94,6 +102,11 @@ var (
 	// GemmRMFunc): nothing to pack on the left. nil on back-ends without
 	// them (attention then packs as before).
 	GemmRM, GemmRMZero GemmRMFunc
+	// GemmRB/GemmRBZero read B row-major (AMX: A must be packed, B need
+	// not), GemmRMB/GemmRMBZero read both operands row-major (AVX2,
+	// AVX-512). nil where absent; the small-product path picks what exists.
+	GemmRB, GemmRBZero   GemmRBFunc
+	GemmRMB, GemmRMBZero GemmRMBFunc
 	// GemmBegin and GemmEnd bracket a run of Gemm calls on one goroutine.
 	// They are no-ops except for coprocessor back-ends (AMX) that must
 	// enable per-thread state; callers keep the goroutine on its thread
@@ -134,6 +147,8 @@ type impl struct {
 	expSum                      func(x, z []float32, a, b float32) float32
 	gemm, gemmZero              GemmFunc
 	gemmRM, gemmRMZero          GemmRMFunc
+	gemmRB, gemmRBZero          GemmRBFunc
+	gemmRMB, gemmRMBZero        GemmRMBFunc
 	mr, nr                      int
 	gemmBegin, gemmEnd          func() // nil: nothing to do
 	hints                       Hints
@@ -163,6 +178,8 @@ func use(i *impl) {
 	Gemm, MR, NR = i.gemm, i.mr, i.nr
 	GemmZero = i.gemmZero
 	GemmRM, GemmRMZero = i.gemmRM, i.gemmRMZero
+	GemmRB, GemmRBZero = i.gemmRB, i.gemmRBZero
+	GemmRMB, GemmRMBZero = i.gemmRMB, i.gemmRMBZero
 	GemmBegin, GemmEnd = noop, noop
 	GemmHooks = i.gemmBegin != nil
 	if GemmHooks {
@@ -403,6 +420,56 @@ func verify(c *impl) error {
 			c.endGemm()
 			if !closeSlices(zgot, zwant) {
 				return fmt.Errorf("row-major gemm-zero micro-kernel mismatch at k=%d", k)
+			}
+		}
+		if k > 0 && (c.gemmRB != nil || c.gemmRMB != nil) { // B row-major, rows ldb apart
+			ldb := nr + 5
+			brm := randSlice(k * ldb)
+			for p := 0; p < k; p++ {
+				copy(brm[p*ldb:p*ldb+nr], b[p*nr:p*nr+nr])
+			}
+			check := func(name string, run func(dst *float32), overwrite bool) error {
+				got := randSlice(mr * ldc)
+				want := append([]float32(nil), got...)
+				for i := 0; i < mr; i++ {
+					for j := 0; j < nr; j++ {
+						if overwrite {
+							want[i*ldc+j] = prod[i*nr+j]
+						} else {
+							want[i*ldc+j] += prod[i*nr+j]
+						}
+					}
+				}
+				c.beginGemm()
+				run(&got[0])
+				c.endGemm()
+				if !closeSlices(got, want) {
+					return fmt.Errorf("%s micro-kernel mismatch at k=%d", name, k)
+				}
+				return nil
+			}
+			if c.gemmRB != nil {
+				if err := check("B-row-major gemm", func(dst *float32) { c.gemmRB(k, ap, &brm[0], ldb, dst, ldc) }, false); err != nil {
+					return err
+				}
+				if err := check("B-row-major gemm-zero", func(dst *float32) { c.gemmRBZero(k, ap, &brm[0], ldb, dst, ldc) }, true); err != nil {
+					return err
+				}
+			}
+			if c.gemmRMB != nil {
+				lda := k + 3
+				arm := randSlice(mr * lda)
+				for p := 0; p < k; p++ {
+					for i := 0; i < mr; i++ {
+						arm[i*lda+p] = a[p*mr+i]
+					}
+				}
+				if err := check("row-major gemm", func(dst *float32) { c.gemmRMB(k, &arm[0], lda, &brm[0], ldb, dst, ldc) }, false); err != nil {
+					return err
+				}
+				if err := check("row-major gemm-zero", func(dst *float32) { c.gemmRMBZero(k, &arm[0], lda, &brm[0], ldb, dst, ldc) }, true); err != nil {
+					return err
+				}
 			}
 		}
 	}

@@ -261,7 +261,7 @@ func sizeClass(n int) (class int, capacity int) {
 // it; ending with record(out, op, inputs, ...) does that, the few
 // functions that do not use runtime.KeepAlive.
 const (
-	mapMin           = 32 << 10  // 128 KiB
+	mapMin           = 16 << 10  // 64 KiB: a 128² result qualifies (T-050)
 	DefaultMapBudget = 256 << 20 // outstanding mapped bytes before the first forced GC (FIBERAI_MAP_BUDGET)
 )
 

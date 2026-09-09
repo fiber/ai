@@ -43,35 +43,43 @@ func gemmRMAVX2Body(k int, a *float32, lda int, b, c *float32, ldc int)
 func gemmRMAVX512x14(k int, a *float32, lda int, b, c *float32, ldc int)
 func gemmRMZeroAVX512x14(k int, a *float32, lda int, b, c *float32, ldc int)
 func gemmRMAVX512x14Body(k int, a *float32, lda int, b, c *float32, ldc int)
+func gemmRMBAVX2(k int, a *float32, lda int, b *float32, ldb int, c *float32, ldc int)
+func gemmRMBZeroAVX2(k int, a *float32, lda int, b *float32, ldb int, c *float32, ldc int)
+func gemmRMBAVX2Body(k int, a *float32, lda int, b *float32, ldb int, c *float32, ldc int)
+func gemmRMBAVX512x14(k int, a *float32, lda int, b *float32, ldb int, c *float32, ldc int)
+func gemmRMBZeroAVX512x14(k int, a *float32, lda int, b *float32, ldb int, c *float32, ldc int)
+func gemmRMBAVX512x14Body(k int, a *float32, lda int, b *float32, ldb int, c *float32, ldc int)
 func gemmZeroAVX512x14(k int, a, b, c *float32, ldc int)
 func gemmAVX512x14Body(k int, a, b, c *float32, ldc int)
 
 var avx2 = impl{
-	name:       "avx2",
-	add:        wrapBinary(addAVX2),
-	sub:        wrapBinary(subAVX2),
-	mul:        wrapBinary(mulAVX2),
-	div:        wrapBinary(divAVX2),
-	maximum:    wrapBinary(maximumAVX2),
-	addScalar:  wrapScalar(addScalarAVX2),
-	scale:      wrapScalar(scaleAVX2),
-	maxScalar:  wrapScalar(maxScalarAVX2),
-	axpy:       wrapAxpy(axpyAVX2),
-	dot:        wrapDot(dotAVX2),
-	dotNorms:   wrapDotNorms(dotNormsAVX2),
-	sum:        wrapSum(sumAVX2),
-	max:        wrapMax(maxAVX2),
-	exp:        wrapExp(expAVX2, 8),
-	expSum:     wrapExpSum(expSumAVX2, 8),
-	tanh:       wrapUnary(tanhAVX2, 8, genericTanh),
-	log:        wrapUnary(logAVX2, 8, genericLog),
-	sqrt:       wrapUnary(sqrtAVX2, 8, genericSqrt),
-	gemm:       gemmAVX2,
-	gemmZero:   gemmZeroAVX2,
-	gemmRM:     gemmRMAVX2,
-	gemmRMZero: gemmRMZeroAVX2,
-	mr:         6,
-	nr:         16,
+	name:        "avx2",
+	add:         wrapBinary(addAVX2),
+	sub:         wrapBinary(subAVX2),
+	mul:         wrapBinary(mulAVX2),
+	div:         wrapBinary(divAVX2),
+	maximum:     wrapBinary(maximumAVX2),
+	addScalar:   wrapScalar(addScalarAVX2),
+	scale:       wrapScalar(scaleAVX2),
+	maxScalar:   wrapScalar(maxScalarAVX2),
+	axpy:        wrapAxpy(axpyAVX2),
+	dot:         wrapDot(dotAVX2),
+	dotNorms:    wrapDotNorms(dotNormsAVX2),
+	sum:         wrapSum(sumAVX2),
+	max:         wrapMax(maxAVX2),
+	exp:         wrapExp(expAVX2, 8),
+	expSum:      wrapExpSum(expSumAVX2, 8),
+	tanh:        wrapUnary(tanhAVX2, 8, genericTanh),
+	log:         wrapUnary(logAVX2, 8, genericLog),
+	sqrt:        wrapUnary(sqrtAVX2, 8, genericSqrt),
+	gemm:        gemmAVX2,
+	gemmZero:    gemmZeroAVX2,
+	gemmRM:      gemmRMAVX2,
+	gemmRMZero:  gemmRMZeroAVX2,
+	gemmRMB:     gemmRMBAVX2,
+	gemmRMBZero: gemmRMBZeroAVX2,
+	mr:          6,
+	nr:          16,
 }
 
 // The memory-bound element-wise primitives stay AVX2 (the bandwidth is
@@ -83,6 +91,7 @@ var avx512 = func() impl {
 	i.name = "avx512"
 	i.gemm, i.gemmZero = gemmAVX512x14, gemmZeroAVX512x14
 	i.gemmRM, i.gemmRMZero = gemmRMAVX512x14, gemmRMZeroAVX512x14
+	i.gemmRMB, i.gemmRMBZero = gemmRMBAVX512x14, gemmRMBZeroAVX512x14
 	i.mr, i.nr = 14, 32
 	i.exp = wrapExp(expAVX512, 16)
 	i.expSum = wrapExpSum(expSumAVX512, 16)
@@ -98,7 +107,8 @@ var avx512x12 = func() impl {
 	i := avx512
 	i.name = "avx512x12"
 	i.gemm, i.gemmZero = gemmAVX512, gemmZeroAVX512
-	i.gemmRM, i.gemmRMZero = nil, nil // no 12-row variant
+	i.gemmRM, i.gemmRMZero = nil, nil // no 12-row variants
+	i.gemmRMB, i.gemmRMBZero = nil, nil
 	i.mr, i.nr = 12, 32
 	return i
 }()
