@@ -2,6 +2,7 @@
 
 Fixed bugs, newest first. Each points to its spec in `spec/done/`.
 
+- 2026-09-09 B-008 — tutorial chapter 8 prints a pipe table that the chapter quotes inside a code fence, so it renders as text (spec/done/B-008-tutorial-chapter-8-prints-a-pipe-table-that-the.md)
 - 2026-09-09 B-007 — tokenizer TestLoadTime asserts a wall-clock bound that a slower or loaded machine misses (spec/done/B-007-tokenizer-testloadtime-asserts-a-wall-clock-boun.md)
 - 2026-09-09 B-006 — "smeprobe does not build outside darwin/arm64: missing build constraint breaks go test ./... on Linux" (spec/done/B-006-smeprobe-does-not-build-outside-darwin-arm64-mis.md)
 - 2026-09-08 B-005 — Embed pins one encoder output per batch: pool() takes Data(), so Release is refused and memory grows with the number of batches (spec/done/B-005-embed-pins-one-encoder-output-per-batch-pool-tak.md)

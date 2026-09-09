@@ -144,9 +144,9 @@ What is readable is the count of them.
 
 ## The storm day
 
-Now the sixth day, which no model has seen.
+Now the sixth day, which no model has seen. Mean absolute error in
+aircraft:
 
-```
 | | validation day | storm day |
 |---|---:|---:|
 | persistence | 3.02 | 2.56 |
@@ -155,7 +155,6 @@ Now the sixth day, which no model has seen.
 | 1-D CNN, alone | 2.74 | 2.69 |
 | flat MLP, eight airports | 2.52 | 3.61 |
 | 1-D CNN, eight airports | 2.63 | 3.66 |
-```
 
 Read the table by rows. Persistence gets *better* on the storm day:
 Dublin's sky was empty for hours, and "it stays as it is" is exactly

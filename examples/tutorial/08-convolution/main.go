@@ -254,15 +254,15 @@ func main() {
 	// The storm day: the models that read the neighbours expect a normal
 	// day and are wrong by twice their usual error. That jump is the
 	// signal the airspace example is built on.
-	fmt.Println("\nmean absolute error in aircraft:")
-	fmt.Println("| | validation day | storm day |")
-	fmt.Println("|---|---:|---:|")
-	fmt.Printf("| persistence | %.2f | %.2f |\n", persistence(x1Val, yVal), persistence(x1Storm, yStorm))
-	fmt.Printf("| same minute yesterday | %.2f | %.2f |\n", yesterday(valIdx), yesterday(stormIdx))
-	fmt.Printf("| flat MLP, alone | %.2f | %.2f |\n", mae(mlp1, x1Val, yVal, sd), mae(mlp1, x1Storm, yStorm, sd))
-	fmt.Printf("| 1-D CNN, alone | %.2f | %.2f |\n", mae(cnn1, x1Val, yVal, sd), mae(cnn1, x1Storm, yStorm, sd))
-	fmt.Printf("| flat MLP, eight airports | %.2f | %.2f |\n", mae(mlp8, x8Val, yVal, sd), mae(mlp8, x8Storm, yStorm, sd))
-	fmt.Printf("| 1-D CNN, eight airports | %.2f | %.2f |\n", mae(cnn8, x8Val, yVal, sd), mae(cnn8, x8Storm, yStorm, sd))
+	fmt.Println("\nmean absolute error in aircraft")
+	fmt.Printf("%-26s %14s %10s\n", "", "validation day", "storm day")
+	row := func(name string, val, storm float64) { fmt.Printf("%-26s %14.2f %10.2f\n", name, val, storm) }
+	row("persistence", persistence(x1Val, yVal), persistence(x1Storm, yStorm))
+	row("same minute yesterday", yesterday(valIdx), yesterday(stormIdx))
+	row("flat MLP, alone", mae(mlp1, x1Val, yVal, sd), mae(mlp1, x1Storm, yStorm, sd))
+	row("1-D CNN, alone", mae(cnn1, x1Val, yVal, sd), mae(cnn1, x1Storm, yStorm, sd))
+	row("flat MLP, eight airports", mae(mlp8, x8Val, yVal, sd), mae(mlp8, x8Storm, yStorm, sd))
+	row("1-D CNN, eight airports", mae(cnn8, x8Val, yVal, sd), mae(cnn8, x8Storm, yStorm, sd))
 }
 
 func indexOf(list []string, s string) int {
