@@ -47,7 +47,7 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | SGEMM 256² | 916 | **1 116** | 425 | **627** |
 | SGEMM 128² | 369 | **755** | 99 | **236** |
 | [256×768]·[768×3072], B packed per call | 1 795 | **2 358** | 1 016 (level) | 980 |
-| [256×768]·[768×3072], B packed once (weights) | **2 594** | 2 358 | pending | 980 |
+| [256×768]·[768×3072], B packed once (weights) | **2 594** | 2 358 | **1 240** | 980 |
 | [1×4096]·[4096×4096] | **13.4** | 11.3 | **13.0** | 11.0 |
 | x + y, 1M (released) | **43 µs** | 68 µs | **17 µs** | 24 µs |
 | x + y, 16M (released) | 1.51 ms | **1.37 ms** | **13.9 ms** | 17.5 ms |
@@ -431,6 +431,11 @@ machine cannot reach PyPI.
 | same with causal mask | 470 (was 39) | **1 072** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **438** |
 | EmbeddingGemma, 32 × 65 tokens (sentences/s) | **49** | 37 |
+| [64×1024]·[1024×1024], B packed once (T-037) | **551** (409 per call) | 699 |
+| [8×4096]·[4096×4096], B packed once | **89** (58 per call) | 58 |
+| [256×768]·[768×3072], B packed once | **1 240** (1 014 per call) | 980 |
+| cluster.Cosine, 768-d pair | **103 ns** | NumPy 4 332 ns |
+| cluster.Similarities 1 000×10 000 | **15.5 ms** | NumPy/OpenBLAS 85 ms |
 
 PyTorch 2.14.0+cpu with MKL and oneDNN, pinned to the same socket with
 `OMP_NUM_THREADS=16`; unpinned over both sockets it reaches 2 189 /

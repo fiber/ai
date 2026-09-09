@@ -31,8 +31,16 @@ var (
 
 // timeIt runs fn repeatedly for the measurement duration (after one warm-up
 // call) and returns the mean seconds per call.
-func timeIt(fn func()) float64 {
-	fn()
+func timeIt(fn func()) float64 { return timeItWarm(fn, 1) }
+
+// timeItWarm is timeIt with an explicit number of warm-up calls: rows whose
+// right operand is a reused weight need two, because the packed-operand
+// cache packs on the second sighting and the timed calls should measure
+// the steady state.
+func timeItWarm(fn func(), warm int) float64 {
+	for i := 0; i < warm; i++ {
+		fn()
+	}
 	iters := 0
 	start := time.Now()
 	for time.Since(start) < *duration {
@@ -134,7 +142,7 @@ func benchGemm() {
 		a, b := tensor.Randn(m, k), tensor.Randn(k, n)
 		flops := 2 * float64(m) * float64(n) * float64(k)
 		tensor.SetPackedCacheLimit(512 << 20)
-		tc := timeIt(func() { a.MatMul(b).Release() })
+		tc := timeItWarm(func() { a.MatMul(b).Release() }, 2)
 		tensor.SetPackedCacheLimit(0)
 		tp := timeIt(func() { a.MatMul(b).Release() })
 		tensor.SetPackedCacheLimit(512 << 20)
@@ -272,12 +280,11 @@ func benchEmbed() {
 		texts[i] = sentence
 	}
 	ntok := len(m.Tokenizer().Encode(sentence))
-	m.Embed(texts) // warm
-	t := timeIt(func() {
+	t := timeItWarm(func() {
 		if _, err := m.Embed(texts); err != nil {
 			panic(err)
 		}
-	})
+	}, 2) // first sighting, then the pack; timed calls hit the cache
 	fmt.Println("| shape | time / batch | sentences/s |")
 	fmt.Println("|---|---:|---:|")
 	fmt.Printf("| 32 × %d tokens, dim %d | %s | %.0f |\n", ntok, m.Dim(), fmtDur(t), 32/t)

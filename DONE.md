@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-09 T-039 — "bench: warm the packed-operand cache before timing (two warm-up calls for reused-weight rows)" (spec/done/T-039-bench-warm-the-packed-operand-cache-before-timin.md)
 - 2026-09-09 T-038 — "Packed-operand cache: protect the working set from eviction thrash, report evictions and invalidations" (spec/done/T-038-packed-operand-cache-protect-the-working-set-fro.md)
 - 2026-09-08 T-037 — "GEMM: packed-B cache for reused right operands (weights packed once, not per call)" (spec/done/T-037-gemm-packed-b-cache-for-reused-right-operands-we.md)
 - 2026-09-08 T-036 — cluster.Cosine and cluster.Similarities: shared, vectorised cosine similarity for embeddings (spec/done/T-036-cluster-cosine-and-cluster-similarities-shared-v.md)
