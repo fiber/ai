@@ -46,7 +46,7 @@ func attentionReference(q, k, v []float32, rows, S, D int, scale float32, mask f
 // head dimensions, and a mask.
 func TestAttentionBlockMatchesReference(t *testing.T) {
 	rng := rand.New(rand.NewPCG(3, 4))
-	shapes := []struct{ rows, S, D int }{{1, 1, 1}, {5, 7, 3}, {33, 65, 40}, {64, 512, 64}, {17, 100, 256}, {kernel.MR, kernel.NR, 8}}
+	shapes := []struct{ rows, S, D int }{{1, 1, 1}, {5, 7, 3}, {33, 65, 40}, {64, 512, 64}, {17, 100, 256}, {kernel.MR, kernel.NR, 8}, {9, 129, 64}, {3, 300, 16}, {kernel.MR + 1, 2*kernel.NR + 1, 3}}
 	for _, sh := range shapes {
 		rows, S, D := sh.rows, sh.S, sh.D
 		q, k, v := make([]float32, rows*D), make([]float32, S*D), make([]float32, S*D)
@@ -56,12 +56,12 @@ func TestAttentionBlockMatchesReference(t *testing.T) {
 			}
 		}
 		for _, masked := range []bool{false, true} {
-			var mask func(r int, row []float32, invScale float32)
+			var mask func(r int, row []float32, invScale float32, k0 int)
 			var ref func(r, j int) float32
 			if masked {
-				mask = func(r int, row []float32, invScale float32) {
-					for j := r + 1; j < len(row); j++ {
-						if j%3 == 0 {
+				mask = func(r int, row []float32, invScale float32, k0 int) {
+					for j := range row {
+						if k0+j > r && (k0+j)%3 == 0 {
 							row[j] -= 1e9 * invScale
 						}
 					}

@@ -1,6 +1,8 @@
 package blas
 
 import (
+	"math"
+
 	"github.com/fiber/ai/internal/kernel"
 )
 
@@ -47,16 +49,26 @@ func PackKV(buf []float32, kt, v Mat, workers int) PackedKV {
 // rows go to out scaled by their 1/Σ (a D-wide pass instead of an S-wide
 // one). q is [rows×D] with any strides; out is [rows×D] with CS 1. mask,
 // when not nil, adds invScale times the mask of block row r into the S
-// raw scores of that row (the scale is applied afterwards). Nothing here
-// depends on rows, so the caller chooses the block size for load balance
-// alone.
-func AttentionBlock(out, q Mat, kv PackedKV, scale float32, mask func(r int, row []float32, invScale float32)) {
+// raw scores of that row (the scale is applied afterwards), k0 being the
+// first key of that slice. Nothing here depends on rows, so the caller
+// chooses the block size for load balance alone.
+//
+// Where the back-end has a micro-kernel reading its left operand
+// row-major (kernel.GemmRM: AVX2, AVX-512), the keys are processed in
+// blocks with an online softmax and nothing is packed per row group (see
+// attentionBlockRM); elsewhere (NEON, AMX, generic) the whole key range
+// is scored at once and the probabilities are packed.
+func AttentionBlock(out, q Mat, kv PackedKV, scale float32, mask func(r int, row []float32, invScale float32, k0 int)) {
 	mr, nr := kernel.MR, kernel.NR
 	rows, S, D := q.Rows, kv.S, kv.D
 	if q.Cols != D || out.Rows != rows || out.Cols != D || out.CS != 1 {
 		panic("blas: AttentionBlock: shape mismatch")
 	}
 	if rows == 0 {
+		return
+	}
+	if kernel.GemmRM != nil && scale > 0 {
+		attentionBlockRM(out, q, kv, scale, mask)
 		return
 	}
 	sPad, dPad := kv.SPad, kv.DPad
@@ -103,7 +115,7 @@ func AttentionBlock(out, q Mat, kv PackedKV, scale float32, mask func(r int, row
 				a = 1
 			}
 			if mask != nil {
-				mask(ir+r, row, invScale)
+				mask(ir+r, row, invScale, 0)
 			}
 			m := kernel.Max(row)
 			inv[r] = 1 / kernel.ExpSum(row, row, a, -a*m)
@@ -119,6 +131,93 @@ func AttentionBlock(out, q Mat, kv PackedKV, scale float32, mask func(r int, row
 		for r := 0; r < g; r++ {
 			dst := out.Data[(ir+r)*out.RS : (ir+r)*out.RS+D]
 			kernel.Scale(ot[r*dPad:r*dPad+D], inv[r], dst)
+		}
+	}
+}
+
+// attentionKeyBlock is the number of keys one online-softmax step covers
+// (rounded up to NR): MR × 128 scores are 7 KB on AVX-512, L1-resident.
+const attentionKeyBlock = 128
+
+// attentionBlockRM is AttentionBlock for back-ends with a row-major
+// micro-kernel: the query rows are copied once into a contiguous tile;
+// per MR-row group the keys are walked in blocks, each block's scores
+// computed straight into L1-sized scratch, the softmax kept running
+// (max m, sum l, the output accumulator rescaled when the max moves),
+// and the probabilities multiplied with the block's packed V columns as
+// they are, row-major. Rows leave scaled by 1/l.
+func attentionBlockRM(out, q Mat, kv PackedKV, scale float32, mask func(r int, row []float32, invScale float32, k0 int)) {
+	mr, nr := kernel.MR, kernel.NR
+	rows, S, D := q.Rows, kv.S, kv.D
+	dPad := kv.DPad
+	rPad := roundUp(rows, mr)
+	kb := roundUp(attentionKeyBlock, nr)
+	qs := getBuf(rPad * D)[:rPad*D]   // query rows, row-major, zero beyond rows
+	sc := getBuf(mr * kb)[:mr*kb]     // one key block's scores, then probabilities
+	ot := getBuf(mr * dPad)[:mr*dPad] // output accumulator of one row group
+	defer putBuf(qs)
+	defer putBuf(sc)
+	defer putBuf(ot)
+	for r := 0; r < rows; r++ {
+		dst := qs[r*D : (r+1)*D]
+		if q.CS == 1 {
+			copy(dst, q.Data[r*q.RS:r*q.RS+D])
+		} else {
+			for d := range dst {
+				dst[d] = q.Data[r*q.RS+d*q.CS]
+			}
+		}
+	}
+	clear(qs[rows*D:])
+	var m, l [256]float32 // running max and sum per row of the group (MR ≤ 256)
+	invScale := 1 / scale
+	negInf := float32(math.Inf(-1))
+
+	if kernel.GemmHooks {
+		kernel.GemmBegin()
+		defer kernel.GemmEnd()
+	}
+	for ir := 0; ir < rPad; ir += mr {
+		g := min(mr, rows-ir)
+		clear(ot)
+		for r := 0; r < mr; r++ {
+			m[r], l[r] = negInf, 0
+		}
+		for k0 := 0; k0 < S; k0 += kb {
+			n := min(kb, S-k0)     // keys in this block
+			nPad := roundUp(n, nr) // panels covering them (K is packed to SPad)
+			for jr := 0; jr < nPad; jr += nr {
+				kernel.GemmRMZero(D, &qs[ir*D], D, &kv.K[(k0+jr)*D], &sc[jr], kb)
+			}
+			for r := 0; r < g; r++ {
+				row := sc[r*kb : r*kb+n]
+				if mask != nil {
+					mask(ir+r, row, invScale, k0)
+				}
+				mNew := max(m[r], kernel.Max(row))
+				if mNew == negInf { // every key of the block masked: contributes nothing
+					clear(row)
+					continue
+				}
+				if m[r] != mNew {
+					if m[r] != negInf {
+						corr := float32(math.Exp(float64(scale * (m[r] - mNew))))
+						l[r] *= corr
+						orow := ot[r*dPad : r*dPad+D]
+						kernel.Scale(orow, corr, orow)
+					}
+					m[r] = mNew
+				}
+				l[r] += kernel.ExpSum(row, row, scale, -scale*mNew)
+			}
+			// rows g..mr of sc hold the scores of zero query rows (0): finite, never copied out
+			for jr := 0; jr < dPad; jr += nr {
+				kernel.GemmRM(n, &sc[0], kb, &kv.V[jr*S+k0*nr], &ot[jr], dPad)
+			}
+		}
+		for r := 0; r < g; r++ {
+			dst := out.Data[(ir+r)*out.RS : (ir+r)*out.RS+D]
+			kernel.Scale(ot[r*dPad:r*dPad+D], 1/l[r], dst)
 		}
 	}
 }

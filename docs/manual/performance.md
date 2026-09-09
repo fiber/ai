@@ -233,18 +233,28 @@ Without gradients recording, `Attention` and `AttentionScaled` do not go
 through the GEMM driver. Per head, K and V are packed once into
 micro-kernel panels (heads that share storage, as grouped-query `Expand`
 views do, share one packing; the packed operands are held in groups of
-at most 64 MB). Each task, a head and a block of query rows, packs its
-query rows once and works through them in MR-row groups: the scores of
-the group against every key go into L1-sized scratch straight from the
-micro-kernel, the softmax runs on them, the probabilities are packed as
-the left operand and multiplied with the packed V, and the rows leave
-scaled by their 1/Σ, a D-wide pass instead of an S-wide one. The softmax
-is three passes: the mask joins the raw scores, one `Max`, and
-`kernel.ExpSum`, which applies the scale and the shift, exponentiates
-and sums in one pass (NEON and AVX2 assembly). Before, each task ran two
-general GEMMs of depth 64 with their own packing (K and V repacked for
-every row block, the probabilities packed a second time after the
-softmax) and a seven-pass softmax.
+at most 64 MB). Each task is a head and a block of query rows, worked
+through in MR-row groups, on one of two paths:
+
+- **AVX2 and AVX-512** have a micro-kernel variant that reads its left
+  operand row-major (`kernel.GemmRM`), so nothing is packed per row
+  group. The keys are walked in blocks of 128: the block's scores go
+  straight from the kernel into L1-sized scratch, the softmax is kept
+  running (the row's maximum so far, its sum so far, and the output
+  accumulator rescaled when the maximum moves), and the probabilities
+  are multiplied with the block's packed V columns as they are. This is
+  the structure of oneDNN's attention kernel.
+- **NEON, AMX and generic** score the whole key range at once, pack the
+  probabilities as the left operand (AMX needs the packed layout) and
+  multiply with the packed V.
+
+On both paths the softmax is three passes, the mask joining the raw
+scores, one `Max`, and `kernel.ExpSum`, which applies the scale and the
+shift, exponentiates and sums in one pass; the rows leave scaled by
+their 1/Σ, a D-wide pass instead of an S-wide one. Before T-041 each task
+ran two general GEMMs of depth 64 with their own packing (K and V
+repacked for every row block, the probabilities packed a second time
+after the softmax) and a seven-pass softmax.
 
 M2 Pro, GFLOPS over the two products, PyTorch 2.14 same day:
 

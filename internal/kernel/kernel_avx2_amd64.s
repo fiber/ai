@@ -1503,3 +1503,109 @@ dn_hsum:
 	VMOVSS X4, 8(DX)
 	VZEROUPPER
 	RET
+
+// ---------------------------------------------------------------------------
+// Row-major-A variant of the 6×16 kernel (T-046): A broadcasts from a
+// row-major tile with row stride lda floats (R11 = lda, R12 = 3·lda,
+// R13 = 5·lda bytes), B a packed 16-wide panel, C as in gemmAVX2.
+//
+// func gemmRMAVX2(k int, a *float32, lda int, b, c *float32, ldc int)
+// ---------------------------------------------------------------------------
+#define KSTEPRM6(AOFF, BOFF) \
+	PREFETCHT0 (BOFF+512)(BX) \
+	VMOVUPS BOFF(BX), Y12 \
+	VMOVUPS BOFF+32(BX), Y13 \
+	VBROADCASTSS AOFF(AX), Y14 \
+	VBROADCASTSS AOFF(AX)(R11*1), Y15 \
+	VFMADD231PS Y12, Y14, Y0 \
+	VFMADD231PS Y13, Y14, Y1 \
+	VFMADD231PS Y12, Y15, Y2 \
+	VFMADD231PS Y13, Y15, Y3 \
+	VBROADCASTSS AOFF(AX)(R11*2), Y14 \
+	VBROADCASTSS AOFF(AX)(R12*1), Y15 \
+	VFMADD231PS Y12, Y14, Y4 \
+	VFMADD231PS Y13, Y14, Y5 \
+	VFMADD231PS Y12, Y15, Y6 \
+	VFMADD231PS Y13, Y15, Y7 \
+	VBROADCASTSS AOFF(AX)(R11*4), Y14 \
+	VBROADCASTSS AOFF(AX)(R13*1), Y15 \
+	VFMADD231PS Y12, Y14, Y8 \
+	VFMADD231PS Y13, Y14, Y9 \
+	VFMADD231PS Y12, Y15, Y10 \
+	VFMADD231PS Y13, Y15, Y11
+
+TEXT ·gemmRMAVX2(SB), NOSPLIT, $0-48
+	MOVQ $1, R10
+	JMP  ·gemmRMAVX2Body(SB)
+
+TEXT ·gemmRMZeroAVX2(SB), NOSPLIT, $0-48
+	XORQ R10, R10
+	JMP  ·gemmRMAVX2Body(SB)
+
+TEXT ·gemmRMAVX2Body(SB), NOSPLIT, $0-48
+	MOVQ k+0(FP), CX
+	MOVQ a+8(FP), AX
+	MOVQ lda+16(FP), R11
+	MOVQ b+24(FP), BX
+	MOVQ c+32(FP), DX
+	MOVQ ldc+40(FP), R8
+	SHLQ $2, R8
+	SHLQ $2, R11
+	LEAQ (R11)(R11*2), R12
+	LEAQ (R11)(R11*4), R13
+	TESTQ CX, CX
+	JZ   donerm6
+	VXORPS Y0, Y0, Y0
+	VXORPS Y1, Y1, Y1
+	VXORPS Y2, Y2, Y2
+	VXORPS Y3, Y3, Y3
+	VXORPS Y4, Y4, Y4
+	VXORPS Y5, Y5, Y5
+	VXORPS Y6, Y6, Y6
+	VXORPS Y7, Y7, Y7
+	VXORPS Y8, Y8, Y8
+	VXORPS Y9, Y9, Y9
+	VXORPS Y10, Y10, Y10
+	VXORPS Y11, Y11, Y11
+	MOVQ CX, R9
+	SHRQ $2, R9
+	JZ   ktailrm6
+klooprm6:
+	KSTEPRM6(0, 0)
+	KSTEPRM6(4, 64)
+	KSTEPRM6(8, 128)
+	KSTEPRM6(12, 192)
+	ADDQ $16, AX
+	ADDQ $256, BX
+	DECQ R9
+	JNZ  klooprm6
+ktailrm6:
+	ANDQ $3, CX
+	JZ   storerm6
+klooprm6t:
+	KSTEPRM6(0, 0)
+	ADDQ $4, AX
+	ADDQ $64, BX
+	DECQ CX
+	JNZ  klooprm6t
+storerm6:
+	TESTQ R10, R10
+	JZ    storezrm6
+	CROW(Y0, Y1)
+	CROW(Y2, Y3)
+	CROW(Y4, Y5)
+	CROW(Y6, Y7)
+	CROW(Y8, Y9)
+	CROW(Y10, Y11)
+	VZEROUPPER
+	RET
+storezrm6:
+	CROWZ(Y0, Y1)
+	CROWZ(Y2, Y3)
+	CROWZ(Y4, Y5)
+	CROWZ(Y6, Y7)
+	CROWZ(Y8, Y9)
+	CROWZ(Y10, Y11)
+donerm6:
+	VZEROUPPER
+	RET

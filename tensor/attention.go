@@ -220,12 +220,12 @@ func attentionFused(q, k, v, mask *Tensor, scale float32) *Tensor {
 			p := packs[idx[kvKey{koff[b], voff[b]}]]
 			qb := blas.Mat{Data: qd[qoff[b]+i0*q.strides[nd-2]:], Rows: rows, Cols: D, RS: q.strides[nd-2], CS: q.strides[nd-1]}
 			ob := blas.Mat{Data: out.data[(b*T+i0)*D:], Rows: rows, Cols: D, RS: D, CS: 1}
-			var addMask func(r int, row []float32, invScale float32)
+			var addMask func(r int, row []float32, invScale float32, k0 int)
 			if md != nil {
-				addMask = func(r int, row []float32, invScale float32) {
+				addMask = func(r int, row []float32, invScale float32, k0 int) {
 					base := moff[b] + (i0+r)*mRowStride
 					if mColStride == 1 {
-						kernel.Axpy(invScale, md[base:base+S], row)
+						kernel.Axpy(invScale, md[base+k0:base+k0+len(row)], row)
 					} else { // one mask value for the whole row
 						kernel.AddScalar(row, md[base]*invScale, row)
 					}

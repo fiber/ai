@@ -38,6 +38,11 @@ type ScalarFunc func(x []float32, s float32, z []float32)
 // c points to row-major C with leading dimension ldc (in elements).
 type GemmFunc func(k int, a, b, c *float32, ldc int)
 
+// GemmRMFunc is a micro-kernel whose left operand is a row-major MR×k tile
+// with row stride lda floats instead of a packed panel; B and C as in
+// GemmFunc.
+type GemmRMFunc func(k int, a *float32, lda int, b, c *float32, ldc int)
+
 // Active kernels. They are assigned at init and may be re-pointed by tests.
 var (
 	Add       BinaryFunc // z = x + y
@@ -85,6 +90,10 @@ var (
 	// so a product's first K block needs neither a cleared output nor the
 	// read of it. nil when the back-end has no such variant; k must be > 0.
 	GemmZero GemmFunc
+	// GemmRM and GemmRMZero are Gemm and GemmZero reading A row-major (see
+	// GemmRMFunc): nothing to pack on the left. nil on back-ends without
+	// them (attention then packs as before).
+	GemmRM, GemmRMZero GemmRMFunc
 	// GemmBegin and GemmEnd bracket a run of Gemm calls on one goroutine.
 	// They are no-ops except for coprocessor back-ends (AMX) that must
 	// enable per-thread state; callers keep the goroutine on its thread
@@ -124,6 +133,7 @@ type impl struct {
 	exp, tanh, log, sqrt        func(x, z []float32)
 	expSum                      func(x, z []float32, a, b float32) float32
 	gemm, gemmZero              GemmFunc
+	gemmRM, gemmRMZero          GemmRMFunc
 	mr, nr                      int
 	gemmBegin, gemmEnd          func() // nil: nothing to do
 	hints                       Hints
@@ -152,6 +162,7 @@ func use(i *impl) {
 	ExpSum = i.expSum
 	Gemm, MR, NR = i.gemm, i.mr, i.nr
 	GemmZero = i.gemmZero
+	GemmRM, GemmRMZero = i.gemmRM, i.gemmRMZero
 	GemmBegin, GemmEnd = noop, noop
 	GemmHooks = i.gemmBegin != nil
 	if GemmHooks {
@@ -359,6 +370,39 @@ func verify(c *impl) error {
 			c.endGemm()
 			if !closeSlices(zgot, zwant) {
 				return fmt.Errorf("gemm-zero micro-kernel mismatch at k=%d", k)
+			}
+		}
+		if c.gemmRM != nil && k > 0 { // the same products from a row-major A tile
+			lda := k + 3
+			arm := randSlice(mr * lda) // padding columns hold garbage the kernel must not read
+			for p := 0; p < k; p++ {
+				for i := 0; i < mr; i++ {
+					arm[i*lda+p] = a[p*mr+i]
+				}
+			}
+			rgot := randSlice(mr * ldc)
+			rwant := append([]float32(nil), rgot...)
+			for i := 0; i < mr; i++ {
+				for j := 0; j < nr; j++ {
+					rwant[i*ldc+j] += prod[i*nr+j]
+				}
+			}
+			c.beginGemm()
+			c.gemmRM(k, &arm[0], lda, bp, &rgot[0], ldc)
+			c.endGemm()
+			if !closeSlices(rgot, rwant) {
+				return fmt.Errorf("row-major gemm micro-kernel mismatch at k=%d", k)
+			}
+			zgot := randSlice(mr * ldc)
+			zwant := append([]float32(nil), zgot...)
+			for i := 0; i < mr; i++ {
+				copy(zwant[i*ldc:i*ldc+nr], prod[i*nr:i*nr+nr])
+			}
+			c.beginGemm()
+			c.gemmRMZero(k, &arm[0], lda, bp, &zgot[0], ldc)
+			c.endGemm()
+			if !closeSlices(zgot, zwant) {
+				return fmt.Errorf("row-major gemm-zero micro-kernel mismatch at k=%d", k)
 			}
 		}
 	}
