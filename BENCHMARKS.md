@@ -434,6 +434,7 @@ machine cannot reach PyPI.
 | [64×1024]·[1024×1024], B packed once (T-037) | **551** (409 per call) | 699 |
 | [8×4096]·[4096×4096], B packed once | **89** (58 per call) | 58 |
 | [256×768]·[768×3072], B packed once | **1 240** (1 014 per call) | 980 |
+| EmbeddingGemma with the cache warm (all hits) | 43–47, no gain on this machine | 37 |
 | cluster.Cosine, 768-d pair | **103 ns** | NumPy 4 332 ns |
 | cluster.Similarities 1 000×10 000 | **15.5 ms** | NumPy/OpenBLAS 85 ms |
 
@@ -444,8 +445,15 @@ float32 for the embedding row (installed from offline wheels, the
 machine has no PyPI access).
 
 The embedding row is the one this round was about: the full encoder,
-tokenizer to unit vector, runs 1.32× faster than the Python stack on the
-production machine and 1.05× on the M2 Pro. The two rows where PyTorch
+tokenizer to unit vector, runs 1.2–1.3× faster than the Python stack on
+the production machine and 1.1× on the M2 Pro (with the packed-operand
+cache). The cache lifts the M2 by 14 % and the Xeon not at all: with the
+cache warm and every product a hit the Xeon still needs 740 ms per
+batch, of which the products account for about 360 ms at its GEMM rate;
+the rest is the element-wise work between them (146 RMSNorms, GELU,
+residual adds, RoPE, layout copies, some 2 GB of traffic per batch),
+which the Xeon's memory system serves at a tenth of the M2's bandwidth.
+Fusing those passes into the GEMM epilogues is the next lever there. The two rows where PyTorch
 is clearly ahead, attention (2.3×) and convolution (6×), are the next
 kernels to write (see TODO).
 
