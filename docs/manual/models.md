@@ -108,10 +108,10 @@ Apple M2 Pro, 32 sentences of about 64 tokens embedded as one batch:
 | machine | fiber/ai | PyTorch CPU (`sentence-transformers`) |
 |---|---:|---:|
 | Apple M2 Pro (AMX; PyTorch 8 threads) | 106 | 89 |
-| Xeon Gold 6130, one socket (AVX-512; PyTorch MKL, 16 threads) | 49 | 37 |
+| Xeon Gold 6130, one socket (AVX-512; PyTorch MKL, 16 threads) | 58 | 37 |
 
 Ahead of the Python stack on both machines in float32, by a fifth on
-the laptop and by a third on the server, which is the bar this project
+the laptop and by half on the server, which is the bar this project
 holds itself to. The pre-norms are folded into the weights and the gated
 feed-forward runs as one fused product (the fused-epilogue section of
 [performance.md](performance.md)). The weights take about

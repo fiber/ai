@@ -59,12 +59,12 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | softmax(dim=1), 4096² | **2.22 ms** | 6.27 ms | **11.0 ms** | 14.4 ms |
 | layernorm, 4096² | **1.85 ms** | 2.21 ms | **11.0 ms** | 14.1 ms |
 | transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
-| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 479 | **1 091** |
+| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 533 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
-| MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **384 K** | 361 K |
+| MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **415 K** | 361 K |
 | MLP forward + backward | 179 K | **221 K** | 72 K | **124 K** |
 | MLP train step (Adam) | **148 K** | 121 K | 67 K | 71 K (level) |
-| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **106** | 88 | **49** | 37 |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **106** | 88 | **58** | 37 |
 
 **Where fiber/ai is ahead:** everything memory-bound that we wrote
 kernels for (element-wise, exp, tanh on Apple, reductions, softmax,
@@ -93,7 +93,9 @@ GEMM on the Xeon.
   **convolution on x86** (6×): each fused attention task was a K=64
   product through the general GEMM driver with its own packing; T-041
   replaced that with a micro-kernel driver that packs K and V once per
-  head (M2: 947 → 1 110 GFLOPS), the Xeon re-measurement is pending.
+  head (M2: 947 → 1 110 GFLOPS; Xeon pinned 479 → 533, both sockets
+  437 → 747), still 2.1× behind MKL/oneDNN on the pinned socket; the
+  next step there is a profile, not a guess.
   The im2col convolution is memory-bound on the Xeon; oneDNN has a
   dedicated primitive, the implicit-GEMM candidate is on the list.
 - **tanh on the Xeon** (9× behind): MKL's vector math library against
@@ -431,13 +433,14 @@ machine cannot reach PyPI.
 | SGEMM 1024², all cores, tensor level | 1 145 | – |
 | SGEMM 2048², all cores, tensor level | 1 156 | – |
 | [256×768]·[768×3072] | 1 016 | – |
-| MLP forward, batch 256 (samples/s) | 288 K → **384 K** | 361 K |
+| MLP forward, batch 256 (samples/s) | 288 K → 384 K → **415 K** (T-040) | 361 K |
 | MLP forward + backward (samples/s) | 65 K → 72 K | 124 K |
 | MLP train step (samples/s) | 64 K → 67 K | 71 K |
-| attention [8×8×512×64] (GFLOPS) | 479 | **1 091** |
-| same with causal mask | 470 (was 39) | **1 072** |
+| attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) | **1 141** |
+| same with causal mask | 470 (was 39) → 515 | **1 129** |
+| attention [1×8×2048×64], long sequence | 539 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **438** |
-| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **49** | 37 |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **49 → 58** (T-040, pre-norms folded, gated FFN fused) | 37 |
 | [64×1024]·[1024×1024], B packed once (T-037) | **551** (409 per call) | 699 |
 | [8×4096]·[4096×4096], B packed once | **89** (58 per call) | 58 |
 | [256×768]·[768×3072], B packed once | **1 240** (1 014 per call) | 980 |
@@ -482,8 +485,13 @@ its own packing, where the blocked GEMM is at its weakest. oneDNN's
 fused attention primitive gets twice that; an attention micro-kernel
 that packs K and V once per head and skips the general GEMM was the
 candidate and is now in (T-041): 947 → 1 110 GFLOPS on the M2, where
-what remains is the AMX tile store at depth 64 and the exponential; the
-Xeon figure follows with the next pinned run.
+what remains is the AMX tile store at depth 64 and the exponential. On
+the Xeon the same change gives 479 → 533 pinned (PyTorch 1 141 the same
+day) and 437 → 747 on both sockets: the new path carries little memory
+traffic, so it scales across the sockets where the old one did not, but
+per core it reaches 33 GFLOPS against 72 for the plain GEMM. The AVX2
+exponential (about 1.2 ns per element on this machine, three times the
+M2's) is the first suspect; a profile of the pinned run decides.
 
 The two-socket run (all 64 hardware threads, no pinning) is in
 [results/skylake-sp-6130-2socket/](benchmarks/results/skylake-sp-6130-2socket/)

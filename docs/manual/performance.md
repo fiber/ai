@@ -187,8 +187,8 @@ M2 Pro, same day, packed-operand cache warm:
 
 The MLP gains little: three products of 256 rows are dominated by
 per-call overhead, not by the passes between them. The transformer gains
-13 % on the M2, whose memory bandwidth was never the bottleneck; the
-server, where it is, is measured in BENCHMARKS.md.
+13 % on the M2, whose memory bandwidth was never the bottleneck, and
+18 % on the Xeon (49 → 58 sentences/s, PyTorch 37), where it is.
 
 ## Attention from the micro-kernel
 
@@ -221,9 +221,12 @@ What remains on the M2 is arithmetic, not overhead: half the task time
 is the AMX products (the score product has depth 64, so every 32×32
 tile pays its store after 64 steps), a third the exponential (16.8 M of
 them per call at 0.4 ns each on one core), the rest the probability
-packing and the row scaling. The removed packing and dispatch weighed
-more on the Xeon, where attention was 2.3× behind PyTorch; that row is
-in BENCHMARKS.md.
+packing and the row scaling. On the Xeon the same change gives 479 →
+533 GFLOPS on the pinned socket and 437 → 747 across both (the new path
+carries little memory traffic), against 1 141 for PyTorch; per core it
+reaches 33 GFLOPS where the plain GEMM reaches 72, and the AVX2
+exponential at about 1.2 ns per element is the first suspect. See
+BENCHMARKS.md.
 
 ## Denormals and masks
 
