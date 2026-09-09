@@ -2,6 +2,7 @@ package blas
 
 import (
 	"math"
+	"os"
 
 	"github.com/fiber/ai/internal/kernel"
 )
@@ -67,7 +68,7 @@ func AttentionBlock(out, q Mat, kv PackedKV, scale float32, mask func(r int, row
 	if rows == 0 {
 		return
 	}
-	if kernel.GemmRM != nil && scale > 0 {
+	if kernel.GemmRM != nil && scale > 0 && !attentionPacked {
 		attentionBlockRM(out, q, kv, scale, mask)
 		return
 	}
@@ -134,6 +135,11 @@ func AttentionBlock(out, q Mat, kv PackedKV, scale float32, mask func(r int, row
 		}
 	}
 }
+
+// attentionPacked forces the packed path on back-ends that have the
+// row-major one (FIBERAI_ATTENTION=packed), for measuring the two against
+// each other on the same machine.
+var attentionPacked = os.Getenv("FIBERAI_ATTENTION") == "packed"
 
 // attentionKeyBlock is the number of keys one online-softmax step covers
 // (rounded up to NR): MR × 128 scores are 7 KB on AVX-512, L1-resident.
