@@ -306,6 +306,45 @@ before the outer products of step k (four X/Y register slots; 3× faster
 than the naive loop), and `set`/`clr` per tile costs 0.7 µs, hence once
 per task with the goroutine locked to its thread.
 
+## Apple M4 MacBook Air (9 September 2026)
+
+Four performance and six efficiency cores, fanless; the AMX back-end is
+on by default here as on the M2. PyTorch 2.14 on Accelerate, which uses
+the M4's SME unit, four threads; same day, commit 0ceb7eb; raw runs in
+`results/m4air-2026-09-09/`. Bold marks the faster side.
+
+| Workload | fiber/ai | NumPy | PyTorch |
+|---|---:|---:|---:|
+| SGEMM 2048², all cores (GFLOPS) | **1 716** | 1 648 | 1 631 |
+| SGEMM 1024² | **1 685** | 1 628 | 1 543 |
+| SGEMM 512² | **1 621** | 1 480 | 1 479 |
+| SGEMM 128² | 559 | 941 | **954** |
+| [256×768]·[768×3072], B packed once | **1 576** (1 350 per call) | 1 542 | 1 507 |
+| [1×4096]·[4096×4096] | 24.7 | **35.1** | 35.1 |
+| x + y, 1M (released) | **51 µs** | 109 µs | 59 µs |
+| x + y, 16M (released) | 2.42 ms | 2.20 ms | **2.14 ms** |
+| exp, 16M | **1.86 ms** | 25.5 ms | 3.90 ms |
+| tanh, 1M (released) | **94 µs** | 787 µs | 721 µs |
+| sum(), 4096² | **595 µs** | 2.25 ms | 906 µs |
+| softmax(dim=1), 4096² | **2.73 ms** | – | 5.71 ms |
+| layernorm, 4096² | 2.64 ms | – | **2.39 ms** |
+| transpose + copy, 4096² | **11.5 ms** | 50.4 ms | 14.4 ms |
+| attention [8×8×512×64] (GFLOPS) | **920** | – | 729 |
+| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 357 | – | 332 (level) |
+| MLP forward, batch 256 (samples/s) | 666 K | – | **815 K** |
+| MLP forward + backward | 202 K | – | **348 K** |
+| MLP train step (Adam) | 163 K | – | **204 K** |
+| EmbeddingGemma (sentences/s) | 83 (level) | – | 80 |
+
+The M4 Air is where PyTorch's Accelerate stack is strongest, and the
+picture differs from the M2 Pro in one place: the MLP rows are behind,
+all three phases, where the M2 Pro has them ahead. The Air has four
+performance and six efficiency cores against the M2 Pro's six and four,
+PyTorch uses four threads, and our element-wise and backward rounds fan
+out over all ten. Whether the efficiency cores drag every round is one
+run away (`FIBERAI_WORKERS=4`); if they do, the default on Apple Silicon
+becomes the performance cores.
+
 ## Cloud VM, 6 vCPU AVX2 (9 September 2026)
 
 The machine most like production: a KVM guest with six AVX2 vCPUs, no
