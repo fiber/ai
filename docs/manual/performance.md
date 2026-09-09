@@ -8,6 +8,15 @@ implementation: `neon` on arm64, `avx512` or `avx2` on amd64, `generic`
 verified against the Go version on random inputs; a failing kernel is
 disabled and reported by `tensor.BackendWarnings()`.
 
+The `avx512` back-end is the `avx2` one with the wider GEMM micro-kernel
+and its own exp, exp-sum and tanh (T-043): sixteen lanes with every
+constant broadcast into a register once, where the AVX2 routines take
+twelve memory operands per eight elements because sixteen ymm registers
+cannot hold the constants; on a Xeon Gold 6130 that made the AVX2 exp
+and tanh three times slower per element than the M2's NEON versions.
+The memory-bound element-wise kernels (add, scale, sums) stay AVX2: the
+bandwidth is the limit there, not the lanes.
+
 | Variable | Effect |
 |---|---|
 | `FIBERAI_KERNEL=generic\|avx2\|avx512\|neon\|amx` | select an implementation among those the CPU supports (benchmarking, debugging) |

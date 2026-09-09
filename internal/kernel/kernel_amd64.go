@@ -20,11 +20,14 @@ func dotAVX2(x, y *float32, n int) float32
 func dotNormsAVX2(x, y *float32, n int, out *[3]float32)
 func sumAVX2(x *float32, n int) float32
 func maxAVX2(x *float32, n int) float32
-func expAVX2(x, z *float32, n int)                          // n % 8 == 0
-func expSumAVX2(x, z *float32, n int, a, b float32) float32 // n % 8 == 0
-func tanhAVX2(x, z *float32, n int)                         // n % 8 == 0
-func logAVX2(x, z *float32, n int)                          // n % 8 == 0
-func sqrtAVX2(x, z *float32, n int)                         // n % 8 == 0
+func expAVX2(x, z *float32, n int)                            // n % 8 == 0
+func expSumAVX2(x, z *float32, n int, a, b float32) float32   // n % 8 == 0
+func expAVX512(x, z *float32, n int)                          // n % 16 == 0
+func expSumAVX512(x, z *float32, n int, a, b float32) float32 // n % 16 == 0
+func tanhAVX512(x, z *float32, n int)                         // n % 16 == 0
+func tanhAVX2(x, z *float32, n int)                           // n % 8 == 0
+func logAVX2(x, z *float32, n int)                            // n % 8 == 0
+func sqrtAVX2(x, z *float32, n int)                           // n % 8 == 0
 func gemmAVX2(k int, a, b, c *float32, ldc int)
 func gemmZeroAVX2(k int, a, b, c *float32, ldc int)
 func gemmAVX2Body(k int, a, b, c *float32, ldc int)
@@ -63,14 +66,18 @@ var avx2 = impl{
 	nr:        16,
 }
 
-// The element-wise primitives are memory-bound and AVX2 already saturates
-// the available bandwidth, so the AVX-512 implementation only swaps in the
-// wider GEMM micro-kernel where the extra registers and lanes pay off.
+// The memory-bound element-wise primitives stay AVX2 (the bandwidth is
+// the limit, not the lanes); the AVX-512 implementation swaps in the wider
+// GEMM micro-kernel and its own exp, exp-sum and tanh, whose AVX2 versions
+// are bound by constant loads (T-043).
 var avx512 = func() impl {
 	i := avx2
 	i.name = "avx512"
 	i.gemm, i.gemmZero = gemmAVX512x14, gemmZeroAVX512x14
 	i.mr, i.nr = 14, 32
+	i.exp = wrapExp(expAVX512, 16)
+	i.expSum = wrapExpSum(expSumAVX512, 16)
+	i.tanh = wrapUnary(tanhAVX512, 16, genericTanh)
 	return i
 }()
 

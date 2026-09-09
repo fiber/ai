@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-09 T-043 — AVX-512 exp, exp-sum and tanh: 16 lanes with every constant in a register (spec/done/T-043-avx-512-exp-exp-sum-and-tanh-16-lanes-with-every.md)
 - 2026-09-09 T-042 — amd64 register-transpose packing: AVX2 8x8 transposes with masked tails for A panels and transposed B panels (spec/done/T-042-amd64-register-transpose-packing-avx2-8x8-transp.md)
 - 2026-09-09 T-041 — Attention from the micro-kernel: K and V packed once per head, probabilities packed once, fused exp-sum softmax (spec/done/T-041-attention-from-the-micro-kernel-k-and-v-packed-o.md)
 - 2026-09-09 T-040 — "GEMM epilogue fusion for inference: bias, activation, gated product, residual and row scale applied on the hot output block" (spec/done/T-040-gemm-epilogue-fusion-for-inference-bias-activati.md)
