@@ -15,7 +15,9 @@ twelve memory operands per eight elements because sixteen ymm registers
 cannot hold the constants; on a Xeon Gold 6130 that made the AVX2 exp
 and tanh three times slower per element than the M2's NEON versions.
 The memory-bound element-wise kernels (add, scale, sums) stay AVX2: the
-bandwidth is the limit there, not the lanes.
+bandwidth is the limit there, not the lanes. Measured on that Xeon, one
+core: exp 0.51 → 0.27 ns per element, tanh 0.57 → 0.32; attention
+618 → 655 GFLOPS.
 
 | Variable | Effect |
 |---|---|

@@ -76,4 +76,15 @@ broadcast once into a zmm register, two vectors per iteration.
   merge-masked moves on |x| < tiny and |x| ≥ 9. |x| and the sign bit
   come from broadcast memory operands (`.BCST`), the only loads in the
   tanh loop besides x.
-- Xeon measurement pending (targets in Acceptance).
+- Xeon results (2026-09-09, verification passed, `backend avx512`):
+  one core exp 4096: 0.51 → 0.27 ns/element, tanh 0.32 (AVX2 0.57);
+  1M: exp 0.36, tanh 0.38 (AVX2 0.52 / 0.57). Targets ≤ 0.5 met. The
+  baseline of "1.2 ns" in the Goal was an older, unpinned reading; the
+  same-day AVX2 figure is 0.51–0.57. Attention 618 → 655 (target 660,
+  1 % short), causal 595 → 662, long sequence 698 → 748; EmbeddingGemma
+  58 → 59 (target 60). The tanh 1M bench row stayed at 484 µs and so
+  did every other 1M row (relu, x·2.5: 481–485 µs; x + y released
+  23 µs): those rows measure the forced GC that recycles unreleased
+  mapped results, not the kernels. Follow-up: released exp/tanh rows in
+  the bench for the kernel comparison against MKL, and the cost of the
+  forced collection on Linux.

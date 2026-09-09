@@ -59,12 +59,12 @@ for the rest. Bold marks the faster side; "level" is within 5 %.
 | softmax(dim=1), 4096² | **2.22 ms** | 6.27 ms | **11.0 ms** | 14.4 ms |
 | layernorm, 4096² | **1.85 ms** | 2.21 ms | **11.0 ms** | 14.1 ms |
 | transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
-| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 618 | **1 141** |
+| attention [8×8×512×64] (GFLOPS) | **1 110** | 553 | 655 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
 | MLP forward, batch 256 (samples/s) | **875 K** | 526 K | **473 K** | 361 K |
 | MLP forward + backward | 179 K | **221 K** | 74 K | **124 K** |
 | MLP train step (Adam) | **148 K** | 121 K | 71 K (level) | 71 K |
-| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **106** | 88 | **58** | 37 |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **106** | 88 | **59** | 37 |
 
 **Where fiber/ai is ahead:** everything memory-bound that we wrote
 kernels for (element-wise, exp, tanh on Apple, reductions, softmax,
@@ -101,10 +101,14 @@ GEMM on the Xeon.
   candidate) and the micro-kernel's own 60 % of peak.
   The im2col convolution is memory-bound on the Xeon; oneDNN has a
   dedicated primitive, the implicit-GEMM candidate is on the list.
-- **tanh on the Xeon** (9× behind): MKL's vector math library against
-  our AVX2 rational approximation; the Apple NEON version of the same
-  kernel is 6× ahead of PyTorch, so this is the x86 kernel, not the
-  algorithm.
+- **tanh on the Xeon** (9× behind in the 1M row): not the kernel. With
+  the AVX-512 exp and tanh (T-043) one Xeon core does 0.27 and 0.32 ns
+  per element (AVX2: 0.51 and 0.57), yet every 1M element-wise row
+  costs the same 480 µs, `relu` and `x * 2.5` included, while the
+  released variant of `x + y` takes 23 µs. The row measures the
+  recycling of unreleased 4 MB results, a forced GC every 64 of them,
+  which the Xeon pays far more dearly than the M2 (see the allocator
+  note below the Xeon table).
 
 The M2 inference rows and the "B packed once" entries were taken after
 T-037 (packed-operand cache); the rest of the table is from the run of
@@ -439,9 +443,9 @@ machine cannot reach PyPI.
 | MLP forward, batch 256 (samples/s) | 288 K → 384 K → 415 K (T-040) → **473 K** (T-042) | 361 K |
 | MLP forward + backward (samples/s) | 65 K → 72 K | 124 K |
 | MLP train step (samples/s) | 64 K → 67 K | 71 K |
-| attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) → 618 (T-042) | **1 141** |
-| same with causal mask | 470 (was 39) → 515 → 595 | **1 129** |
-| attention [1×8×2048×64], long sequence | 539 → 698 | **1 141** |
+| attention [8×8×512×64] (GFLOPS) | 479 → 533 (T-041) → 618 (T-042) → 655 (T-043) | **1 141** |
+| same with causal mask | 470 (was 39) → 515 → 595 → 662 | **1 129** |
+| attention [1×8×2048×64], long sequence | 539 → 698 → 748 | **1 141** |
 | conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | **438** |
 | EmbeddingGemma, 32 × 65 tokens (sentences/s) | **49 → 58** (T-040, pre-norms folded, gated FFN fused) | 37 |
 | [64×1024]·[1024×1024], B packed once (T-037) | 551 → **699** (541 per call, T-042) | 699 (level) |
@@ -449,6 +453,15 @@ machine cannot reach PyPI.
 | [256×768]·[768×3072], B packed once | 1 240 → **1 331** (1 111 per call, T-042) | 980 |
 | EmbeddingGemma with the cache warm (all hits) | 43–47, no gain on this machine | 37 |
 | cluster.Cosine, 768-d pair | **103 ns** | NumPy 4 332 ns |
+| exp / tanh, one core, ns per element (kernel benchmark) | AVX2 0.51 / 0.57 → **AVX-512 0.27 / 0.32** (T-043) | – |
+
+The element-wise 1M rows on this machine (about 480 µs whatever the
+operation, `relu` and `x * 2.5` included; `x + y` released 23 µs) do not
+measure kernels: an unreleased 4 MB result is reclaimed by a forced GC
+once 256 MiB are outstanding, one GC per 64 results, and its cost on 32
+hardware threads is what the row shows. `Release()` removes it; the
+released rows are the kernel comparison. Whether the forced collection
+can be made cheaper or rarer on Linux is an open item (TODO).
 | cluster.Similarities 1 000×10 000 | **15.5 ms** | NumPy/OpenBLAS 85 ms |
 
 PyTorch 2.14.0+cpu with MKL and oneDNN, pinned to the same socket with
