@@ -337,7 +337,7 @@ func getMapped(n int, zero bool) *storage {
 	buf := popMappedLocked(class)
 	if buf == nil && mapPool.live >= mapPool.gcAt {
 		mapPool.mu.Unlock()
-		collectMapped()
+		collectMapped(class)
 		mapPool.mu.Lock()
 		buf = popMappedLocked(class)
 		mapPool.gcAt = max(2*mapPool.live, mapBudget)
@@ -383,15 +383,31 @@ func popMappedLocked(class int) []float32 {
 
 // collectMapped runs a GC and waits until its cleanups have been
 // dispatched, so that mappings of unreachable results are back on the
-// free list when it returns. A sentinel object's cleanup marks the point.
-func collectMapped() {
+// free list when it returns. A sentinel object's cleanup marks the point;
+// the wait ends early once the free list of the requested class has an
+// entry, and after 2 ms regardless (the caller then maps fresh). It used
+// to block on a 20 ms timer: on a Xeon whose cleanups arrived late that
+// timer, once per 64 unreleased 4 MB results, made every element-wise
+// operation on such a result cost 480 µs whatever it computed.
+func collectMapped(class int) {
 	done := make(chan struct{})
 	armSentinel(done)
 	runtime.GC()
-	select {
-	case <-done:
-		runtime.Gosched() // let concurrently running cleanups finish
-	case <-time.After(20 * time.Millisecond):
+	deadline := time.Now().Add(2 * time.Millisecond)
+	for {
+		select {
+		case <-done:
+			runtime.Gosched() // let concurrently running cleanups finish
+			return
+		default:
+		}
+		mapPool.mu.Lock()
+		ready := len(mapPool.free[class]) > 0
+		mapPool.mu.Unlock()
+		if ready || time.Now().After(deadline) {
+			return
+		}
+		runtime.Gosched()
 	}
 }
 

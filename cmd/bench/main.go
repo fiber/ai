@@ -176,9 +176,12 @@ func benchElementwise() {
 			{"x + row (broadcast)", 8 * float64(n), func() { x2.Add(row) }},
 			{"x * 2.5", 8 * float64(n), func() { x.MulScalar(2.5) }},
 			{"exp(x)", 8 * float64(n), func() { x.Exp() }},
+			{"exp(x), result released", 8 * float64(n), func() { x.Exp().Release() }},
 			{"tanh(x)", 8 * float64(n), func() { x.Tanh() }},
+			{"tanh(x), result released", 8 * float64(n), func() { x.Tanh().Release() }},
 			{"sigmoid(x)", 8 * float64(n), func() { x.Sigmoid() }},
 			{"gelu(x)", 8 * float64(n), func() { x.GELU() }},
+			{"gelu(x), result released", 8 * float64(n), func() { x.GELU().Release() }},
 			{"relu(x)", 8 * float64(n), func() { x.ReLU() }},
 		}
 		for _, c := range cases {

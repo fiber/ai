@@ -307,8 +307,14 @@ of that size — still mapped, already faulted in, cache-warm. Because
 off-heap memory does not count toward Go's heap goal, the library runs a
 collection itself when the free list is empty and the outstanding mapped
 memory has doubled since the last one (at least 256 MiB), and waits for
-its cleanups before mapping more. The free list keeps at most 512 MiB
-(least recently used size classes are unmapped first).
+its cleanups before mapping more: until the first buffer of the wanted
+size is back or 2 ms have passed, whichever comes first (it used to wait
+a fixed 20 ms when the cleanups were late, which on a Xeon made every
+operation producing an unreleased 4 MB result cost 480 µs, `relu` as
+much as `tanh`). The free list keeps at most 512 MiB (least recently
+used size classes are unmapped first). A chain of unreleased results
+still pays one collection per 256 MiB of them; `Release()` avoids the
+collection altogether.
 
 `tensor.SetMappedLimit(bytes)` changes that retention limit; a negative
 value disables off-heap results altogether (environment:

@@ -330,7 +330,8 @@ func BenchmarkAllocateTouchWarm(b *testing.B) {
 				t := newTensorUninit(Shape{n})
 				parallelClear(t.data)
 				if i%32 == 31 {
-					collectMapped()
+					class, _ := sizeClass(n)
+					collectMapped(class)
 				}
 			}
 		})
