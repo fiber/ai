@@ -67,13 +67,16 @@ right without numactl incantations.
   (target 1 280 missed by 1 %; physcpubind 1 309), 1 024² 1 237 (met),
   attention 693 (target 700 missed by 1 %), training 67 K (71 before,
   target 78 K missed: the step is small parallel rounds, FMA contention
-  was never its cost); two-socket default 2048² 795 and training 39 K
-  with pinning, 803 and 39 K without (same day): neutral. The 887 / 46 K
-  of the day before were a different day on a shared machine; the
-  two-socket figures vary about 10 % between days. Consequence: pin by
-  default only within one package, where it is measured to help;
-  FIBERAI_PIN=1 forces it across packages. NUMA-local memory placement
-  remains the open item for the two-socket case.
-- Control run after the change (bb71d1e): one socket 1024² 1 234, 2048²
-  1 268; two sockets 803 and 39 K. Closed with 2048² and attention 1 %
+  was never its cost); two-socket default with pinning 2048² 795–803
+  and training 39.0 K. A run of the previous bundle was first mistaken
+  for the unpinned comparison (and the pinning briefly called neutral);
+  the real one, same day and code with pinning off across packages
+  (bb71d1e): 921 and 43.8 K. Pinning across two sockets is 11–14 %
+  worse. Consequence: pin by default only within one package, where it
+  is measured to help; FIBERAI_PIN=1 forces it across packages.
+  NUMA-local memory placement remains the open item for the two-socket
+  case. (The 887 / 46 K of the day before: another day on a shared
+  machine; two-socket figures vary about 10 % between days.)
+- Control run after the change (bb71d1e): one socket 1024² 1 240, 2048²
+  1 269; two sockets 921 and 43.8 K. Closed with 2048² and attention 1 %
   under their targets and training unchanged.
