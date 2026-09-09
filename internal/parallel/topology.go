@@ -25,6 +25,20 @@ func physicalCores(root string, cpus []int) int {
 	return len(seen)
 }
 
+// packages counts the distinct physical packages among cpus; 0 when the
+// sysfs topology cannot be read.
+func packages(root string, cpus []int) int {
+	seen := map[string]bool{}
+	for _, c := range cpus {
+		pkg, err := os.ReadFile(fmt.Sprintf("%s/cpu%d/topology/physical_package_id", root, c))
+		if err != nil {
+			return 0
+		}
+		seen[strings.TrimSpace(string(pkg))] = true
+	}
+	return len(seen)
+}
+
 // coreCPUs picks one CPU per physical core among cpus (the lowest CPU
 // number of each (package, core)), ordered by package then core id, so
 // that fewer workers than cores fill one package first. nil when the

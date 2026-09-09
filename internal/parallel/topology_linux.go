@@ -52,16 +52,24 @@ var (
 )
 
 // pinCPUs returns the CPUs pool helpers pin to: one per physical core of
-// the affinity mask, in package order (see coreCPUs). Empty when
-// FIBERAI_PIN=0, when the topology is unreadable, or when the mask has a
-// single core. Computed once.
+// the affinity mask, in package order (see coreCPUs). Pinning is on by
+// default only when the mask lies within one package: across two sockets
+// the pinned placement measured 10 % worse than the scheduler's (2048²
+// SGEMM 887 → 795 GFLOPS, training 46 K → 39 K samples/s) because memory
+// placement, not core choice, decides there; FIBERAI_PIN=1 forces it,
+// FIBERAI_PIN=0 disables it. Empty when the topology is unreadable or
+// the mask has a single core. Computed once.
 func pinCPUs() []int {
 	pinOnce.Do(func() {
-		if os.Getenv("FIBERAI_PIN") == "0" {
+		pin := os.Getenv("FIBERAI_PIN")
+		if pin == "0" {
 			return
 		}
 		cpus := affinityCPUs()
 		if cpus == nil {
+			return
+		}
+		if pin != "1" && packages(sysfsRoot, cpus) != 1 {
 			return
 		}
 		if l := coreCPUs(sysfsRoot, cpus); len(l) > 1 {

@@ -61,3 +61,13 @@ right without numactl incantations.
   a sentence on what pinning is worth.
 
 ## Notes
+
+- First Xeon run (343738d, pinning always on): one socket 2048² 1 265
+  (target 1 280 missed by 1 %; physcpubind 1 309), 1 024² 1 237 (met),
+  attention 693 (target 700 missed by 1 %), training 67 K (71 before,
+  target 78 K missed: the step is small parallel rounds, FMA contention
+  was never its cost); unpinned two-socket default 2048² 887 → 795 and
+  training 46 K → 39 K, worse. Consequence: pin by default only when the
+  affinity mask lies within one package; FIBERAI_PIN=1 forces it across
+  packages. NUMA-local memory placement remains the open item for the
+  two-socket case.

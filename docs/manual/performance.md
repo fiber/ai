@@ -26,7 +26,7 @@ core: exp 0.51 → 0.27 ns per element, tanh 0.57 → 0.32; attention
 | `FIBERAI_KERNEL_FORCE=1` | skip CPU feature detection for the selected implementation — only for emulators such as Rosetta 2 that hide features from CPUID |
 | `GOMAXPROCS` | default goroutine limit; on Linux the default worker count is the number of physical cores in the process's CPU affinity mask (hyperthreads counted once), elsewhere GOMAXPROCS |
 | `FIBERAI_WORKERS=n` | override the default worker count |
-| `FIBERAI_PIN=0` | Linux: do not pin the pool's worker threads to distinct physical cores (they are by default; see below) |
+| `FIBERAI_PIN=0` / `=1` | Linux: worker threads pinned to distinct physical cores; on by default when the affinity mask lies within one package, `1` forces it across packages, `0` switches it off (see below) |
 | `FIBERAI_BLAS_THRESHOLD=n` | multiply-adds below which a matrix product runs on one core (default 1 048 576) |
 
 `tensor.SetThreads(n)` limits the goroutines used by tensor operations at
@@ -38,8 +38,11 @@ calling goroutine stays free). The Go scheduler does not know hyperthread
 siblings, and two workers on one core share its FMA ports while another
 core idles: on a Xeon Gold 6130 socket 2048² SGEMM ran at 1 102–1 177
 GFLOPS with the scheduler's placement and 1 309 with one thread per
-core. `FIBERAI_PIN=0` switches it off, for example when other processes
-need those cores.
+core. Across two packages the pinned placement measured 10 % worse than
+the scheduler's (memory placement decides there, not core choice), so
+the default pins only within one package; `FIBERAI_PIN=1` forces it,
+`FIBERAI_PIN=0` switches it off, for example when other processes need
+those cores.
 
 ### AMX on Apple Silicon
 

@@ -65,4 +65,10 @@ func TestCoreCPUsFromSysfs(t *testing.T) {
 	if got := coreCPUs(root, []int{0, 99}); got != nil {
 		t.Fatalf("missing cpu should fail, got %v", got)
 	}
+	if n := packages(root, all); n != 2 {
+		t.Fatalf("packages over all cpus: %d, want 2", n)
+	}
+	if n := packages(root, []int{8, 9, 12}); n != 1 {
+		t.Fatalf("packages within package 1: %d, want 1", n)
+	}
 }
