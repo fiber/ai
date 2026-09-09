@@ -80,6 +80,8 @@ Same KVM guest and day as go.md. torch BLAS: MKL, oneDNN on.
 | forward + backward | 5.66 ms | 45.2K |
 | forward + backward + Adam step | 8.28 ms | 30.9K |
 
-### EmbeddingGemma
+### EmbeddingGemma (sentence-transformers 6.0.1, fp32, 32 sentences ≈ 64 tokens, one batch)
 
-skipped: sentence-transformers is not installed
+| shape | time / batch | sentences/s |
+|---|---:|---:|
+| 32 × 65 tokens, dim 768 | 2.40 s | 13 |

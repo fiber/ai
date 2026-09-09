@@ -336,7 +336,7 @@ MKL with six threads, same day; raw runs in
 | MLP forward, batch 256 (samples/s) | **139 K** | – | 78 K |
 | MLP forward + backward | 28 K | – | **45 K** |
 | MLP train step (Adam) | 23 K | – | **31 K** |
-| EmbeddingGemma (sentences/s) | 17 | – | not installed |
+| EmbeddingGemma (sentences/s) | **17** | – | 13 |
 
 Where the VM differs from the Xeon: attention is ahead here (PyTorch's
 AVX2 attention kernel runs at 128 GFLOPS on six vCPUs, ours at 150), the
