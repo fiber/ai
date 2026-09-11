@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-11 T-051 — Live airspace poller: one aggregator, identified client, gentler cadence (spec/done/T-051-live-airspace-poller-one-aggregator-identified-c.md)
 - 2026-09-10 T-050 — Small-GEMM path: one call, no rounds, no packing where the kernel reads row-major, chosen by size (spec/done/T-050-small-gemm-path-one-call-no-rounds-no-packing-wh.md)
 - 2026-09-09 T-049 — Tutorial chapters 9 to 11: embeddings, the autoencoder, attention (spec/done/T-049-tutorial-chapters-9-to-11-embeddings-the-autoenc.md)
 - 2026-09-09 T-048 — Tutorial chapter 8: convolutions over time, a 1-D convolutional forecaster on the airspace counters (spec/done/T-048-tutorial-chapter-8-convolutions-over-time-a-1-d.md)

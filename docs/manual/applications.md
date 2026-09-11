@@ -139,8 +139,29 @@ movements per minute the counters, METAR reports the event stream.
 ```
 go run ./examples/airspace              # train on four ordinary days, replay Storm Éowyn
 go run ./examples/airspace -headless    # the same, alarms and events printed, no browser
-go run ./examples/airspace -live        # the live feeds, one poll per minute
+go run ./examples/airspace -live -contact you@example.com
 ```
+
+Live mode needs `-contact`, and it is not decoration: the address goes
+into the `User-Agent` of every request, so the operator of a free service
+can see what the traffic is and reach whoever is causing it. Running it
+anonymously is what got an earlier version of this example blocked. The
+other flags of live mode are `-interval` (how often the feeds are polled,
+two minutes by default) and `-source`, the endpoint to read. If you have
+a receiver of your own, point `-source` at its `aircraft.json` and leave
+the shared services out of it entirely:
+
+```
+go run ./examples/airspace -live -contact you@example.com \
+    -source http://your-pi/data/aircraft.json
+```
+
+The counters stay on the one-minute grid the models were trained on
+whatever the poll interval is: for the minutes between two polls the last
+known picture is carried forward, so positions can be a poll interval
+stale but the series has no holes. A source that answers 429 or 403 is
+left alone for ten minutes, then twenty, up to an hour, and those minutes
+are carried forward too.
 
 **What it watches.** For every airport and minute: aircraft in a 40 NM
 zone below 10 000 ft, landings, take-offs, aircraft in holding patterns,
@@ -213,5 +234,6 @@ there is too thin to count movements; Edinburgh's is dense.)
 archives (ODbL / CC0) and reduced to per-minute counters plus a
 down-sampled track set for the storm day; METARs are U.S. National
 Weather Service data via the Iowa Environmental Mesonet. Live mode reads
-api.adsb.lol and aviationweather.gov. `testdata/ATTRIBUTION.md` has the
+api.adsb.lol and aviationweather.gov, one request per region every two
+minutes, identified by the address you pass in `-contact`. `testdata/ATTRIBUTION.md` has the
 details; `-prep` rebuilds the files from the raw archives.

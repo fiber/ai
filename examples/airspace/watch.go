@@ -779,7 +779,7 @@ func run(live, headless bool, speed int, addr, dataDir, replayDay string, logf f
 	logf("data:\n" + d.describe())
 	w := newWatch(d, replayDay, logf)
 	if live {
-		go w.runLive(logf)
+		go w.runLive(liveOpts, logf)
 		return w.serve(addr, logf)
 	}
 	if headless {

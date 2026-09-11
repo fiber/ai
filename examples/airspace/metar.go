@@ -146,9 +146,9 @@ func readMesonetCSV(r io.Reader) ([]metarRecord, error) {
 
 // fetchLiveMETARs asks aviationweather.gov for the latest reports of the
 // given stations (raw text, one per line, newest first per station).
-func fetchLiveMETARs(client *http.Client, stations []string) ([]metarRecord, error) {
+func fetchLiveMETARs(client *http.Client, ua string, stations []string) ([]metarRecord, error) {
 	url := "https://aviationweather.gov/api/data/metar?format=raw&hours=1&ids=" + strings.Join(stations, ",")
-	resp, err := client.Get(url)
+	resp, err := get(client, ua, url)
 	if err != nil {
 		return nil, err
 	}

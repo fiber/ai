@@ -9,11 +9,23 @@ watching. Trains on five ordinary days, replays Storm Éowyn (24 January
 ```
 go run ./examples/airspace              # replay the storm day, dashboard on 127.0.0.1:8080
 go run ./examples/airspace -headless    # print alarms and events instead
-go run ./examples/airspace -live        # adsb.lol and aviationweather.gov, one poll a minute
+go run ./examples/airspace -live -contact you@example.com   # adsb.lol and aviationweather.gov, a poll every two minutes
 ```
 
 Flags: `-speed` (replay minutes per second, default 10), `-addr`, `-data`
 (a directory produced by `-prep` instead of the embedded files).
+
+Live mode is a network client on someone else's free service, so it asks
+to be run like one. `-contact` is required and its address goes into the
+`User-Agent` of every request; `-interval` sets the poll cadence (two
+minutes by default, one request per region); `-source` takes any endpoint
+serving readsb JSON, so you can point it at your own receiver
+(`-source http://your-pi/data/aircraft.json`, fetched whole rather than
+per region) and leave the shared aggregators alone. Between polls the
+last known picture is carried forward, so the counters keep the
+one-minute grid the models were trained on with positions up to one poll
+stale. A source that answers 429 or 403 is not asked again for ten
+minutes, doubling up to an hour.
 
 Files: `reduce.go` turns position reports into per-minute counters and
 movement events (shared by archive and live), `metar.go` parses reports,
