@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-12 T-053 — Depend on a released ai-data instead of a pseudo-version (spec/done/T-053-depend-on-a-released-ai-data-instead-of-a-pseudo.md)
 - 2026-09-12 T-052 — MNIST: a digit classifier on real data (spec/done/T-052-mnist-a-digit-classifier-on-real-data.md)
 - 2026-09-11 T-051 — Live airspace poller: one aggregator, identified client, gentler cadence (spec/done/T-051-live-airspace-poller-one-aggregator-identified-c.md)
 - 2026-09-10 T-050 — Small-GEMM path: one call, no rounds, no packing where the kernel reads row-major, chosen by size (spec/done/T-050-small-gemm-path-one-call-no-rounds-no-packing-wh.md)
