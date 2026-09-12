@@ -18,7 +18,7 @@ github.com/fiber/ai
 ├── cmd/bench/         throughput benchmarks (Markdown output)
 ├── cmd/gate/          development-process gate (specs, lists, manual)
 ├── docs/manual/       the user manual
-├── docs/tutorial/     seven chapters for Go developers new to the field
+├── docs/tutorial/     twelve chapters for Go developers new to the field
 ├── data/, metrics/    data preparation and evaluation for applications
 ├── logtemplate/       syslog lines to templates, a million lines a second
 ├── cluster/           k-means and nearest-centre search over embeddings
@@ -27,12 +27,14 @@ github.com/fiber/ai
 ├── models/gemma/      EmbeddingGemma natively: text to 768-d sentence embeddings
 ├── benchmarks/        results and the NumPy/PyTorch comparison script
 └── examples/          tensor basics, autograd, MLP regression, spiral classification, EmbeddingGemma search,
+                       MNIST digits (perceptron and convolutional network, PyTorch counterpart),
                        airspace watch (eight airports on public ADS-B and METAR data, Storm Éowyn replay)
 ```
 
 The [tutorial](docs/tutorial/README.md) teaches the field from the code
-up in seven runnable chapters, for Go developers who never learned NumPy
-or PyTorch. The [manual](docs/manual/README.md) covers the API in depth;
+up in twelve runnable chapters, for Go developers who never learned NumPy
+or PyTorch. The last one trains on MNIST and compares the result with
+PyTorch on the same machine. The [manual](docs/manual/README.md) covers the API in depth;
 [PROCESS.md](PROCESS.md) describes how changes are made.
 
 ## Quick start
