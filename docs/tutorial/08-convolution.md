@@ -44,7 +44,9 @@ parameters.
 
 ## A flat window, as in chapter 6
 
-The first model is the chapter-6 MLP: 120 inputs, one per minute,
+The first model is the chapter-6 MLP — a *multilayer perceptron*, the
+plain stack of linear layers and activations from chapters 5 and 6:
+120 inputs, one per minute,
 64 hidden units, one output.
 
 ```
@@ -100,7 +102,7 @@ func (toChannels) Params() []*tensor.Tensor { return nil }
 ```
 
 ```
-1-D CNN, EIDW alone (761 parameters)
+1-D CNN (convolutional neural network), EIDW alone (761 parameters)
 epoch  5  train 2.42  validation 2.67 aircraft
 epoch 20  train 2.35  validation 2.74 aircraft
 ```

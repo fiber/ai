@@ -32,6 +32,10 @@ for epoch := 1; epoch <= epochs; epoch++ {
 }
 ```
 
+`MSELoss` is the *mean squared error*: the average of the squared
+differences between prediction and target, which is the loss chapter 4
+minimised by hand.
+
 An *epoch* is one pass over all the training data. With 200 examples
 and batches of 32 that is 7 steps per epoch. The `data` package has the
 same loop as one line, `for idx := range data.Batches(n, 32, r)`, once

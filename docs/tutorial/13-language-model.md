@@ -79,7 +79,9 @@ does not have to survive a journey through eleven transformations; it can
 take the main line. Removing those two `Add`s stops a four-layer model
 from training at all.
 
-`RMSNorm` before each sub-layer rather than after is *pre-norm*. It is
+`RMSNorm` — *root-mean-square normalisation*, which rescales a vector
+by its own magnitude — before each sub-layer rather than after is
+*pre-norm*. It is
 the arrangement Llama and Gemma use, and it is the difference between a
 model that trains at this depth without a warm-up schedule and one that
 does not.
@@ -94,8 +96,9 @@ The old way is a lookup table with one learned vector per slot, added to
 the input — one `nn.Embedding(context, dim)`. It works, and it can say
 nothing at all about position 500 in a model trained at 128.
 
-The way current models do it is to *rotate* each query and key by an
-angle proportional to its position, just before they are multiplied. Two
+The way current models do it is **RoPE**, *rotary position embedding*:
+rotate each query and key by an angle proportional to its position, just
+before they are multiplied. Two
 vectors rotated by their positions have a dot product that depends on the
 **difference** between them, so the model learns "three tokens back"
 rather than "slot 47", and it degrades gracefully past the trained
@@ -143,8 +146,9 @@ model 4 blocks, width 256, 4 heads, context 128: 3.19M parameters
 2000 steps in 402s — 201 ms/step, 20384 tokens/s
 ```
 
-Loss here is in nats per character, and it has a floor you can reason
-about. A model that has learned nothing spreads its guess over 65
+Loss here is in *nats* per character — the natural-logarithm unit of
+cross-entropy, so a loss of L means the model is as uncertain as a fair
+choice between e^L options — and it has a floor you can reason about. A model that has learned nothing spreads its guess over 65
 symbols: ln(65) = 4.17, which is roughly where step 1 sits. Getting to
 1.57 means the model has narrowed 65 possibilities to the equivalent of
 about e^1.57 ≈ 4.8. Given the next character is usually a letter or a
@@ -210,7 +214,8 @@ and they were computed identically the step before, because in causal
 attention nothing that happens later changes an earlier token's keys and
 values.
 
-Storing them instead is a *KV cache*, and it is the subject of
+Storing them instead is a *KV cache* — a key-value cache — and it is
+the subject of
 [chapter 14](14-kv-cache.md). Skipping ahead: it removes about 128× the arithmetic and does
 not make generation 128× faster, and the reason why is the most useful
 thing in that chapter.

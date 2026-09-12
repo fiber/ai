@@ -36,6 +36,11 @@ dec := nn.Sequential{nn.NewLinear(3, 16), nn.GELU{}, nn.NewLinear(16, 24)}
 loss := tensor.MSELoss(dec.Forward(enc.Forward(xb)), xb)
 ```
 
+`GELU`, the *Gaussian error linear unit*, is the activation here rather
+than chapter 5's ReLU: it is a smoothed version of the same kink, and
+smooth is worth a little on a network this small because every unit
+counts.
+
 Copying 24 numbers through 3 is impossible in general, so the model
 learns to copy the minutes it sees in training well, which are ordinary
 ones: a quiet night, a morning wave, an afternoon plateau, each with

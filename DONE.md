@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-12 T-065 — Expand every acronym on first use in the tutorial (spec/done/T-065-expand-every-acronym-on-first-use-in-the-tutoria.md)
 - 2026-09-12 T-064 — A KV cache for incremental decoding, and tutorial chapter 14 (spec/done/T-064-a-kv-cache-for-incremental-decoding-and-tutorial.md)
 - 2026-09-12 T-063 — Tutorial chapter 13: a character-level language model, trained and sampled (spec/done/T-063-tutorial-chapter-13-a-character-level-language-m.md)
 - 2026-09-12 T-062 — Chapter 12's program belongs under examples/tutorial like every other chapter (spec/done/T-062-chapter-12-s-program-belongs-under-examples-tuto.md)

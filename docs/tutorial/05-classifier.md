@@ -29,8 +29,8 @@ model := nn.Sequential{
 
 `nn.Linear` is chapter 4's `x.MatMul(w).Add(b)` with its own `w` and
 `b`. Three of them in a row would still be one straight line, because a
-line of a line is a line. `ReLU` between them replaces every negative
-number by zero; that small kink is what lets the stack bend, and enough
+line of a line is a line. `ReLU` — the *rectified linear unit* — between
+them replaces every negative number by zero; that small kink is what lets the stack bend, and enough
 kinks approximate any shape. The last layer has three outputs, one score
 per arm.
 
