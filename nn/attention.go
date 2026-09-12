@@ -16,6 +16,17 @@ type MultiHeadAttention struct {
 	// for autoregressive models, tensor.PaddingMask for padded batches, or
 	// their sum. It broadcasts against [batch, heads, T, S].
 	Mask *tensor.Tensor
+	// RoPEBase, if non-zero, rotates queries and keys by their positions
+	// before the scores are computed (tensor.RoPE). A score then depends
+	// on the distance between two tokens rather than on where they sit in
+	// the window, which is what current decoders do; the alternative is a
+	// learned vector per slot added to the input, which says nothing
+	// about a position the model never saw. Gemma uses 1e6 for its global
+	// layers and 1e4 for its local ones.
+	RoPEBase float64
+	// PosOffset is the position of the first query; keys always start at
+	// zero. Decoding one token at a time against cached keys sets it.
+	PosOffset int
 }
 
 // NewMultiHeadAttention creates the four projections for a model width of
@@ -53,9 +64,22 @@ func (m *MultiHeadAttention) Cross(x, context *tensor.Tensor) *tensor.Tensor {
 	q := split(m.Q.Forward(x), t)
 	k := split(m.K.Forward(context), s)
 	v := split(m.V.Forward(context), s)
+	if m.RoPEBase != 0 {
+		q = tensor.RoPE(q, m.RoPEBase, seq(m.PosOffset, t))
+		k = tensor.RoPE(k, m.RoPEBase, seq(0, s))
+	}
 	out := tensor.Attention(q, k, v, m.Mask) // [batch, heads, t, hd]
 	merged := out.Permute(0, 2, 1, 3).Reshape(b, t, m.Dim)
 	return m.O.Forward(merged)
+}
+
+// seq returns offset, offset+1, ... offset+n-1.
+func seq(offset, n int) []int {
+	p := make([]int, n)
+	for i := range p {
+		p[i] = offset + i
+	}
+	return p
 }
 
 // Params returns the projection weights (and the output bias).

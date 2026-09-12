@@ -70,3 +70,127 @@ func TestRMSNormModuleAndLookup(t *testing.T) {
 		t.Fatalf("lookup gradient %v", e.W.Grad())
 	}
 }
+
+// Rotary positions exist so that a score depends on the distance between
+// two tokens, not on where the pair sits in the window. Shifting a query
+// and its key by the same amount must leave the score unchanged.
+func TestRoPEScoresDependOnDistance(t *testing.T) {
+	tensor.Seed(4)
+	const dim, heads, T = 32, 4, 8
+	m := NewMultiHeadAttention(dim, heads)
+	m.RoPEBase = 1e4
+
+	x := tensor.Randn(1, T, dim)
+	// One token repeated, so any difference between positions comes from
+	// the rotation rather than from the content.
+	row := x.Reshape(T, dim).Rows([]int{0}).Float32s()
+	rep := make([]float32, 0, T*dim)
+	for range T {
+		rep = append(rep, row...)
+	}
+	x = tensor.New(rep, 1, T, dim)
+
+	score := func(qi, ki int) float32 {
+		var out float32
+		tensor.NoGrad(func() {
+			q := m.Q.Forward(x).Reshape(1, T, heads, dim/heads).Permute(0, 2, 1, 3)
+			k := m.K.Forward(x).Reshape(1, T, heads, dim/heads).Permute(0, 2, 1, 3)
+			q = tensor.RoPE(q, m.RoPEBase, seq(0, T))
+			k = tensor.RoPE(k, m.RoPEBase, seq(0, T))
+			qc, kc := q.Contiguous().Float32s(), k.Contiguous().Float32s()
+			hd := dim / heads
+			for d := range hd { // head 0 only
+				out += qc[qi*hd+d] * kc[ki*hd+d]
+			}
+		})
+		return out
+	}
+
+	// Pairs at the same distance must score alike; different distances
+	// must not, or the rotation is doing nothing.
+	a, b := score(3, 1), score(6, 4) // distance 2 in both cases
+	if diff := math.Abs(float64(a - b)); diff > 1e-3 {
+		t.Errorf("same distance scored %v and %v, difference %v", a, b, diff)
+	}
+	if c := score(6, 1); math.Abs(float64(a-c)) < 1e-3 {
+		t.Errorf("distance 2 and distance 5 both scored %v; the rotation is not applied", a)
+	}
+}
+
+// PosOffset is what decoding one token at a time needs: a single query at
+// position n must behave exactly as the n-th query of a whole sequence.
+func TestRoPEPosOffsetMatchesFullSequence(t *testing.T) {
+	tensor.Seed(5)
+	const dim, heads, T = 32, 4, 6
+	full := NewMultiHeadAttention(dim, heads)
+	full.RoPEBase = 1e4
+	x := tensor.Randn(1, T, dim)
+
+	var whole, step []float32
+	tensor.NoGrad(func() {
+		whole = full.Forward(x).Rows([]int{0}).Float32s()
+
+		// The same weights, one query at the last position, attending over
+		// the whole sequence as a cache would supply it.
+		one := *full
+		one.PosOffset = T - 1
+		last := x.Reshape(T, dim).Rows([]int{T - 1}).Reshape(1, 1, dim)
+		step = one.Cross(last, x).Float32s()
+	})
+	if len(whole) != T*dim {
+		t.Fatalf("full output has %d values", len(whole))
+	}
+	for i := range dim {
+		if got, want := step[i], whole[(T-1)*dim+i]; math.Abs(float64(got-want)) > 1e-4 {
+			t.Fatalf("value %d: single-query %v, full sequence %v", i, got, want)
+		}
+	}
+}
+
+// The rotation must not break the gradient: it is orthogonal, so the
+// backward pass rotates by the negative angle.
+func TestRoPEGradients(t *testing.T) {
+	tensor.Seed(6)
+	const dim, heads, T = 16, 2, 4
+	m := NewMultiHeadAttention(dim, heads)
+	m.RoPEBase = 1e4
+	x := tensor.Randn(1, T, dim).SetRequiresGrad(true)
+	m.Forward(x).Sum().Backward()
+	if x.Grad() == nil {
+		t.Fatal("no gradient reached the input")
+	}
+	var nonzero int
+	for _, v := range x.Grad().Float32s() {
+		if v != 0 {
+			nonzero++
+		}
+	}
+	if nonzero == 0 {
+		t.Error("every input gradient is zero")
+	}
+	for _, p := range m.Params() {
+		if p.Grad() == nil {
+			t.Error("a projection has no gradient")
+		}
+	}
+}
+
+// With RoPEBase left at zero nothing changes, so existing models keep
+// their numbers exactly.
+func TestRoPEOffByDefault(t *testing.T) {
+	tensor.Seed(7)
+	const dim, heads, T = 16, 2, 4
+	m := NewMultiHeadAttention(dim, heads)
+	x := tensor.Randn(1, T, dim)
+	var a, b []float32
+	tensor.NoGrad(func() {
+		a = m.Forward(x).Float32s()
+		m.PosOffset = 3 // ignored while RoPEBase is zero
+		b = m.Forward(x).Float32s()
+	})
+	for i := range a {
+		if a[i] != b[i] {
+			t.Fatalf("value %d changed from %v to %v with the rotation off", i, a[i], b[i])
+		}
+	}
+}

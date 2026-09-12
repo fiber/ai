@@ -43,6 +43,20 @@ attention per head and projects back. `Forward(x)` is self-attention;
 `context`. Set `Mask` to `tensor.CausalMask(n)` for autoregressive
 models, to `tensor.PaddingMask(lengths, n)` for padded batches, or to
 their sum; masks are additive and broadcast over batch and heads.
+
+Position is not part of attention: it compares pairs of tokens and a
+shuffled sequence would score identically, so a model has to be told
+where its tokens are. Set `RoPEBase` to rotate queries and keys by their
+positions before the scores (`tensor.RoPE`), which makes a score depend
+on the distance between two tokens rather than their absolute slots and
+is what Llama- and Gemma-class decoders do; 1e4 and 1e6 are the usual
+values. Zero, the default, leaves the rotation out, and the alternative
+is then a learned vector per slot added to the input — one
+`nn.Embedding(context, dim)` indexed by position — which is simpler but
+says nothing about a position longer than the training window.
+`PosOffset` sets the position of the first query, for decoding a token
+at a time against earlier keys.
+
 `nn.NewRMSNorm(dim)` is the normalisation of Gemma- and Llama-class
 models; `Embedding.Lookup(ids)` gathers token vectors with a scatter-add
 gradient. `examples/nn/attention` puts them together as a two-layer
