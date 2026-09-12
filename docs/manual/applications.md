@@ -273,10 +273,14 @@ the confusion matrix; after B-009 the remaining 115 errors are spread
 almost evenly, no pair reaching eight.
 
 `benchmarks/python/mnist.py` is the same two models in PyTorch on the
-same data and optimiser, for anyone who wants to check the figures: on
-the six performance cores of an M2 Pro it takes 2.0 s and 51.6 s against
-our 1.0 s and 35.6 s, and reaches 97.88% and a mean 98.73% over seeds 12,
-13 and 14 against our 97.82% and 98.64%.
+same data and optimiser, for anyone who wants to check the figures. On
+the six performance cores of an M2 Pro: 2.0 s and 51.6 s there against
+1.0 s and 35.6 s here, with test accuracy 97.88% and a mean 98.70% over
+seeds 12 to 15 against 97.82% and 98.66%. The accuracies are the same
+number — the ranges overlap — and with `--init he`, which gives the
+PyTorch model our initialisation, its mean becomes 98.67%. The remaining
+difference between the two libraries on this task is the default
+initialisation, not the convolution.
 
 Pixels are scaled by one mean and one standard deviation for the whole
 set, not per pixel. Border pixels are zero in every image, so a per-pixel

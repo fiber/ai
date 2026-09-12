@@ -168,23 +168,47 @@ count, so no thread flag is needed on either side.
 | | fiber/ai | PyTorch 2.8 |
 |---|---:|---:|
 | MLP accuracy | 97.82% | 97.88% |
-| MLP training | **1.0 s** | 2.0 s |
-| CNN accuracy (mean of seeds 12, 13, 14) | 98.64% | 98.73% |
-| CNN training | **35.6 s** | 51.6 s |
+| MLP training | 1.0 s | 2.0 s |
+| CNN accuracy, mean of seeds 12-15 | 98.66% | 98.70% |
+| CNN accuracy, range over those seeds | 98.44 – 98.85% | 98.60 – 98.75% |
+| CNN training | 35.6 s | 51.6 s |
 
-Twice as fast on the perceptron, about 1.45× on the convolutional model,
-with accuracy the same to within the spread across seeds — ours is
-98.85 / 98.64 / 98.44 over those three, PyTorch 98.72 / 98.75 / 98.72.
-PyTorch is the steadier of the two and holds a tenth of a point on the
-mean; we are the faster.
+Read the accuracies as the same number. The ranges overlap almost
+entirely, and four seeds is not enough to separate 98.66 from 98.70.
 
-Two things are worth saying about that comparison rather than leaving
-them for the reader to find. It is CPU against CPU: on a machine with a
-CUDA card PyTorch is not in the same race, and this library does not try
-to be. And the numbers were wrong until recently — the convolution used
-to score 98.50 because its backward pass read a buffer that had already
-been freed. What exposed it was exactly this comparison, which is the
-argument for having one at all.
+The narrower range on the PyTorch side is worth chasing, though, because
+it has a cause you can switch off. The two libraries initialise
+differently: `nn.NewConv2D` uses He normal, σ = √(2/fan_in) with a zero
+bias, while `torch.nn.Conv2d` defaults to `kaiming_uniform_(a=√5)`, which
+comes out at σ = 1/√(3·fan_in) — about 2.45 times narrower — with a
+uniform bias. `benchmarks/python/mnist.py --init he` gives the PyTorch
+model our initialisation, and the difference follows the initialisation
+rather than the library:
+
+| | mean | range |
+|---|---:|---|
+| fiber/ai, He normal | 98.66% | 98.44 – 98.85 |
+| PyTorch, He normal | 98.67% | 98.51 – 98.86 |
+| PyTorch, its own default | 98.70% | 98.60 – 98.75 |
+
+With the same initialisation the two agree to three hundredths of a
+point, which is to say they agree. The wider start explores more, so it
+finds both the best run in the table and the worst; the narrower one is
+steadier and marginally better on average here. Which you want depends on
+whether you train once or many times, and He normal is the textbook
+choice for ReLU networks while PyTorch's `a=√5` is a historical accident
+that nobody defends on the merits — so "match PyTorch" is not obviously
+the right answer either.
+
+That is the kind of thing a comparison is *for*. Two numbers that differ
+by a tenth of a point are not a result; the reason they differ is.
+
+Two caveats belong here rather than in the reader's head. This is CPU
+against CPU: on a machine with a CUDA card PyTorch is not in the same
+race, and this library does not pretend otherwise. And these numbers were
+wrong until recently — the convolution scored 98.50 because its backward
+pass read a buffer that had already been freed. This comparison is what
+exposed it, which is the argument for keeping one.
 
 ## Where the mistakes are
 
