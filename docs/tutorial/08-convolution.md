@@ -181,3 +181,6 @@ tells you something about Friday traffic instead. Make the filters
 wider, or add a third layer, and watch the parameter count and the
 validation error together; the interesting models in this family are the
 ones that get better without getting bigger.
+
+The same idea in two dimensions, sliding filters across an image instead
+of along a series, is [chapter 12](12-mnist.md).

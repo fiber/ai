@@ -237,3 +237,48 @@ Weather Service data via the Iowa Environmental Mesonet. Live mode reads
 api.adsb.lol and aviationweather.gov, one request per region every two
 minutes, identified by the address you pass in `-contact`. `testdata/ATTRIBUTION.md` has the
 details; `-prep` rebuilds the files from the raw archives.
+
+## MNIST: the benchmark everybody knows
+
+`examples/mnist` trains a classifier on handwritten digits, the one
+dataset in this field whose numbers a reader can check against their own
+experience. It is the program of [tutorial chapter 12](../tutorial/12-mnist.md)
+and the only example that trains on data collected by somebody else.
+
+```
+go run ./examples/mnist                  # both models, five epochs
+go run ./examples/mnist -model cnn -epochs 10
+go run ./examples/mnist -limit 1000      # how each model copes with scarce data
+```
+
+The data comes from `github.com/fiber/ai-data`, a separate module that
+embeds the four original idx files and verifies them by checksum. Nothing
+is downloaded at run time, and because the module is imported only by
+this example, anyone who imports `tensor` never fetches those 11 MB.
+
+Two models on the same input, both from `nn`: a 784-256-10 perceptron,
+and a convolutional network of two 3×3 stages with max pooling. On an
+Apple M2 Pro, five epochs of batch 128 with Adam at 1e-3:
+
+| | parameters | test accuracy | training |
+|---|---:|---:|---:|
+| MLP 784-256-10 | 203 530 | 97.82% | 1.0 s |
+| CNN 16-32 filters | 20 490 | 98.85% | 35.6 s |
+
+The convolutional model is ten times smaller and better, because the
+filters are shared across every position instead of learned once per
+pixel — and it is thirty-five times slower to train, because it does far
+more arithmetic per parameter. The example also prints the worst pairs of
+the confusion matrix; after B-009 the remaining 115 errors are spread
+almost evenly, no pair reaching eight.
+
+`benchmarks/python/mnist.py` is the same two models in PyTorch on the
+same data and optimiser, for anyone who wants to check the figures: on
+the six performance cores of an M2 Pro it takes 2.0 s and 51.6 s against
+our 1.0 s and 35.6 s, and reaches 97.88% and a mean 98.73% over seeds 12,
+13 and 14 against our 97.82% and 98.64%.
+
+Pixels are scaled by one mean and one standard deviation for the whole
+set, not per pixel. Border pixels are zero in every image, so a per-pixel
+deviation is zero there and the division produces NaN — the kind of thing
+real data does and generated data never does.
