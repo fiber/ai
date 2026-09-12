@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-12 T-054 — Re-measure the M2 Pro figures against HEAD (spec/done/T-054-re-measure-the-m2-pro-figures-against-head.md)
 - 2026-09-12 T-055 — Chapter 12 explains the PyTorch difference instead of keeping score (spec/done/T-055-chapter-12-explains-the-pytorch-difference-inste.md)
 - 2026-09-12 T-053 — Depend on a released ai-data instead of a pseudo-version (spec/done/T-053-depend-on-a-released-ai-data-instead-of-a-pseudo.md)
 - 2026-09-12 T-052 — MNIST: a digit classifier on real data (spec/done/T-052-mnist-a-digit-classifier-on-real-data.md)

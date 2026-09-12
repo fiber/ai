@@ -63,12 +63,12 @@ against PyTorch/Accelerate:
 
 | | fiber/ai NEON | fiber/ai AMX | PyTorch |
 |---|---:|---:|---:|
-| SGEMM 512², GFLOPS | 514 | 1 409 | 2 131 |
-| SGEMM 1024² | 581 | 1 881 | 2 665 |
-| SGEMM 2048² | 636 | **2 250** | 2 243 |
-| [256×768]·[768×3072] | 500 | 1 562 | 2 357 |
-| MLP training step, samples/s | 85 K | **146 K** | 116 K |
-| MLP inference | 221 K | **569 K** | 532 K |
+| SGEMM 512², GFLOPS | 518 | 1 505 | **2 157** |
+| SGEMM 1024² | 542 | 2 118 | **2 688** |
+| SGEMM 2048² | 546 | **2 225** | 2 192 |
+| [256×768]·[768×3072] | 498 | 1 705 | **2 328** |
+| MLP training step, samples/s | 98 K | **178 K** | 117 K |
+| MLP inference | 349 K | **827 K** | 520 K |
 
 SME, the documented matrix extension of the M4, was measured with the
 probe under `internal/kernel/smeprobe`: 1.06 TFLOPS on one thread and
@@ -95,7 +95,7 @@ comparison in [BENCHMARKS.md](../../BENCHMARKS.md).
 
 - **Matrix products** run at 84–90 % of a core's FMA peak on one core
   (Apple M2 Pro ~100 GFLOPS, M4 121, Xeon Gold 6130 with AVX-512 150–162)
-  and scale to ~600 GFLOPS on the ten Apple cores and ~1 150 GFLOPS on a
+  and scale to ~550 GFLOPS on the six Apple performance cores and ~1 150 GFLOPS on a
   16-core Skylake-SP socket (n=1024–2048), which is ahead of NumPy/
   OpenBLAS and PyTorch/MKL at n=2048 on that machine and 20 % behind MKL
   at n=1024. Transposed operands cost nothing — pass `w.T()`, do not
@@ -115,8 +115,8 @@ comparison in [BENCHMARKS.md](../../BENCHMARKS.md).
   version with the same arithmetic); `Sigmoid` and `GELU` are composed
   from `tanh` and the vector primitives, `Softmax` and `CrossEntropy`
   from `exp`. On the M2 Pro `tanh` over 1M elements went from 2.1 ms
-  (`math.Tanh` per element) to ~110 µs, seven times faster than PyTorch
-  there; the kernel alone does 0.4 ns per element on one core (NEON on
+  (`math.Tanh` per element) to 90 µs with the result released, eight
+  times faster than PyTorch there; the kernel alone does 0.4 ns per element on one core (NEON on
 the M2 Pro and AVX2 on a Skylake-SP core alike, the latter at IPC 1.8).
 When measuring such kernels use a time-based `-benchtime` of a second or
 more: a run of a few milliseconds ends before the core reaches its turbo
@@ -127,7 +127,7 @@ clock and reports three times the real cost.
   `NoGrad`, `Attention` are fused row operations: layer norm keeps only mean and rstd per row for the
   backward pass and recomputes x̂ into an L1-resident scratch row, so a
   [4096×4096] layer norm reads its input once and writes the output once
-  (M2 Pro 1.9 ms against PyTorch's 2.35).
+  (M2 Pro 1.81 ms against PyTorch's 2.37).
 
 ## Small products: one call, nothing packed
 
@@ -135,7 +135,7 @@ Below about 160² a product does not go through the blocked driver at
 all. The driver's fixed cost, two operands packed through the buffer
 pool, a packing round and a compute round with their barriers, K-block
 bookkeeping, was most of such a call: 128² ran at 359 GFLOPS on the M2
-Pro against Accelerate's 764 whether one worker or six did the work,
+Pro against Accelerate's 785 whether one worker or six did the work,
 and a profile of the call was 35 % micro-kernel, 45 % packing and 18 %
 allocating the result. Products with m·n·k up to `blas.SmallLimit`
 (160³; `FIBERAI_BLAS_SMALL` overrides, 0 disables) take one call on the
@@ -168,12 +168,12 @@ What it is worth on the M2 Pro, right operand reused across calls:
 
 | product | B packed per call | B packed once |
 |---|---:|---:|
-| [8×4096]·[4096×4096] (GFLOPS) | 75 | 250 |
-| [64×1024]·[1024×1024] | 992 | 1 582 |
-| [256×768]·[768×3072] | 1 806 | 2 594 |
-| 1024² | 2 172 | 2 471 |
-| MLP forward, batch 256 (samples/s) | 768 K | 839 K |
-| EmbeddingGemma, 32 × 65 tokens (sentences/s) | 86 | 98 |
+| [8×4096]·[4096×4096] (GFLOPS) | 72 | 272 |
+| [64×1024]·[1024×1024] | 950 | 1 621 |
+| [256×768]·[768×3072] | 1 705 | 2 507 |
+| 1024² | 2 157 | 2 465 |
+| MLP forward, batch 256 (samples/s) | 768 K | 827 K |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | 86 | 105 |
 
 Training does not benefit: the weights change every step, and the
 optimisers write them through `Data()`, so they are never cached; the

@@ -1,12 +1,13 @@
 ---
 id: T-054
 title: Re-measure the M2 Pro figures against HEAD
-status: open
+status: done
 scope:
   - BENCHMARKS.md
   - benchmarks/
 manual:
   - docs/manual/performance.md
+done: 2026-09-12
 created: 2026-09-12
 ---
 
@@ -60,4 +61,36 @@ and is in the manual list for that reason.
 - `docs/manual/performance.md` agrees with BENCHMARKS.md.
 
 ## Notes
+The premise was half wrong. I opened this because a spot check seemed to
+show n=1024 at 2 460 GFLOPS against the file's 2 183 — but that compared
+the new B-packed-once figure with the old packed-per-call one. Like for
+like the number is 2 118, three per cent below, and two runs of one
+binary an hour apart gave 2 089 and 2 157, so the difference is the
+machine, not the code.
 
+What the re-measurement actually found:
+
+- **n=128 went from 376 to 553 GFLOPS**, which is T-050 arriving in the
+  table. Everything from 256 up is unchanged within the spread.
+- **tanh went from 5.0 to 90 GB/s** and LayerNorm from 3.37 to 1.81 ms.
+  Both were listed as losses against PyTorch and are now wins; the file
+  had been claiming we were slower than we are.
+- **The MLP table was NEON-era**: forward 1.51 ms where it now measures
+  310 µs. It moved when GEMM moved to AMX and nobody re-ran it.
+- **The convolution figure depends on what ran before it.** In a full
+  suite it reports 184 GFLOPS, alone 334 to 352. The element-wise section
+  leaves 404 MiB retained in the mapped pool and forces some 3 900
+  collections, and the convolution pays for that. The file now quotes the
+  isolated figure and says so, but the harness should reset the pool
+  between sections; that needs its own spec.
+- **`bench.py` did not parse** under the venv it ships with (B-011), so
+  the documented reproduce command produced a traceback.
+
+Two figures are not from this session and are marked where they appear:
+the PyTorch EmbeddingGemma row, because the venv has no
+`sentence-transformers`, and every non-M2 machine, which keeps the date
+in its heading.
+
+Also removed a reference to a private project by name in the small-
+products section. It should not have been in a public repository, and
+`spec/done/T-050` still contains the same word.

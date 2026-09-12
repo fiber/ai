@@ -26,7 +26,7 @@ eleven-microsecond call; the rest is the blocked driver's fixed cost,
 two operands packed through the buffer pool, a packing round and a
 compute round with their barriers, K-block bookkeeping. MKL and
 Accelerate have a separate small-matrix path. So do we now. The shapes
-that matter for it are not squares: a netwatch-sized autoencoder
+that matter for it are not squares: a small anomaly-detection autoencoder
 (24 → 16 → 3 → 16 → 24, batch 64) is nothing but products of this size.
 
 ## Design

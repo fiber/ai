@@ -1,14 +1,17 @@
 # Benchmarks
 
-All numbers measured on the same machine, one after another, on 2026-09-05:
+The M2 Pro figures were re-measured on 2026-09-12 against the current
+code, both sides in one session; the sections for other machines keep the
+dates in their headings. Machine and versions:
 
 | | |
 |---|---|
 | Machine | Apple M2 Pro (6 performance + 4 efficiency cores), macOS 26 (Darwin 25.6) |
-| fiber/ai | Go 1.26.2, NEON back-end, 10 goroutines (`darwin/arm64`) |
+| fiber/ai | Go 1.26.2, `darwin/arm64`; GEMM on the AMX back-end, everything else NEON |
 | fiber/ai (generic) | same code with `FIBERAI_KERNEL=generic` — pure Go, no assembly |
 | NumPy | 2.0.2 (Accelerate BLAS), Python 3.9.6 |
 | PyTorch | 2.8.0 CPU (Accelerate BLAS, SLEEF vector math, 6 threads by default) |
+| Worker count | 6, the performance cores — the default on Apple Silicon since T-047, and what PyTorch also chooses here |
 
 Method: every case is warmed up once, then repeated for ≥ 0.7 s and the mean
 time per call is reported. Each call allocates a fresh output, as it would
@@ -32,39 +35,52 @@ Raw output: [results/go.md](benchmarks/results/go.md),
 
 Two machines, both sides measured the same day with the same shapes.
 Apple M2 Pro: `go run ./cmd/bench` (GEMM on AMX, the rest NEON, results
-released) against NumPy 2.5.3 and PyTorch 2.14 on Accelerate, 8 September
-2026, both runs in `benchmarks/results/m2pro-2026-09-08/`. Xeon Gold 6130,
-one socket pinned with `numactl`: fiber/ai AVX-512 from the same day,
-PyTorch 2.14+cpu with MKL and oneDNN (16 threads) from the same session
-for attention, convolution and EmbeddingGemma and from the x86 round
-for the rest. Bold marks the faster side; "level" is within 5 %.
+released) against NumPy 2.0.2 and PyTorch 2.8.0 on Accelerate,
+12 September 2026, both runs in `benchmarks/results/m2pro-2026-09-12/`.
+Xeon Gold 6130, one socket pinned with `numactl`: fiber/ai AVX-512 of
+8 September, PyTorch 2.14+cpu with MKL and oneDNN (16 threads) from the
+same session for attention, convolution and EmbeddingGemma and from the
+x86 round for the rest. Bold marks the faster side; "level" is within
+5 %.
 
 | Workload | M2 Pro fiber/ai | M2 Pro PyTorch | Xeon fiber/ai | Xeon PyTorch |
 |---|---:|---:|---:|---:|
-| SGEMM 2048², all cores (GFLOPS) | 2 269 (level) | 2 227 | **1 268** | 780 |
-| SGEMM 1024² | 2 135 (2 471 with B packed once) | **2 682** | 1 234 (1 327 with B packed once) | **1 434** |
-| SGEMM 512² | 1 509 | **2 154** | **1 002** | 991 (level) |
-| SGEMM 256² | 916 | **1 116** | 540 | **627** |
-| SGEMM 128² | 369 | **755** | 99 | **236** |
-| [256×768]·[768×3072], B packed per call | 1 795 | **2 358** | **1 111** | 980 |
-| [256×768]·[768×3072], B packed once (weights) | **2 594** | 2 358 | **1 331** | 980 |
-| [1×4096]·[4096×4096] | **13.4** | 11.3 | **13.0** | 11.0 |
-| x + y, 1M (released) | **43 µs** | 68 µs | **17 µs** | 24 µs |
-| x + y, 16M (released) | 1.51 ms | **1.37 ms** | **13.9 ms** | 17.5 ms |
-| exp, 16M | **1.60 ms** | 3.09 ms | **10.7 ms** | 13.8 ms |
-| tanh, 1M (released) | **112 µs** | 719 µs | 54 µs (level; 484 unreleased, cold buffer) | 54 µs |
-| sum(), 4096² | 616 µs (level) | 596 µs | 2.40 ms (level) | 2.42 ms |
-| sum(dim=0), 4096² | **744 µs** | 2.18 ms | **2.68 ms** | 6.29 ms |
-| max(dim=1), 4096² | **575 µs** | 1.18 ms | **2.40 ms** | 2.46 ms |
-| softmax(dim=1), 4096² | **2.22 ms** | 6.27 ms | **11.0 ms** | 14.4 ms |
-| layernorm, 4096² | **1.85 ms** | 2.21 ms | **11.0 ms** | 14.1 ms |
-| transpose + copy, 4096² | **10.9 ms** | 22.4 ms | **25.5 ms** | 68.5 ms |
-| attention [8×8×512×64] (GFLOPS) | **982** (1 156 with all ten cores) | 553 | 763 | **1 141** |
-| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 337 (level) | 311 | 73 | **438** |
-| MLP forward, batch 256 (samples/s) | **855 K** | 526 K | **473 K** | 361 K |
-| MLP forward + backward | 212 K (level) | 221 K | 74 K | **124 K** |
-| MLP train step (Adam) | **183 K** | 121 K | 71 K (level) | 71 K |
-| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **106** | 88 | **59** | 37 |
+| SGEMM 2048², all cores (GFLOPS) | 2 225 (level) | 2 192 | **1 268** | 780 |
+| SGEMM 1024² | 2 118 (2 465 with B packed once) | **2 688** | 1 234 (1 327 with B packed once) | **1 434** |
+| SGEMM 512² | 1 505 | **2 157** | **1 002** | 991 (level) |
+| SGEMM 256² | 975 | **1 121** | 540 | **627** |
+| SGEMM 128² | 553 | **782** | 99 | **236** |
+| [256×768]·[768×3072], B packed per call | 1 705 | **2 328** | **1 111** | 980 |
+| [256×768]·[768×3072], B packed once (weights) | **2 507** | 2 328 | **1 331** | 980 |
+| [1×4096]·[4096×4096] | **14.2** | 11.2 | **13.0** | 11.0 |
+| x + y, 1M (released) | **37 µs** | 68 µs | **17 µs** | 24 µs |
+| x + y, 16M (released) | 1.37 ms (level) | 1.39 ms | **13.9 ms** | 17.5 ms |
+| exp, 16M | **1.60 ms** | 3.10 ms | **10.7 ms** | 13.8 ms |
+| tanh, 1M (released) | **90 µs** | 713 µs | 54 µs (level; 484 unreleased, cold buffer) | 54 µs |
+| sum(), 4096² | 584 µs (level) | 593 µs | 2.40 ms (level) | 2.42 ms |
+| sum(dim=0), 4096² | **638 µs** | 2.23 ms | **2.68 ms** | 6.29 ms |
+| max(dim=1), 4096² | **537 µs** | 1.22 ms | **2.40 ms** | 2.46 ms |
+| softmax(dim=1), 4096² | **2.32 ms** | 4.60 ms | **11.0 ms** | 14.4 ms |
+| layernorm, 4096² | **1.81 ms** | 2.37 ms | **11.0 ms** | 14.1 ms |
+| transpose + copy, 4096² | **12.6 ms** | 23.2 ms | **25.5 ms** | 68.5 ms |
+| attention [8×8×512×64] (GFLOPS) | **1 005** | 590 | 763 | **1 141** |
+| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 348 (level) | 287 | 73 | **438** |
+| MLP forward, batch 256 (samples/s) | **827 K** | 520 K | **473 K** | 361 K |
+| MLP forward + backward | 205 K (level) | 212 K | 74 K | **124 K** |
+| MLP train step (Adam) | **178 K** | 117 K | 71 K (level) | 71 K |
+| EmbeddingGemma, 32 × 65 tokens (sentences/s) | **105** | 88 † | **59** | 37 |
+
+† The PyTorch EmbeddingGemma figure is from 8 September: the benchmark
+venv has no `sentence-transformers`, so that one row could not be
+re-measured in this session. Every other M2 Pro number is from
+12 September.
+
+The convolution case is measured with `-only conv`. In a full suite run
+it follows the element-wise section, which leaves 404 MiB retained in the
+mapped pool and forces some 3 900 collections, and it then reports 184
+GFLOPS instead of 348. Attention does not shift that way (991 in the
+suite, 1 005 alone). See
+[results/m2pro-2026-09-12/go-conv-isolated.md](benchmarks/results/m2pro-2026-09-12/go-conv-isolated.md).
 
 **Where fiber/ai is ahead:** everything memory-bound that we wrote
 kernels for (element-wise, exp, tanh on Apple, reductions, softmax,
@@ -118,33 +134,48 @@ GEMM on the Xeon.
   the Xeon table). Python's reference counting frees a dropped result
   at once; in Go that is `Release()`.
 
-The M2 inference rows and the "B packed once" entries were taken after
-T-037 (packed-operand cache); the rest of the table is from the run of
-the same morning. Earlier headline tables quoted single best runs (M2 GEMM 2 301, train
-164 K); the M2 varies by about 10 % between runs with the same code, so
-this table uses one run of each side taken minutes apart.
+Earlier headline tables quoted single best runs (M2 GEMM 2 301, train
+164 K). The M2 varies between runs with the same code — two runs of one
+binary an hour apart gave 2 089 and 2 157 GFLOPS on the same shape, a
+3 % spread, and more than that on the inference rows — so this table uses
+one run of each side taken minutes apart, and differences under about
+5 % should be read as "level" whether or not the word is there.
 
 ## Matrix multiply
 
 n×n · n×n, float32, GFLOPS (higher is better), M2 Pro:
 
-| n | AMX 1 thread | AMX all cores | NEON 1 thread | NEON 10 threads | pure Go 10 threads | NumPy | PyTorch |
+| n | AMX 1 thread | AMX all workers | NEON 1 thread | NEON all workers | pure Go all | NumPy | PyTorch |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 128 | 357 | 376 | 70 | 73 | 7.5 | 754 | 783 |
-| 256 | 770 | 1 003 | 90 | 280 | 37.7 | 1 134 | 1 133 |
-| 512 | 1 091 | 1 550 | 99 | 487 | 47.0 | 2 142 | 2 131 |
-| 1024 | 1 195 | 2 183 | 100 | 592 | 48.6 | 2 693 | 2 665 |
-| 2048 | 1 038 | **2 301** | 99 | 622 | – | 2 241 | 2 243 |
+| 128 | 542 | 553 | 86 | 86 | 7.7 | 792 | **782** |
+| 256 | 747 | 975 | 95 | 408 | 40.6 | 1 127 | **1 121** |
+| 512 | 1 094 | 1 505 | 101 | 518 | 43.7 | 2 144 | **2 157** |
+| 1024 | 1 182 | 2 118 | 101 | 542 | 43.9 | 2 636 | **2 688** |
+| 2048 | 1 036 | **2 225** | 102 | 546 | – | 2 225 | 2 192 |
+
+All workers is six here, the performance cores. The n=128 row is where
+T-050's small-product path shows: 376 on 5 September, 553 now. The other
+sizes are unchanged within the run-to-run spread. The pure Go column is
+the same source with `FIBERAI_KERNEL=generic` and is what the assembly is
+worth: a factor of 48 at n=1024.
 
 Other shapes, all threads:
 
-| shape | AMX | NEON | NumPy | PyTorch |
+| shape | AMX, B packed per call | AMX, B packed once | NumPy | PyTorch |
 |---|---:|---:|---:|---:|
-| [1×4096]·[4096×4096] (matrix–vector, memory-bound) | **13.8** | 13.8 | 11.1 | 11.3 |
-| [8×4096]·[4096×4096] | **75.6** | 55 | 69.5 | 68.0 |
-| [64×1024]·[1024×1024] | 1 004 | 332 | **1 292** | 1 275 |
-| [256×768]·[768×3072] (transformer FFN) | 1 835 | 519 | **2 389** | 2 357 |
-| [1024×1024]·[1024×1024]ᵀ (transposed view, no copy) | 2 158 | 574 | **2 431** | 2 398 |
+| [1×4096]·[4096×4096] (matrix–vector, memory-bound) | **14.2** | 13.9 | 11.3 | 11.2 |
+| [8×4096]·[4096×4096] | 71.7 | **272.0** | 70.6 | 69.3 |
+| [64×1024]·[1024×1024] | 950 | **1 621** | 1 288 | 1 292 |
+| [256×768]·[768×3072] (transformer FFN) | 1 705 | **2 507** | 2 150 | 2 328 |
+| [512×512]·[512×512] | 1 541 | 1 732 | – | – |
+| [1024×1024]·[1024×1024] | 2 157 | **2 465** | – | – |
+| [1024×1024]·[1024×1024]ᵀ (transposed view, no copy) | – | 2 469 | 2 420 | 2 375 |
+
+Two columns, because the answer depends on whether the right-hand operand
+is reused. Packed per call is the honest number for a one-off product;
+packed once is what a layer with fixed weights actually gets, and it is
+the packed-operand cache of T-037 doing the work. Reading only one column
+would flatter or wrong us depending on which.
 
 Notes:
 
@@ -153,8 +184,10 @@ Notes:
   block) is what separates 2.3 from that at n=2048 and more at small n.
   The M4, with a single performance cluster, reaches 1.4 TFLOPS on one
   thread and 1.7 on all (PyTorch there uses SME: 1.9).
-- NEON scaling from 1 to 10 threads reaches 6× at n=2048; the four
-  efficiency cores are worth about 1.5 performance cores.
+- NEON scaling from 1 to 6 workers reaches 5.4× at n=2048 (102 to 546).
+  Adding the four efficiency cores on top was worth about 1.5 performance
+  cores when they were still in the pool; T-047 took them out because
+  every parallel round waited for the slowest worker.
 - The matrix–vector case is pure memory bandwidth and the `axpy` path
   streams B once with all cores; both back-ends beat Accelerate there.
 - Small M (8 rows) with NEON still packs the whole B matrix; reading B
@@ -165,43 +198,48 @@ Notes:
 
 GB/s (higher is better); pure Go is fiber/ai with `FIBERAI_KERNEL=generic`.
 
-| op | n | fiber/ai | pure Go | NumPy | PyTorch |
-|---|---:|---:|---:|---:|---:|
-| x + y | 16M | 99.6 | 95.3 | 89.4 | 146.7 |
-| x * y | 16M | 100.7 | 96.2 | 90.0 | 147.1 |
-| x + row (broadcast) | 16M | 71.5 | 63.0 | 46.9 | 159.0 |
-| x * 2.5 | 16M | 88.5 | 82.2 | 92.6 | 157.0 |
-| exp(x) | 16M | **65.4** | 20.6 | 5.1 | 44.6 |
-| tanh(x) | 16M | 5.0 | 5.0 | 8.6 | 11.6 |
-| relu(x) | 16M | 89.3 | 13.4 | 24.5 | 157.5 |
-| x + y | 1M | 73.0 | 59.5 | 125.4 | 175.0 |
-| exp(x) | 1M | 37.2 | 14.7 | 5.1 | 38.8 |
-| relu(x) | 1M | 49.2 | 9.7 | 24.1 | 122.6 |
+| op | n | fiber/ai | released | pure Go | NumPy | PyTorch |
+|---|---:|---:|---:|---:|---:|---:|
+| x + y | 16M | 123.9 | **147.2** | 95.3 | 88.9 | 144.5 |
+| x * y | 16M | 125.8 | – | 96.2 | 89.7 | 137.2 |
+| x + row (broadcast) | 16M | 88.4 | – | 63.0 | 45.9 | **157.4** |
+| x * 2.5 | 16M | 127.7 | – | 82.2 | 91.9 | **156.0** |
+| exp(x) | 16M | 83.8 | **94.6** | 20.6 | 5.1 | 43.3 |
+| tanh(x) | 16M | 80.5 | **89.6** | 5.0 | 8.5 | 11.9 |
+| relu(x) | 16M | 133.0 | – | 13.4 | 23.4 | **157.5** |
+| x + y | 1M | 244.6 | **337.8** | 59.5 | 108.3 | 184.3 |
+| exp(x) | 1M | 85.7 | **97.3** | 14.7 | 5.1 | 40.2 |
+| tanh(x) | 1M | 78.3 | **93.2** | 5.0 | 8.5 | 11.8 |
+| relu(x) | 1M | **174.6** | – | 9.7 | 23.9 | 123.1 |
+
+"Released" is the same call with `Release()` on the previous result, so
+the allocator hands back a warm buffer instead of a freshly mapped one.
+It is what a loop that reuses its intermediates gets, and the gap between
+the two columns is the cost of a cold 64 MB allocation.
 
 Time per call for small arrays (64K elements), where fixed overhead
 dominates:
 
 | op | fiber/ai | pure Go | NumPy | PyTorch |
 |---|---:|---:|---:|---:|
-| x + y | 27.7 µs | 41.2 µs | **7.1 µs** | 30.9 µs |
-| exp(x) | 50.4 µs | 83.3 µs | 103.2 µs | **46.4 µs** |
+| x + y | 6.2 µs | 9.3 µs | **6.7 µs** | 30.9 µs |
+| exp(x) | **9.6 µs** | 36.6 µs | 102.9 µs | 45.6 µs |
+| tanh(x) | **9.8 µs** | 75.1 µs | 62.6 µs | 78.8 µs |
 
 Notes:
 
-- At 16M elements every implementation is bound by memory bandwidth.
-  PyTorch's edge on the simple ops (150 vs 100 GB/s) comes from its caching
-  allocator: it reuses the output buffer, whereas each Go call gets a fresh,
-  zero-filled 64 MB allocation from the runtime — an extra write pass plus
-  page faults. Streaming the same op into an existing tensor with
-  `AddInPlace` avoids this.
-- `exp` is a hand-written NEON kernel (Cody–Waite reduction + degree-6
-  polynomial, ≈ 1 ulp); it is 13× faster than NumPy and ahead of PyTorch's
-  SLEEF. `tanh` (and GELU, which uses it) still go through `math.Tanh` per
-  element and are the slowest thing in the table — next on the list.
-- The 64K case shows the cost of Go's allocator for a 256 KB result (page
-  faults on freshly mapped memory) relative to NumPy's single-threaded,
-  buffer-recycling loop. It is still on par with PyTorch, whose dispatcher
-  overhead is similar in size.
+- At 16M elements every implementation is bound by memory bandwidth, and
+  the remaining difference is allocation, not arithmetic. PyTorch's edge
+  on the simple ops comes from its caching allocator reusing the output
+  buffer; releasing ours closes it (147 against 144 GB/s on `x + y`).
+- `exp` and `tanh` are hand-written NEON kernels (Cody–Waite reduction
+  and a polynomial, ≈ 1 ulp). Both are an order of magnitude ahead of
+  NumPy and several times ahead of PyTorch's SLEEF. The earlier tables in
+  this file recorded `tanh` at 5.0 GB/s, going through `math.Tanh` per
+  element; that is the change between them and now.
+- The 64K rows show fixed overhead rather than bandwidth. NumPy's
+  single-threaded recycling loop is still marginally ahead on `x + y`,
+  and the transcendentals are not close.
 
 ## Reductions on a 4096×4096 matrix
 
@@ -209,35 +247,42 @@ Time per call (lower is better):
 
 | op | fiber/ai | pure Go | NumPy | PyTorch |
 |---|---:|---:|---:|---:|
-| sum() | 614 µs | 751 µs | 2.76 ms | **593 µs** |
-| sum(dim=0) | **653 µs** | 1.22 ms | 1.32 ms | 2.14 ms |
-| sum(dim=1) | 603 µs | 752 µs | 2.73 ms | **576 µs** |
-| max(dim=1) | **588 µs** | 3.18 ms | 1.17 ms | 1.14 ms |
-| softmax(dim=1) | **2.91 ms** | 14.4 ms | – | 6.47 ms |
-| layernorm (last dim) | 3.37 ms | 7.29 ms | – | **2.35 ms** |
-| transpose + contiguous copy | **11.0 ms** | 10.9 ms | 60.2 ms | 22.7 ms |
+| sum() | **584 µs** | 742 µs | 2.71 ms | 593 µs |
+| sum(dim=0) | **638 µs** | 1.18 ms | 1.33 ms | 2.23 ms |
+| sum(dim=1) | 543 µs | 733 µs | 2.78 ms | **576 µs** |
+| max(dim=1) | **537 µs** | 3.65 ms | 1.19 ms | 1.22 ms |
+| softmax(dim=1) | **2.32 ms** | 15.5 ms | – | 4.60 ms |
+| layernorm (last dim) | **1.81 ms** | 5.90 ms | – | 2.37 ms |
+| transpose + contiguous copy | **12.6 ms** | 12.8 ms | 62.0 ms | 23.2 ms |
 
-Row reductions run at ~110 GB/s, i.e. at memory speed. `sum(dim=0)` folds
-rows into per-goroutine partial sums so it streams the matrix once (NumPy
-and PyTorch both do noticeably worse here). LayerNorm makes five passes over
-each 16 KB row; fusing mean/variance into one pass would close the gap to
-PyTorch.
+Row reductions run at 115 to 125 GB/s, which is memory speed on this
+machine. `sum(dim=0)` folds rows into per-goroutine partial sums so it
+streams the matrix once, where NumPy and PyTorch both do noticeably
+worse. LayerNorm now computes mean and variance in one pass over each row
+into an L1-resident scratch buffer and keeps only the per-row statistics
+for backward; the earlier five-pass version measured 3.37 ms and was
+behind PyTorch, which is the change between that table and this one.
+`transpose + contiguous` is a pure permutation and the one row where the
+assembly buys nothing — pure Go matches it.
 
 ## Training step: MLP 784 → 512 → 512 → 10, batch 256, Adam
 
 | phase | fiber/ai | pure Go | PyTorch |
 |---|---:|---:|---:|
-| forward (no grad) | 1.51 ms · 170 K samples/s | 9.53 ms · 27 K | **0.48 ms · 532 K** |
-| forward + backward | 4.24 ms · 60 K | 23.6 ms · 11 K | **1.17 ms · 219 K** |
-| forward + backward + Adam step | 4.50 ms · 57 K | 22.4 ms · 11 K | **2.21 ms · 116 K** |
+| forward (no grad) | **310 µs · 827 K samples/s** | 9.18 ms · 28 K | 493 µs · 520 K |
+| forward + backward | 1.25 ms · 205 K | 22.1 ms · 12 K | 1.21 ms · 212 K (level) |
+| forward + backward + Adam step | **1.44 ms · 178 K** | 22.8 ms · 11 K | 2.19 ms · 117 K |
 
 The step is ~90 % matrix products (340 MFLOP forward, ~2× that backward),
-so this table is the GEMM table again: PyTorch's forward runs at ~700 GFLOPS
-on AMX, ours at ~225 GFLOPS on NEON. Two things are worth noting. The
-autograd machinery itself is cheap: forward+backward costs 2.8× the forward
-in fiber/ai, the theoretical 3× for the GEMMs involved. And the optimiser
-step is where Python overhead shows — PyTorch spends 1.04 ms on Adam for
-668 K parameters, fiber/ai 0.26 ms.
+so this table is the GEMM table again, and it moved when GEMM moved to
+AMX: the earlier NEON figures here were 1.51 ms forward and 4.50 ms for
+the full step.
+
+Two things are worth noting. The autograd machinery is cheap —
+forward+backward costs 4.0× the forward, against the 3× the GEMMs alone
+would predict, so roughly a quarter of the backward is bookkeeping. And
+the optimiser step is where Python overhead shows: PyTorch spends 0.98 ms
+on Adam for 668 K parameters, fiber/ai 0.19 ms.
 
 ## Apple M4 (4 performance + 6 efficiency cores)
 
@@ -276,25 +321,31 @@ Observations:
   exp, softmax, column reductions and max; behind on layernorm (five
   passes per row instead of one fused pass) and on tanh.
 
-## Apple AMX back-end (M2 Pro, opt-in `FIBERAI_AMX=1`)
+## Apple AMX back-end (M2 Pro): what it is worth against NEON
 
 Accelerate's SGEMM numbers on the Macs come from the AMX coprocessor;
 spec T-010 puts fiber/ai's GEMM tile on the same unit (Go assembly with
-the instruction words documented by github.com/corsix/amx). Same
-`cmd/bench`, results released as in the other tables:
+the instruction words documented by github.com/corsix/amx). AMX is the
+default back-end on Apple Silicon now; the NEON column here is the same
+binary with `FIBERAI_KERNEL=neon`, measured in the same session (raw:
+[results/m2pro-2026-09-12/go-neon.md](benchmarks/results/m2pro-2026-09-12/go-neon.md)).
 
-| Workload | NEON (10 cores) | AMX | NumPy | PyTorch |
+| Workload | NEON (6 workers) | AMX | NumPy | PyTorch |
 |---|---:|---:|---:|---:|
-| SGEMM 512², all cores (GFLOPS) | 514 | 1 409 | **2 142** | 2 131 |
-| SGEMM 1024² | 581 | 1 881 | **2 693** | 2 665 |
-| SGEMM 2048² | 636 | **2 250** | 2 241 | 2 243 |
-| SGEMM 1024², 1 thread | 96 | 1 049 | – | 2 690 (Accelerate ignores the thread limit) |
-| [64×1024]·[1024²] | 332 | 928 | **1 292** | 1 275 |
-| [256×768]·[768×3072] | 500 | 1 562 | **2 389** | 2 357 |
-| [1024²]·[1024²]ᵀ (view) | 562 | 1 893 | **2 431** | 2 398 |
-| MLP inference (samples/s) | 221 K | **569 K** | – | 532 K |
-| MLP forward + backward | 96 K | 162 K | – | **219 K** |
-| MLP training step | 85 K | **146 K** | – | 116 K |
+| SGEMM 512², all workers (GFLOPS) | 518 | 1 505 | 2 144 | **2 157** |
+| SGEMM 1024² | 542 | 2 118 | 2 636 | **2 688** |
+| SGEMM 2048² | 546 | **2 225** | 2 225 | 2 192 |
+| SGEMM 1024², 1 thread | 101 | 1 182 | – | 2 652 (Accelerate ignores the thread limit) |
+| [64×1024]·[1024²], packed per call | 411 | 950 | 1 288 | **1 292** |
+| [256×768]·[768×3072], packed per call | 498 | 1 705 | 2 150 | **2 328** |
+| [1024²]·[1024²]ᵀ (view) | 553 | **2 469** | 2 420 | 2 375 |
+| MLP inference (samples/s) | 349 K | **827 K** | – | 520 K |
+| MLP forward + backward | 102 K | 205 K | – | 212 K (level) |
+| MLP training step | 98 K | **178 K** | – | 117 K |
+
+AMX is worth 3 to 4× over NEON on every GEMM shape and 2.4× on MLP
+inference. It is also the reason the training-step row reads the way it
+does: on NEON that row was 98 K, behind PyTorch.
 
 The raw tile reaches 1.55 TFLOPS on one thread and 3.3 TFLOPS on six
 (the units sit with the six performance cores; the efficiency cores'
@@ -343,10 +394,11 @@ The Air has four performance and six efficiency cores against the M2
 Pro's six and four, and every parallel round waited for an efficiency
 core. With four workers (T-047 makes the performance cores the Apple
 Silicon default) the forward is 1.3× ahead and the training step ahead;
-the backward pass stays behind, the fusion gap. The M2 Pro gains a
-quarter on the training step the same way (147 K → 183 K) and loses a
-tenth on attention (1 156 → 982), whose whole-head tasks the efficiency
-cores could grind through alone; `FIBERAI_WORKERS=10` gets that back.
+the backward pass stays behind, the fusion gap. The M2 Pro gained a
+quarter on the training step the same way (147 K → 183 K when T-047
+landed; it measures 178 K now) and lost about a tenth on attention, whose
+whole-head tasks the efficiency cores could grind through alone;
+`FIBERAI_WORKERS=10` gets that back.
 
 ## Cloud VM, 6 vCPU AVX2 (9 September 2026)
 
@@ -392,30 +444,31 @@ rotate through a thousand fresh mappings before the first forced
 collection. A lower collection budget for small size classes on such
 hosts, or the heap path for them, is the candidate (TODO).
 
-## Small products and the tiny autoencoder (M2 Pro, 10 September 2026)
+## Small products and the tiny autoencoder (M2 Pro)
 
 Below about 160² a product takes one call with micro-kernels that read
 their operands in place (T-050) instead of the blocked driver. Fresh
-operands, result released; PyTorch 2.14 on Accelerate the same day
-(`bench.py --only small`).
+operands, result released; PyTorch 2.8 on Accelerate the same session
+(`bench.py --only small`). "Before" is the blocked driver, measured
+before T-050.
 
 | shape | before | fiber/ai | PyTorch |
 |---|---:|---:|---:|
-| 32² (GFLOPS) | 42 | **63** | 47 |
-| 64² | 156 | 217 | **288** |
-| 96² | 264 | 363 | **555** |
-| 128² | 379 | 562 | **777** |
-| 160² | 526 | 674 | **909** |
-| 192² (driver) | 732 | 718 | **1 005** |
-| 256² (driver) | 1 082 | 1 131 | 1 156 (level) |
-| [64×24]·[24×16] | – | 25 | **35** |
-| [64×16]·[16×3] | – | **4.0** | 2.9 |
-| [256×24]·[24×16] | – | 36 | **92** |
-| tiny autoencoder 24→16→3→16→24, batch 64, forward (samples/s) | – | **3.06 M** | 2.38 M |
-| same, forward + backward + Adam step | – | **1.18 M** | 284 K |
+| 32² (GFLOPS) | 42 | **63** | 52 |
+| 64² | 156 | 216 | **305** |
+| 96² | 264 | 371 | **566** |
+| 128² | 379 | 558 | **785** |
+| 160² | 526 | 671 | **890** |
+| 192² (driver) | 732 | 743 | **992** |
+| 256² (driver) | 1 082 | 1 105 | 1 143 (level) |
+| [64×24]·[24×16] | – | 25 | **38** |
+| [64×16]·[16×3] | – | **4.0** | 3.1 |
+| [256×24]·[24×16] | – | 36 | **100** |
+| tiny autoencoder 24→16→3→16→24, batch 64, forward (samples/s) | – | **3.08 M** | 1.84 M |
+| same, forward + backward + Adam step | – | **1.16 M** | 253 K |
 
-The training step of a netwatch-sized model is 4.2× ahead: at this size
-a step is per-operation overhead, and that is where Python pays. The
+The training step of a model this small is 4.6× ahead: at this size a
+step is per-operation overhead, and that is where Python pays. The
 squares are still behind Accelerate by 1.3–1.5× below 160² (they were
 1.8–2.1× behind): what remains on the M2 is the AMX tile store per
 k-step block and the result recycling, not packing. Narrow products
@@ -424,7 +477,7 @@ n = 16. Xeon and VM: pending.
 
 ## Attention, convolution and EmbeddingGemma (M2 Pro, AMX)
 
-Rows added with the transformer work; PyTorch 2.14 (Accelerate BLAS, 6
+Rows added with the transformer work; PyTorch 2.8 (Accelerate BLAS, 6
 threads by default) via `benchmarks/python/bench.py --only
 attention,conv,embed`, fiber/ai via `go run ./cmd/bench -only
 attention,conv,embed`. Attention and convolution run under `NoGrad` with
@@ -433,13 +486,22 @@ of a 65-token sentence as one batch.
 
 | row | PyTorch | fiber/ai |
 |---|---:|---:|
-| attention [8×8×512×64], GFLOPS over the two products | 561 | 1 175 |
-| same with a causal mask | 566 | 1 065 |
-| attention [1×8×2048×64], long sequence | 652.5 | 1 120 |
-| conv2d [32×64×56×56] · 64 filters 3×3, GFLOPS | 314 | 367 |
-| EmbeddingGemma, sentences/s | 91 | 106 |
+| attention [8×8×512×64], GFLOPS over the two products | 590 | 1 005 |
+| same with a causal mask | 592 | 832 |
+| attention [1×8×2048×64], long sequence | 711 | 958 |
+| conv2d [32×64×56×56] · 64 filters 3×3, GFLOPS | 287 | 348 |
+| EmbeddingGemma, sentences/s | 88 (8 September) | 105 |
 
-The embedding row is the one that matters for the syslog work: a full
+Each row here is measured with `-only`, not inside a full suite run: the
+convolution case in particular reports 184 GFLOPS rather than 348 when it
+follows the element-wise section, because the mapped pool is holding
+404 MiB by then and the collector is running constantly. That is a
+property of the harness, not of the convolution, and it is on the list to
+fix.
+
+The EmbeddingGemma row could not be re-measured on the PyTorch side in
+this session — the benchmark venv has no `sentence-transformers` — so
+that one figure is from 8 September while ours is current. A full
 24-layer encoder, tokenizer to unit vector, a fifth ahead of the Python
 stack on the same machine. Its parity with `sentence-transformers` is
 cosine 1.000000 on 64 short and 3 long (up to 1753-token) inputs; see
@@ -449,9 +511,17 @@ cosine 1.000000 on 64 short and 3 long (up to 1753-token) inputs; see
 
 Every element-wise operation allocates its result; Go zero-fills it and,
 once the GC has released earlier results to the OS, the pages fault back
-in on the next write. On the M2 Pro, raising `GOGC` from 100 to 800 —
-which keeps freed memory resident instead of returning it — changes
-nothing in the kernels and this much in the timings:
+in on the next write. The `GOGC` experiment below is from 5 September and
+is kept because it is what motivated the fix rather than because it
+describes the code now: results of 64 KiB and more are mapped outside the
+Go heap and recycled through a pool, and `Release()` returns one for
+immediate reuse. The "released" column of the element-wise table is that
+same effect measured on the current code — 337 against 245 GB/s on
+`x + y` at 1M elements.
+
+Raising `GOGC` from 100 to 800 — which keeps freed memory resident
+instead of returning it — changed nothing in the kernels and this much in
+the timings:
 
 | op | n | GOGC=100 | GOGC=800 |
 |---|---:|---:|---:|
@@ -466,8 +536,10 @@ that the 64 MB results are fresh pages either way. On the x86 KVM guest
 the same effect is much larger, because page faults are 2–3× more
 expensive under virtualisation: `x + y` on 16M elements ran at 8 GB/s
 while `sum()` over the same data ran at 32 GB/s. Writing results into
-caller-provided or pooled buffers (TODO T-003) is the fix; it is the
-single most valuable change for x86 deployments.
+caller-provided or pooled buffers was the fix, and it landed: off-heap
+mapped storage with a free list, `Release()`, and an opt-in heap pool
+(`SetPoolLimit`). It remains the single most valuable change for x86
+deployments, where the x86 tables here still predate it.
 
 ## x86: Intel Xeon Gold 6130 (Skylake-SP), one socket
 
@@ -701,14 +773,25 @@ machine is the next measurement.
 
 ## What the numbers say
 
-- The NEON kernels are close to the hardware limits: 87 % of FMA peak for
-  GEMM on one core, memory bandwidth for the streaming ops.
-- Against NumPy, fiber/ai is faster on everything except a large GEMM on
-  Apple Silicon, where NumPy is really Apple's AMX coprocessor.
-- Against PyTorch, fiber/ai wins on exp, softmax, column sums, max and
-  transposes, ties on row reductions, and loses on large GEMM (AMX), large
-  simple element-wise ops (allocator) and tanh/GELU (not yet vectorised).
-- Highest-value next steps, in order: vectorised tanh/log, fused
-  LayerNorm statistics, unpacked-B GEMM for small M, and measuring the
-  AVX2/AVX-512 back-ends on x86 against OpenBLAS/MKL for a like-for-like
-  GEMM comparison.
+- The kernels are close to the hardware limits: the NEON GEMM runs at
+  about 87 % of one core's FMA peak, and the streaming operations run at
+  memory bandwidth.
+- On GEMM the picture depends on the size. Accelerate is ahead below
+  1024² — by 1.3× at 512², more at 128² — and we are level at 2048²
+  (2 225 against 2 225 and 2 192). Where the right-hand operand is reused,
+  which is what a layer with fixed weights does, the packed-operand cache
+  puts us ahead on the transformer FFN shape as well.
+- Away from GEMM the wins are ours and they come from the kernels:
+  exp and tanh by an order of magnitude over NumPy and several times over
+  PyTorch, softmax by 2×, column sums by 3.5×, max by 2.3×, transposes by
+  1.8×, LayerNorm by 1.3×. Inference and the training step on the MLP are
+  ahead; forward+backward is level.
+- Two of the losses in earlier editions of this file are gone: `tanh` was
+  5 GB/s through `math.Tanh` and is now 90, and LayerNorm was 3.37 ms and
+  is now 1.81. What remains is GEMM below 1024² and the largest
+  element-wise operations, where the gap is allocation rather than
+  arithmetic and closes when the result is released.
+- Highest-value next steps, in order: unpacked-B GEMM for small M,
+  resetting the allocator between benchmark sections so the convolution
+  figure is not an artifact of what ran before it, and re-measuring the
+  x86 back-ends, which predate off-heap results entirely.
