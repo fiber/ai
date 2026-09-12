@@ -20,27 +20,30 @@ go run ./examples/mnist
 
 ## Where the data comes from
 
-The four files live in a second module, `github.com/fiber/ai-data`,
-embedded in the package and verified by checksum. The example fetches
-nothing at run time.
+The four files come from `github.com/fiber/ai-data`, which embeds them
+and verifies them by checksum. Nothing is downloaded when you run the
+example.
 
-That is a deliberate choice with two reasons behind it. The first is
-that an example which downloads from a public server on every run is a
-small denial-of-service attack with a friendly face: one person testing
-it is nothing, a thousand readers of a tutorial doing the same is a
-problem for whoever pays for that bandwidth. The airspace example in
-this repository learned that lesson the hard way and now identifies
-itself and backs off. The second is that 11 MB of digits would otherwise
-sit in the framework's own module and be downloaded by everyone who ever
-imports `tensor`, whether they look at MNIST or not. A separate module
-keeps the framework small: Go fetches only the modules it needs to build
-what you import.
+Their format is `idx`, which predates most things: a big-endian magic
+number, then the count, then the dimensions, then the pixels — one byte
+each, no separators, no per-image header. The whole reader is a
+`binary.Read` of the header and an `io.ReadFull` of the rest:
 
-The format is `idx`, which predates most things: a big-endian magic
-number, the count, the dimensions, then the pixels, one byte each, with
-no separators and no header per image. Thirty lines of `encoding/binary`
-read it, and `ai-data/mnist` is those thirty lines plus the checks that
-turn a truncated file into an error instead of a panic.
+```go
+var hdr struct{ Magic, N, Rows, Cols int32 }
+binary.Read(images, binary.BigEndian, &hdr)   // 0x803, 60000, 28, 28
+pixels := make([]byte, hdr.N*hdr.Rows*hdr.Cols)
+io.ReadFull(images, pixels)
+```
+
+Worth pausing on, because it is the shape of most real data formats and
+nothing like a CSV: fixed-width binary records with the geometry in a
+header, which you read by describing the header as a struct and letting
+`encoding/binary` fill it in. The labels are a second file with the same
+layout and one byte per image. What `ai-data/mnist` adds to the four
+lines above is the checking — a wrong magic number, a truncated file or
+a label above 9 becomes an error rather than a panic three functions
+later.
 
 ```go
 train, _ := mnist.Train()
@@ -200,15 +203,12 @@ choice for ReLU networks while PyTorch's `a=√5` is a historical accident
 that nobody defends on the merits — so "match PyTorch" is not obviously
 the right answer either.
 
-That is the kind of thing a comparison is *for*. Two numbers that differ
-by a tenth of a point are not a result; the reason they differ is.
+Two numbers that differ by a tenth of a point are not a result; the
+reason they differ is. That is the use of a second implementation, and
+it is why the flag exists.
 
-Two caveats belong here rather than in the reader's head. This is CPU
-against CPU: on a machine with a CUDA card PyTorch is not in the same
-race, and this library does not pretend otherwise. And these numbers were
-wrong until recently — the convolution scored 98.50 because its backward
-pass read a buffer that had already been freed. This comparison is what
-exposed it, which is the argument for keeping one.
+One caveat about the timings: this is CPU against CPU. On a machine with
+a CUDA card the comparison does not apply.
 
 ## Where the mistakes are
 
