@@ -18,7 +18,7 @@ the ideas arrive through the code.
 | 9 | [Embeddings: text as geometry](09-embeddings.md) | `go run ./examples/tutorial/09-embeddings` |
 | 10 | [The autoencoder: unusual by reconstruction](10-autoencoder.md) | `go run ./examples/tutorial/10-autoencoder` |
 | 11 | [Attention: choosing what to look at](11-attention.md) | `go run ./examples/tutorial/11-attention` |
-| 12 | [Handwritten digits: the first real data](12-mnist.md) | `go run ./examples/mnist` |
+| 12 | [Handwritten digits: the first real data](12-mnist.md) | `go run ./examples/tutorial/12-mnist` |
 
 Chapters 1 to 4 use only the `tensor` package; 5 to 12 add `nn` and
 `optim`, chapters 8 to 12 also `data` and `metrics`; chapter 9 uses the

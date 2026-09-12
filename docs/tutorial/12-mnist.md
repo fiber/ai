@@ -15,7 +15,7 @@ reports 89% on MNIST, something is broken, and you know it without
 reading the code.
 
 ```
-go run ./examples/mnist
+go run ./examples/tutorial/12-mnist
 ```
 
 ## Where the data comes from

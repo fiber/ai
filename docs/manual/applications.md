@@ -240,15 +240,15 @@ details; `-prep` rebuilds the files from the raw archives.
 
 ## MNIST: the benchmark everybody knows
 
-`examples/mnist` trains a classifier on handwritten digits, the one
+`examples/tutorial/12-mnist` trains a classifier on handwritten digits, the one
 dataset in this field whose numbers a reader can check against their own
 experience. It is the program of [tutorial chapter 12](../tutorial/12-mnist.md)
 and the only example that trains on data collected by somebody else.
 
 ```
-go run ./examples/mnist                  # both models, five epochs
-go run ./examples/mnist -model cnn -epochs 10
-go run ./examples/mnist -limit 1000      # how each model copes with scarce data
+go run ./examples/tutorial/12-mnist                  # both models, five epochs
+go run ./examples/tutorial/12-mnist -model cnn -epochs 10
+go run ./examples/tutorial/12-mnist -limit 1000      # how each model copes with scarce data
 ```
 
 The data comes from `github.com/fiber/ai-data`, a separate module that
