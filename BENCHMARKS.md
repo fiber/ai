@@ -439,6 +439,12 @@ so it was never better than that either.
 | **tiny autoencoder, forward (samples/s)** | **927 K** | – | 231 K |
 | **tiny autoencoder, training step** | **225 K** | – | 31 K |
 
+Both autoencoder rows are from the full suite on each side, so they are
+comparable with each other. Measured alone (`-only small`, median of
+three) ours reads 1.14 M and 311 K instead — the same allocator-state
+effect the convolution row shows, and a reminder that on this guest the
+context a case runs in moves it by a third.
+
 ### What changed since 9 September
 
 Same machine, same workloads, three months of kernel and allocator work
@@ -480,19 +486,23 @@ furthest ahead. Both are in the same table, which is the point.
 
 | shape | fiber/ai | PyTorch |
 |---|---:|---:|
-| 32² (GFLOPS) | **12.6** | 10.5 |
-| 64² | 31.3 | **37.3** |
-| 96² | 38.2 | **86.0** |
-| 128² | 51.4 | **126.3** |
-| 160² | 47.8 | **130.3** |
-| 192² | 129.0 | **171.1** |
-| 256² | **184.1** | 147.4 |
-| [64×24]·[24×16] | **10.8** | 8.4 |
-| [64×16]·[16×3] | **1.5** | 1.1 |
-| [256×24]·[24×16] | 16.0 | **19.1** |
+| 32² (GFLOPS) | **10.8** | 10.5 |
+| 64² | 29.0 | **37.3** |
+| 96² | 33.3 | **86.0** |
+| 128² | 96.5 | **126.3** |
+| 160² | 138.3 | 130.3 (level) |
+| 192² | 164.6 | 171.1 (level) |
+| 256² | **208.3** | 147.4 |
+| [64×24]·[24×16] | **11.6** | 8.4 |
+| [64×16]·[16×3] | **1.4** | 1.1 |
+| [256×24]·[24×16] | 15.9 | **19.1** |
 
-Between 96² and 192² PyTorch is two to two-and-a-half times ahead, and
-that band is unfixed work. Below and above it we are ahead. A
+Those figures are after T-060, which set the small-product threshold per
+architecture. Before it, 128² measured 51 and 160² measured 48, because
+the small path runs on one goroutine and x86 cannot spare the other
+five; the threshold had been tuned where a single core drives most of
+the machine. 64² and 96² remain the band where MKL is clearly ahead and
+the work is unfinished. A
 24→16→3→16→24 autoencoder at batch 64 is made entirely of the narrow
 shapes at the bottom of that table, and it runs 4× faster on the forward
 pass and 7× faster on a full training step than the same model in

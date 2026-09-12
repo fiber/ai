@@ -10,3 +10,8 @@ const (
 	defaultMC = 128
 	defaultNC = 4096
 )
+
+// One thread drives most of the AMX unit — 1 182 of 2 118 GFLOPS at
+// n=1024 on an M2 Pro — so the small path gives up little parallelism
+// and its saving on fixed cost reaches much further up. See SmallLimit.
+const defaultSmallLimit = 160 * 160 * 160

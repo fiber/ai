@@ -928,13 +928,16 @@ func packBPanel(dst []float32, b Mat, p0, j0, pb, jb, nr, pi int) {
 }
 
 // SmallLimit is the m·n·k up to which a product takes the small path:
-// one call on the calling goroutine instead of the blocked driver. Below
-// about 200² the driver's fixed cost (two operands packed through the
-// pool, a packing round and a compute round, K-block bookkeeping) is most
-// of the call: 128² ran at 359 GFLOPS on an M2 Pro against Accelerate's
-// 764 with one worker or six alike. FIBERAI_BLAS_SMALL overrides, 0
-// disables.
-var SmallLimit = 160 * 160 * 160
+// one call on the calling goroutine instead of the blocked driver. The
+// driver's fixed cost — two operands packed through the pool, a packing
+// round and a compute round, K-block bookkeeping — is most of a small
+// call, and the small path removes it. What it costs is every worker but
+// one, so the size at which the trade stops paying depends on how much
+// of the machine a single core is. That differs by a factor of three
+// between the back-ends, which is why the default lives in
+// params_<arch>.go beside the blocking parameters.
+// FIBERAI_BLAS_SMALL overrides, 0 disables.
+var SmallLimit = defaultSmallLimit
 
 // gemmSmall computes C (=|+=) A·B for a product under SmallLimit: one
 // call on the calling goroutine, nothing packed that a kernel can read in

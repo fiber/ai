@@ -12,3 +12,11 @@ const (
 	defaultMC = 112 // rounded down to a multiple of MR at use: 112 for the 14×32 AVX-512 tile, 108 for the 6×16 AVX2 tile
 	defaultNC = 4096
 )
+
+// The small path gives up every worker but one, and on x86 one core is a
+// small fraction of the machine: on six AVX2 vCPUs 128² measured 45
+// GFLOPS on the small path against 105 through the blocked driver, and
+// 160² measured 36 against 149. Below 96³ the driver's fixed cost still
+// dominates and the small path wins (64²: 29 against 19). See
+// SmallLimit.
+const defaultSmallLimit = 96 * 96 * 96

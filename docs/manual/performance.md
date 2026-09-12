@@ -98,8 +98,12 @@ separately: on a six-vCPU AVX2 KVM guest the products from 96² to 192²
 are two to two-and-a-half times behind MKL, while the narrow shapes a
 small autoencoder is made of are ahead, and a 24→16→3→16→24 model at
 batch 64 trains seven times faster there than the same model in PyTorch.
-The small-product path of T-050 is tuned for the AMX tile and gains
-nothing on AVX2. See BENCHMARKS.md.
+The threshold below which a product takes the small path is per
+architecture for that reason (`FIBERAI_BLAS_SMALL` overrides it): the
+path runs on one goroutine, so it trades the driver's fixed cost for
+every worker but one, and on Apple Silicon a single thread drives most
+of the AMX unit while on six AVX2 cores it drives a sixth of the
+machine. 160³ on arm64, 96³ on amd64. See BENCHMARKS.md.
 
 - **Matrix products** run at 84–90 % of a core's FMA peak on one core
   (Apple M2 Pro ~100 GFLOPS, M4 121, Xeon Gold 6130 with AVX-512 150–162)
