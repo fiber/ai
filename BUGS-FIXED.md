@@ -2,6 +2,7 @@
 
 Fixed bugs, newest first. Each points to its spec in `spec/done/`.
 
+- 2026-09-12 B-011 — bench.py does not parse on the venv's Python: nested quotes in an f-string need 3.12 (spec/done/B-011-bench-py-does-not-parse-on-the-venv-s-python-nes.md)
 - 2026-09-12 B-010 — README and getting-started still say the tutorial has seven chapters (spec/done/B-010-readme-and-getting-started-still-say-the-tutoria.md)
 - 2026-09-12 B-009 — Conv2D frees the im2col buffer a backward closure still reads (spec/done/B-009-conv2d-frees-the-im2col-buffer-a-backward-closur.md)
 - 2026-09-09 B-008 — tutorial chapter 8 prints a pipe table that the chapter quotes inside a code fence, so it renders as text (spec/done/B-008-tutorial-chapter-8-prints-a-pipe-table-that-the.md)

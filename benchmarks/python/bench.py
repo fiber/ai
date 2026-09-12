@@ -292,7 +292,13 @@ def bench_embed():
     print(f"threads {torch.get_num_threads()}\n")
     print("| shape | time / batch | sentences/s |")
     print("|---|---:|---:|")
-    print(f"| 32 × {ntok} tokens, dim {(model.get_embedding_dimension() if hasattr(model, "get_embedding_dimension") else model.get_sentence_embedding_dimension())} | {fmt_dur(t)} | {32 / t:.0f} |")
+    # Computed before the f-string: nested double quotes inside one are a
+    # syntax error before Python 3.12, and the venv here is 3.9.
+    if hasattr(model, "get_embedding_dimension"):
+        dim = model.get_embedding_dimension()
+    else:
+        dim = model.get_sentence_embedding_dimension()
+    print(f"| 32 × {ntok} tokens, dim {dim} | {fmt_dur(t)} | {32 / t:.0f} |")
     print()
 
 
