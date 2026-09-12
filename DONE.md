@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-12 T-059 — Re-measure the AVX2 cloud VM against HEAD (spec/done/T-059-re-measure-the-avx2-cloud-vm-against-head.md)
 - 2026-09-12 T-058 — MultiHeadAttention can apply rotary positions to its queries and keys (spec/done/T-058-multiheadattention-can-apply-rotary-positions-to.md)
 - 2026-09-12 T-057 — Cut packaging commentary from tutorial chapter 12 (spec/done/T-057-cut-packaging-commentary-from-tutorial-chapter-1.md)
 - 2026-09-12 T-054 — Re-measure the M2 Pro figures against HEAD (spec/done/T-054-re-measure-the-m2-pro-figures-against-head.md)

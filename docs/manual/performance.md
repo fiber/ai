@@ -93,6 +93,14 @@ back-end caps GEMM workers at their number. Not available on Linux/arm64.
 Numbers from `go run ./cmd/bench`; full tables and the NumPy/PyTorch
 comparison in [BENCHMARKS.md](../../BENCHMARKS.md).
 
+On x86 the same code behaves differently enough to be worth stating
+separately: on a six-vCPU AVX2 KVM guest the products from 96² to 192²
+are two to two-and-a-half times behind MKL, while the narrow shapes a
+small autoencoder is made of are ahead, and a 24→16→3→16→24 model at
+batch 64 trains seven times faster there than the same model in PyTorch.
+The small-product path of T-050 is tuned for the AMX tile and gains
+nothing on AVX2. See BENCHMARKS.md.
+
 - **Matrix products** run at 84–90 % of a core's FMA peak on one core
   (Apple M2 Pro ~100 GFLOPS, M4 121, Xeon Gold 6130 with AVX-512 150–162)
   and scale to ~550 GFLOPS on the six Apple performance cores and ~1 150 GFLOPS on a

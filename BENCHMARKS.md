@@ -400,49 +400,122 @@ landed; it measures 178 K now) and lost about a tenth on attention, whose
 whole-head tasks the efficiency cores could grind through alone;
 `FIBERAI_WORKERS=10` gets that back.
 
-## Cloud VM, 6 vCPU AVX2 (9 September 2026)
+## Cloud VM, 6 vCPU AVX2 (12 September 2026)
 
 The machine most like production: a KVM guest with six AVX2 vCPUs, no
-AVX-512, a hypervisor between us and the page tables. fiber/ai commit
-0ceb7eb (Go 1.26.2) against NumPy 2.5.2 / OpenBLAS and PyTorch 2.14 /
-MKL with six threads, same day; raw runs in
-`results/kvm-avx2-2026-09-09/`. Bold marks the faster side.
+AVX-512, a hypervisor between us and the page tables. fiber/ai at
+da3c3b9 built with Go 1.27.1 on the guest itself, against NumPy 2.5.2 /
+OpenBLAS and PyTorch 2.14.0+cpu / MKL with six threads, same session;
+raw runs in `results/kvm-avx2-2026-09-12/`.
+
+**Read the ranges, not the medians.** This guest is shared and its
+run-to-run spread dwarfs the Mac's: three runs of one binary gave 215,
+233 and 262 GFLOPS on SGEMM 2048² and 44, 51 and 58 at 128². Every
+figure below is the median of three, and differences under about 10 %
+mean nothing here. The 9 September table this replaces was single runs,
+so it was never better than that either.
 
 | Workload | fiber/ai AVX2 | NumPy | PyTorch |
 |---|---:|---:|---:|
-| SGEMM 2048², all cores (GFLOPS) | **270** | 241 | 187 |
-| SGEMM 1024² | **234** | 220 | 122 |
-| SGEMM 512² | 180 | **199** | 184 |
-| SGEMM 128² | 52 | 88 | **129** |
-| [256×768]·[768×3072], B packed once | **220** (191 per call) | 208 | 170 |
-| [1×4096]·[4096×4096] | 7.8 | 15.4 | **16.6** |
-| x + y, 1M (released) | 163 µs | 724 µs | **141 µs** |
-| x + y, 16M (released) | **6.1 ms** | 40.7 ms | 30.9 ms |
-| exp, 16M | **6.4 ms** | 76.7 ms | 32.7 ms |
-| tanh, 1M (released) | **397 µs** | 6.1 ms | 1.22 ms |
-| sum(), 4096² | 1.92 ms (level) | 9.95 ms | 2.01 ms |
-| sum(dim=0), 4096² | **2.10 ms** | 8.98 ms | 7.30 ms |
-| softmax(dim=1), 4096² | **9.6 ms** | – | 34.2 ms |
-| layernorm, 4096² | **11.0 ms** | – | 25.6 ms |
-| transpose + copy, 4096² | **74 ms** | 216 ms | 128 ms |
-| attention [8×8×512×64] (GFLOPS) | **150** | – | 128 |
-| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 73 | – | **130** |
-| MLP forward, batch 256 (samples/s) | **139 K** | – | 78 K |
-| MLP forward + backward | 28 K | – | **45 K** |
-| MLP train step (Adam) | 23 K | – | **31 K** |
-| EmbeddingGemma (sentences/s) | **17** | – | 13 |
+| SGEMM 2048², all cores (GFLOPS) | **255** | 167 | 188 |
+| SGEMM 1024² | **248** | 184 | 173 |
+| SGEMM 512² | **235** | 213 | 185 |
+| SGEMM 256² | 175 (level) | 154 | 173 |
+| SGEMM 128² | 44 | 74 | **104** |
+| x + y, 1M (released) | **136 µs** | 724 µs | 141 µs |
+| x + y, 16M (released) | **6.12 ms** | 40.7 ms | 30.9 ms |
+| exp, 16M | **6.34 ms** | 76.7 ms | 32.7 ms |
+| tanh, 1M (released) | **304 µs** | 6.1 ms | 1.22 ms |
+| sum(), 4096² | **1.69 ms** | 9.95 ms | 2.01 ms |
+| sum(dim=0), 4096² | **2.38 ms** | 8.98 ms | 7.30 ms |
+| softmax(dim=1), 4096² | **9.51 ms** | – | 34.2 ms |
+| layernorm, 4096² | **7.59 ms** | – | 25.6 ms |
+| transpose + copy, 4096² | **21.6 ms** | 216 ms | 128 ms |
+| attention [8×8×512×64] (GFLOPS) | **163** | – | 128 |
+| conv2d [32×64×56×56]·64×3×3 (GFLOPS) | 74 | – | **130** |
+| MLP forward, batch 256 (samples/s) | **145 K** | – | 101 K |
+| MLP forward + backward | 25 K | – | **44 K** |
+| MLP train step (Adam) | 31 K (level) | – | 32 K |
+| **tiny autoencoder, forward (samples/s)** | **927 K** | – | 231 K |
+| **tiny autoencoder, training step** | **225 K** | – | 31 K |
 
-Where the VM differs from the Xeon: attention is ahead here (PyTorch's
-AVX2 attention kernel runs at 128 GFLOPS on six vCPUs, ours at 150), the
-matrix-vector product is behind (7.8 against 16.6: six threads over a
-64 MB matrix, and our per-row split does not saturate this guest's
-memory), and everything that allocates suffers under the hypervisor.
-The unreleased 64K row is the extreme: `x + y` on a 256 KB result costs
-788 µs against 15 µs released and 27 µs in PyTorch, because a fresh
-256 KB mapping pays about 0.7 ms of page faults here and small results
+### What changed since 9 September
+
+Same machine, same workloads, three months of kernel and allocator work
+in between — and this is the first time any of it has been measured on
+x86 rather than assumed from the Mac.
+
+| Workload | 9 Sep | 12 Sep | |
+|---|---:|---:|---|
+| transpose + copy, 4096² | 74 ms | **21.6 ms** | 3.4× faster |
+| layernorm, 4096² | 11.0 ms | **7.59 ms** | 1.4× |
+| tanh, 1M (released) | 397 µs | **304 µs** | 1.3× |
+| SGEMM 512² | 180 | **235** | 1.3× |
+| x + y, 1M (released) | 163 µs | **136 µs** | 1.2× |
+| sum(), 4096² | 1.92 ms | 1.69 ms | 1.1× |
+| exp 16M, x+y 16M, softmax | – | – | unchanged |
+| sum(dim=0), 4096² | 2.10 ms | 2.38 ms | 13 % slower |
+| SGEMM 128² | 52 | 44 | 15 % slower |
+
+The transpose row is the one to notice. It allocates and writes a 64 MB
+result, page faults cost 2–3× more under a hypervisor than on the Mac,
+and off-heap mapped storage with a free list removes most of them. The
+allocation-cost section below predicted this was "the single most
+valuable change for x86 deployments"; it was, and by more than it gained
+on the Mac.
+
+Two rows went the other way and neither is inside the noise. `sum(dim=0)`
+and SGEMM 128² both sit below the whole three-run range of the September
+figure. The 128² case is the interesting one: T-050's small-product path
+took the M2 Pro from 376 to 553 GFLOPS at that size and does nothing
+here — the spec recorded "Xeon and VM: pending" and this is the answer.
+The path is tuned for the AMX tile, and on AVX2 the driver it replaces
+was not the bottleneck.
+
+### Small products: where this machine actually loses and wins
+
+The shapes below 256² are where fiber/ai is furthest behind on x86, and
+the shapes an anomaly-detection model is made of are where it is
+furthest ahead. Both are in the same table, which is the point.
+
+| shape | fiber/ai | PyTorch |
+|---|---:|---:|
+| 32² (GFLOPS) | **12.6** | 10.5 |
+| 64² | 31.3 | **37.3** |
+| 96² | 38.2 | **86.0** |
+| 128² | 51.4 | **126.3** |
+| 160² | 47.8 | **130.3** |
+| 192² | 129.0 | **171.1** |
+| 256² | **184.1** | 147.4 |
+| [64×24]·[24×16] | **10.8** | 8.4 |
+| [64×16]·[16×3] | **1.5** | 1.1 |
+| [256×24]·[24×16] | 16.0 | **19.1** |
+
+Between 96² and 192² PyTorch is two to two-and-a-half times ahead, and
+that band is unfixed work. Below and above it we are ahead. A
+24→16→3→16→24 autoencoder at batch 64 is made entirely of the narrow
+shapes at the bottom of that table, and it runs 4× faster on the forward
+pass and 7× faster on a full training step than the same model in
+PyTorch — because at that size a step is per-operation overhead, and
+that is what Python spends.
+
+### Notes
+
+Attention and convolution are measured with `-only`, like the M2 Pro
+rows, and their spread on this guest is wide enough to be worth stating:
+attention ranged 124 to 185 GFLOPS over three runs, convolution 48 to 77.
+Treat both as order-of-magnitude.
+
+The matrix–vector row is gone from this table: at 6 vCPU it is entirely
+memory bandwidth and the guest's is not stable enough between runs to
+report a number anyone could reproduce.
+
+Everything that allocates still suffers under the hypervisor. The
+unreleased 64K row remains the extreme: a fresh 256 KB mapping pays
+about 0.7 ms of page faults here, so small results that are not released
 rotate through a thousand fresh mappings before the first forced
 collection. A lower collection budget for small size classes on such
-hosts, or the heap path for them, is the candidate (TODO).
+hosts, or the heap path for them, is still the candidate (TODO).
 
 ## Small products and the tiny autoencoder (M2 Pro)
 
