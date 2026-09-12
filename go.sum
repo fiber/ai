@@ -2,3 +2,5 @@ github.com/fiber/ai-data v0.0.0-20260912052000-f31a692023fb h1:Kt6L0WKPiPhAwdaC/
 github.com/fiber/ai-data v0.0.0-20260912052000-f31a692023fb/go.mod h1:cMvilP2wUgPxpmtIRQPt6JkPwAdNglKL20NZ8zmW8SY=
 github.com/fiber/ai-data v0.1.0 h1:TW3TFQt7qyuG0ydP79u5+s0rPEFvnK2rfVVqKWMivC0=
 github.com/fiber/ai-data v0.1.0/go.mod h1:cMvilP2wUgPxpmtIRQPt6JkPwAdNglKL20NZ8zmW8SY=
+github.com/fiber/ai-data v0.2.0 h1:6JL2Qd5zOLgc9OgKTCxcJ/AlHP3+htA1+Vb0cL2QsQg=
+github.com/fiber/ai-data v0.2.0/go.mod h1:cMvilP2wUgPxpmtIRQPt6JkPwAdNglKL20NZ8zmW8SY=

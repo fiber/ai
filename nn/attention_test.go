@@ -194,3 +194,97 @@ func TestRoPEOffByDefault(t *testing.T) {
 		}
 	}
 }
+
+// The cache must be exact, not approximate: attending from one token
+// against a cache of the earlier ones has to give what a full forward
+// gives at that position.
+func TestKVCacheMatchesFullForward(t *testing.T) {
+	tensor.Seed(11)
+	const dim, heads, T = 32, 4, 7
+	m := NewMultiHeadAttention(dim, heads)
+	m.RoPEBase = 1e4
+	x := tensor.Randn(1, T, dim)
+
+	var full, stepped []float32
+	tensor.NoGrad(func() {
+		m.Mask = tensor.CausalMask(T)
+		full = m.Forward(x).Float32s()
+		m.Mask = nil // Step needs none: the cache is all past
+
+		// Feed one token at a time, as generation does.
+		var c KVCache
+		flat := x.Reshape(T, dim)
+		for i := range T {
+			out := m.Step(flat.Rows([]int{i}).Reshape(1, 1, dim), &c)
+			stepped = append(stepped, out.Float32s()...)
+		}
+		if c.Len() != T {
+			t.Fatalf("cache holds %d tokens after %d steps", c.Len(), T)
+		}
+	})
+	for i := range full {
+		if math.Abs(float64(full[i]-stepped[i])) > 1e-4 {
+			t.Fatalf("value %d: full forward %v, cached steps %v", i, full[i], stepped[i])
+		}
+	}
+}
+
+// A prompt should be ingestible in one call and then continued singly,
+// which is what a runtime does; both routes must agree.
+func TestKVCachePromptThenTokens(t *testing.T) {
+	tensor.Seed(12)
+	const dim, heads, T = 32, 4, 6
+	m := NewMultiHeadAttention(dim, heads)
+	m.RoPEBase = 1e4
+	x := tensor.Randn(1, T, dim)
+	flat := x.Reshape(T, dim)
+
+	var oneByOne, promptThenRest []float32
+	tensor.NoGrad(func() {
+		var a KVCache
+		for i := range T {
+			out := m.Step(flat.Rows([]int{i}).Reshape(1, 1, dim), &a)
+			oneByOne = append(oneByOne, out.Float32s()...)
+		}
+		var b KVCache
+		m.Mask = tensor.CausalMask(4) // the prompt attends causally within itself
+		prompt := flat.Rows([]int{0, 1, 2, 3}).Reshape(1, 4, dim)
+		promptThenRest = append(promptThenRest, m.Step(prompt, &b).Float32s()...)
+		m.Mask = nil
+		for i := 4; i < T; i++ {
+			out := m.Step(flat.Rows([]int{i}).Reshape(1, 1, dim), &b)
+			promptThenRest = append(promptThenRest, out.Float32s()...)
+		}
+	})
+	// Only the tokens after the prompt are required to agree: within the
+	// prompt the two routes differ in whether a mask was applied.
+	for i := 4 * dim; i < len(oneByOne); i++ {
+		if math.Abs(float64(oneByOne[i]-promptThenRest[i])) > 1e-4 {
+			t.Fatalf("value %d after the prompt: %v against %v", i, oneByOne[i], promptThenRest[i])
+		}
+	}
+}
+
+func TestKVCacheLenAndReset(t *testing.T) {
+	tensor.Seed(13)
+	const dim, heads = 16, 2
+	m := NewMultiHeadAttention(dim, heads)
+	var c KVCache
+	if c.Len() != 0 {
+		t.Fatalf("a fresh cache holds %d tokens", c.Len())
+	}
+	tensor.NoGrad(func() {
+		m.Step(tensor.Randn(1, 3, dim), &c)
+		if c.Len() != 3 {
+			t.Errorf("cache holds %d tokens after a 3-token step", c.Len())
+		}
+		m.Step(tensor.Randn(1, 1, dim), &c)
+		if c.Len() != 4 {
+			t.Errorf("cache holds %d tokens after one more", c.Len())
+		}
+	})
+	c.Reset()
+	if c.Len() != 0 {
+		t.Errorf("cache holds %d tokens after Reset", c.Len())
+	}
+}

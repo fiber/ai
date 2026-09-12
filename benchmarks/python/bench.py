@@ -3,7 +3,9 @@
     .venv/bin/python bench.py [--quick]
 """
 import argparse
+import os
 import platform
+import subprocess
 import sys
 import time
 
@@ -14,6 +16,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--quick", action="store_true")
 parser.add_argument("-d", type=float, default=0.7, help="seconds per case")
 parser.add_argument("--only", default="", help="comma-separated sections: gemm,small,elementwise,reductions,mlp,attention,conv,embed")
+parser.add_argument("--isolate", action=argparse.BooleanOptionalAction, default=True,
+                    help="run each section in a fresh process, so no section inherits the allocator state of the one before it")
 args = parser.parse_args()
 DURATION = args.d
 
@@ -50,15 +54,16 @@ def fmt_n(n):
     return str(n)
 
 
-print(f"## Python — {platform.system().lower()}/{platform.machine()}, "
+if not os.environ.get("FIBERAI_BENCH_CHILD"):
+    print(f"## Python — {platform.system().lower()}/{platform.machine()}, "
       f"NumPy {np.__version__}, PyTorch {torch.__version__} "
       f"({torch.get_num_threads()} threads), Python {sys.version.split()[0]}\n")
-blas = "unknown"
-for line in torch.__config__.show().splitlines():
-    if "BLAS" in line or "blas" in line.lower():
-        blas = line.strip()
-        break
-print(f"torch BLAS backend: {blas}\n")
+    blas = "unknown"
+    for line in torch.__config__.show().splitlines():
+        if "BLAS" in line or "blas" in line.lower():
+            blas = line.strip()
+            break
+    print(f"torch BLAS backend: {blas}\n")
 
 
 def bench_gemm():
@@ -308,4 +313,24 @@ order = [s.strip() for s in args.only.split(",") if s.strip()] or ["gemm", "smal
 for name in order:
     if name not in SECTIONS:
         sys.exit(f"unknown section {name!r}")
+
+# PyTorch's caching allocator is warm by the time a later section runs, so
+# the same case measures faster inside the suite than on its own — the
+# mirror of what the Go side does, and between them they inverted the MLP
+# comparison in BENCHMARKS.md. Each section therefore gets a fresh
+# interpreter unless asked otherwise (T-061 in the Go repository).
+if args.isolate and len(order) > 1:
+    sys.stdout.flush()  # the header must precede the children's output
+    for name in order:
+        child = [sys.executable, os.path.abspath(__file__), "--only", name,
+                 "--no-isolate", "-d", str(args.d)]
+        if args.quick:
+            child.append("--quick")
+        env = dict(os.environ, FIBERAI_BENCH_CHILD="1")
+        r = subprocess.run(child, env=env)
+        if r.returncode != 0:
+            sys.exit(r.returncode)
+    sys.exit(0)
+
+for name in order:
     SECTIONS[name]()

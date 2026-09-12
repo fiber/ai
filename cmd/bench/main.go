@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
@@ -27,7 +28,12 @@ var (
 	duration   = flag.Duration("d", 700*time.Millisecond, "measurement time per case")
 	only       = flag.String("only", "", "run only these sections (comma-separated: gemm,elementwise,reductions,mlp)")
 	cpuprofile = flag.String("cpuprofile", "", "write a CPU profile of the run to this file")
+	isolate    = flag.Bool("isolate", true, "run each section in a fresh process, so no section inherits the allocator state of the one before it")
 )
+
+// noHeaderEnv marks a child process started by the isolating parent: it
+// runs one section and leaves the header to the parent.
+const noHeaderEnv = "FIBERAI_BENCH_CHILD"
 
 // timeIt runs fn repeatedly for the measurement duration (after one warm-up
 // call) and returns the mean seconds per call.
@@ -52,8 +58,10 @@ func timeItWarm(fn func(), warm int) float64 {
 
 func main() {
 	flag.Parse()
-	fmt.Printf("## fiber/ai — %s/%s, %d CPUs, GOMAXPROCS %d, workers %d, backend %s, Go %s\n\n",
-		runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), runtime.GOMAXPROCS(0), tensor.Threads(), tensor.Backend(), runtime.Version())
+	if os.Getenv(noHeaderEnv) == "" {
+		fmt.Printf("## fiber/ai — %s/%s, %d CPUs, GOMAXPROCS %d, workers %d, backend %s, Go %s\n\n",
+			runtime.GOOS, runtime.GOARCH, runtime.NumCPU(), runtime.GOMAXPROCS(0), tensor.Threads(), tensor.Backend(), runtime.Version())
+	}
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -72,6 +80,16 @@ func main() {
 	if *only != "" {
 		order = strings.Split(*only, ",")
 	}
+	// A section leaves the mapped pool holding hundreds of megabytes and
+	// the collector running hot, and the next section pays for it: the
+	// convolution case measures 184 GFLOPS after the element-wise section
+	// and 348 on its own. Resetting in the process is not enough — the Go
+	// heap layout, the caches and the page cache carry over too — so each
+	// section gets a fresh process unless asked otherwise (T-061).
+	if *isolate && len(order) > 1 && *cpuprofile == "" {
+		runSections(order)
+		return
+	}
 	for _, name := range order {
 		fn, ok := sections[strings.TrimSpace(name)]
 		if !ok {
@@ -83,6 +101,31 @@ func main() {
 		printPackedStats()
 	}
 	printAllocStats()
+}
+
+// runSections re-executes this binary once per section and streams each
+// child's output. The parent has already printed the header, so children
+// are told to skip it.
+func runSections(order []string) {
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "isolate:", err)
+		os.Exit(1)
+	}
+	for _, name := range order {
+		name = strings.TrimSpace(name)
+		args := []string{"-only", name, "-isolate=false", "-d", duration.String()}
+		if *quick {
+			args = append(args, "-quick")
+		}
+		cmd := exec.Command(self, args...)
+		cmd.Env = append(os.Environ(), noHeaderEnv+"=1")
+		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "section %s: %v\n", name, err)
+			os.Exit(1)
+		}
+	}
 }
 
 // printPackedStats shows what the packed-operand cache did in a section.

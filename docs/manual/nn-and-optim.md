@@ -57,6 +57,22 @@ says nothing about a position longer than the training window.
 `PosOffset` sets the position of the first query, for decoding a token
 at a time against earlier keys.
 
+For generation, `nn.KVCache` holds the keys and values a decoder has
+already computed and `m.Step(x, cache)` projects only the new tokens,
+appends them and attends over the whole cache — no mask needed, since
+everything cached precedes every new query. `Step` takes any number of
+tokens, so a prompt goes in with one call before decoding proceeds one
+token at a time. A cache belongs to one sequence, not to the module: the
+same weights serve many sequences and per-sequence state inside a shared
+module is a race waiting to happen.
+
+`Trim(keep)` bounds the memory by dropping the oldest rows, which is
+sound with rotary positions because a score depends on the distance
+between two tokens rather than their absolute places — and is not sound
+with a learned position table. `Len` is how many rows the cache holds
+and `Pos` is the position the next token takes; rotations use `Pos`, so
+trimming does not move the tokens that remain.
+
 `nn.NewRMSNorm(dim)` is the normalisation of Gemma- and Llama-class
 models; `Embedding.Lookup(ids)` gathers token vectors with a scatter-add
 gradient. `examples/nn/attention` puts them together as a two-layer

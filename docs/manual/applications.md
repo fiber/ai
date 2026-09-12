@@ -286,3 +286,35 @@ Pixels are scaled by one mean and one standard deviation for the whole
 set, not per pixel. Border pixels are zero in every image, so a per-pixel
 deviation is zero there and the division produces NaN — the kind of thing
 real data does and generated data never does.
+
+## A language model you can train in seven minutes
+
+`examples/tutorial/13-language-model` builds the decoder architecture
+every current language model uses — pre-norm blocks, causal
+multi-head attention, rotary positions, a feed-forward part four times
+the model width — and trains it from scratch on 1.1 MB of Shakespeare
+from `github.com/fiber/ai-data`. It is [tutorial chapter
+13](../tutorial/13-language-model.md).
+
+```
+go run ./examples/tutorial/13-language-model
+go run ./examples/tutorial/13-language-model -layers 6 -temp 0.4
+```
+
+Four blocks, width 256, four heads, context 128: 3.19M parameters. On an
+Apple M2 Pro, 2000 steps of batch 32 take 402 s — 201 ms a step, 20 400
+tokens/s — and reach a validation loss of 1.570 nats per character,
+against ln(65) = 4.17 for a model that has learned nothing. The output
+has speaker names, verse line breaks and English spelling; it has no
+meaning, which is what three million parameters buys.
+
+`examples/tutorial/14-kv-cache` is the same model generating with and
+without a key-value cache ([chapter 14](../tutorial/14-kv-cache.md)):
+354 characters/s re-running the whole prefix against 1303 with the
+cache, and 3.3 MB of cache after 400 characters. The gap between that
+3.7x and the 128x less arithmetic the cache performs is per-operation
+overhead at batch one, not memory bandwidth — the same wall the
+small-product path in the matrix-multiply driver exists to address.
+
+`nn.KVCache` and `MultiHeadAttention.Step` are the library side; see
+[nn-and-optim.md](nn-and-optim.md).
