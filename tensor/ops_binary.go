@@ -1,6 +1,8 @@
 package tensor
 
 import (
+	"runtime"
+
 	"github.com/fiber/ai/internal/kernel"
 	"github.com/fiber/ai/internal/parallel"
 	"os"
@@ -30,7 +32,19 @@ func binaryOp(op string, x, y *Tensor, vec kernel.BinaryFunc, sc kernel.ScalarFu
 
 // binaryInto is binaryOp writing into out, which must be contiguous with
 // the broadcast shape. out may alias x or y.
+//
+// The body is separate so that one pair of KeepAlive calls covers its
+// several exits: the kernels are given bare slices, and storage of
+// mapMin floats and more is off-heap, where a slice keeps nothing
+// reachable (see internals.md).
 func binaryInto(out, x, y *Tensor, vec kernel.BinaryFunc, sc kernel.ScalarFunc, commutative bool, f func(a, b float32) float32) {
+	binaryIntoBody(out, x, y, vec, sc, commutative, f)
+	runtime.KeepAlive(x)
+	runtime.KeepAlive(y)
+	runtime.KeepAlive(out)
+}
+
+func binaryIntoBody(out, x, y *Tensor, vec kernel.BinaryFunc, sc kernel.ScalarFunc, commutative bool, f func(a, b float32) float32) {
 	n := out.size
 	if n == 0 {
 		return

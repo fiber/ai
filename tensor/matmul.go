@@ -1,6 +1,8 @@
 package tensor
 
 import (
+	"runtime"
+
 	"github.com/fiber/ai/internal/blas"
 	"github.com/fiber/ai/internal/parallel"
 )
@@ -51,6 +53,12 @@ func matmul2D(x, y *Tensor) *Tensor {
 		} else {
 			blas.GemmZero(mat(out, 0, 1), mat(x, 0, 1), mat(y, 0, 1))
 		}
+		// mat() passes the bare slice; storage of mapMin floats and more
+		// is off-heap, so nothing else keeps these tensors reachable while
+		// the kernel reads them (see storage.go and internals.md).
+		runtime.KeepAlive(x)
+		runtime.KeepAlive(y)
+		runtime.KeepAlive(out)
 	}
 	xd, yd := x.saved(), y.saved()
 	return record(out, "MatMul", []*Tensor{x, y}, func(gy *Tensor) {
@@ -103,6 +111,9 @@ func matmulBatched(x, y *Tensor) *Tensor {
 				run(b, parallel.Workers())
 			}
 		}
+		runtime.KeepAlive(x)
+		runtime.KeepAlive(y)
+		runtime.KeepAlive(out)
 	}
 	xd, yd := x.saved(), y.saved()
 	return record(out, "MatMul", []*Tensor{x, y}, func(gy *Tensor) {

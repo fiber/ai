@@ -1,6 +1,8 @@
 package tensor
 
 import (
+	"runtime"
+
 	"os"
 	"sync"
 	"unsafe"
@@ -206,6 +208,7 @@ func packedOperand(y *Tensor) *blas.PackedB {
 	// Second sighting: pack outside the lock (packing is parallel and may
 	// take a millisecond), then insert.
 	packed := blas.PackB(mat(y, 0, 1), parallel.Workers())
+	runtime.KeepAlive(y) // mat() passed the bare slice; the entry below holds y.store
 	if packed.Bytes() > c.limit {
 		return nil
 	}

@@ -130,6 +130,24 @@ sizes and worker counts.
    value test against a naive reference.
 4. Document it in the manual (the process gate insists).
 
+Two rules about memory, because results of 64 KiB and more do not live on
+the Go heap (see [performance.md](performance.md#off-heap-results)) and
+the compiler cannot see through a slice into a mapping:
+
+- **Keep the tensor alive while a kernel reads it.** Passing `t.Data()`,
+  `t.values()` or `mat(t, ...)` hands over a bare `[]float32`, and a slice
+  into off-heap memory keeps no Go object reachable. The collector may
+  then free the mapping under the kernel. Finish with
+  `runtime.KeepAlive(t)` for every tensor whose data went in, as
+  `matmul.go`, `matmul_fused.go` and `attention.go` do. It generates no
+  instructions.
+- **Do not release a tensor a backward closure saved.** `Release` frees
+  storage only when nothing recorded the tensor as an input, which it
+  checks through `consumers`. A tensor can have no node and no gradient
+  of its own and still be needed: the im2col matrix of the first
+  convolution is exactly that, and freeing it fed the product's backward
+  someone else's numbers until B-009.
+
 ## Adding an architecture
 
 1. Create `kernel_<arch>.go` with the assembly declarations, an `impl`

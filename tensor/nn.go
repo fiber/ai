@@ -1,6 +1,8 @@
 package tensor
 
 import (
+	"runtime"
+
 	"math"
 	"sync"
 
@@ -47,6 +49,7 @@ func (t *Tensor) Softmax(dim int) *Tensor {
 			kernel.Scale(o, 1/kernel.Sum(o), o)
 		}
 	})
+	runtime.KeepAlive(x) // bare slices to the kernels; storage may be off-heap
 	od := out.saved()
 	out = record(out, "Softmax", []*Tensor{x}, func(gy *Tensor) {
 		// dx = y ⊙ (g − ⟨g, y⟩) per row
@@ -60,6 +63,8 @@ func (t *Tensor) Softmax(dim int) *Tensor {
 				kernel.Mul(o, y, o)
 			}
 		})
+		runtime.KeepAlive(od)
+		runtime.KeepAlive(g)
 		x.accumGrad(gx)
 	})
 	return undo(out)
@@ -76,6 +81,7 @@ func (t *Tensor) LogSoftmax(dim int) *Tensor {
 			kernel.AddScalar(row, -logSumExp(row), o)
 		}
 	})
+	runtime.KeepAlive(x)
 	od := out.saved()
 	out = record(out, "LogSoftmax", []*Tensor{x}, func(gy *Tensor) {
 		// dx = g − softmax(x) · Σg per row
@@ -116,7 +122,10 @@ func MSELoss(pred, target *Tensor) *Tensor {
 	}
 	diff := newTensorUninit(p.shape)
 	kernel.Sub(p.data[:n], tg.data[:n], diff.data)
+	runtime.KeepAlive(p)
+	runtime.KeepAlive(tg)
 	out := Scalar(kernel.Dot(diff.data, diff.data) / float32(n))
+	runtime.KeepAlive(diff)
 	return record(out, "MSELoss", []*Tensor{p, tg}, func(gy *Tensor) {
 		scale := 2 * gy.data[0] / float32(n)
 		g := diff.MulScalar(scale)
@@ -170,6 +179,7 @@ func crossEntropy(op string, logits *Tensor, targets []int, weights []float32) *
 			losses[r] = float64(lse - row[targets[r]])
 		}
 	})
+	runtime.KeepAlive(x)
 	// per-row weight and the normaliser: m for the plain loss, the sum of
 	// the targets' weights otherwise
 	rowW := make([]float32, m)
@@ -200,6 +210,7 @@ func crossEntropy(op string, logits *Tensor, targets []int, weights []float32) *
 			kernel.Scale(g.data[r*c:(r+1)*c], s, gd.data[r*c:(r+1)*c])
 			gd.data[r*c+t] -= s
 		}
+		runtime.KeepAlive(g)
 		x.accumGrad(gd)
 	})
 }
@@ -243,6 +254,9 @@ func LayerNorm(x, gamma, beta *Tensor, eps float32) *Tensor {
 			kernel.Add(o, bd, o)
 		}
 	})
+	runtime.KeepAlive(xc)
+	runtime.KeepAlive(gc)
+	runtime.KeepAlive(bc)
 	xs := xc.saved()
 	return record(out, "LayerNorm", []*Tensor{xc, gc, bc}, func(gy *Tensor) {
 		g := gy.Contiguous()
@@ -293,6 +307,9 @@ func LayerNorm(x, gamma, beta *Tensor, eps float32) *Tensor {
 				mu.Unlock()
 			}
 		})
+		runtime.KeepAlive(g)
+		runtime.KeepAlive(xs)
+		runtime.KeepAlive(gc)
 		if gc.requiresGrad {
 			gc.accumGrad(wrap(dgamma, Shape{n}).Reshape(gamma.shape...))
 		}

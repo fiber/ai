@@ -1,6 +1,8 @@
 package tensor
 
 import (
+	"runtime"
+
 	"math/rand/v2"
 
 	"github.com/fiber/ai/internal/kernel"
@@ -23,6 +25,7 @@ func unaryOpChunk(x *Tensor, chunk int, f func(x, z []float32)) *Tensor {
 	}
 	xd := x.values()
 	parallel.Range(n, chunk, func(lo, hi int) { f(xd[lo:hi], out.data[lo:hi]) })
+	runtime.KeepAlive(x) // values() hands over a bare slice; see internals.md
 	return out
 }
 
@@ -38,6 +41,8 @@ func zipMap(a, b *Tensor, f func(a, b, z []float32)) *Tensor {
 	}
 	ad, bd := a.values(), b.values()
 	parallel.Range(n, minChunk, func(lo, hi int) { f(ad[lo:hi], bd[lo:hi], out.data[lo:hi]) })
+	runtime.KeepAlive(a)
+	runtime.KeepAlive(b)
 	return out
 }
 

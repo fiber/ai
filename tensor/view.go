@@ -1,6 +1,10 @@
 package tensor
 
-import "github.com/fiber/ai/internal/kernel"
+import (
+	"runtime"
+
+	"github.com/fiber/ai/internal/kernel"
+)
 
 // Reshape returns a tensor with the same elements and a new shape. One
 // dimension may be -1 and is inferred. Contiguous tensors are viewed
@@ -245,10 +249,13 @@ func (t *Tensor) Rows(indices []int) *Tensor {
 	idx := append([]int(nil), indices...)
 	return record(out, "Rows", []*Tensor{tc}, func(gy *Tensor) {
 		g := newTensor(tc.shape) // zero, then scatter-add the row gradients
-		gd := gy.Contiguous().values()
+		gc := gy.Contiguous()
+		gd := gc.values()
 		for k, i := range idx {
 			kernel.Add(g.data[i*rowLen:(i+1)*rowLen], gd[k*rowLen:(k+1)*rowLen], g.data[i*rowLen:(i+1)*rowLen])
 		}
+		runtime.KeepAlive(gc) // the contiguous copy is only reachable through gd
+		runtime.KeepAlive(g)
 		tc.accumGrad(g)
 	})
 }

@@ -64,7 +64,14 @@ func nextStorageID() uint64 { return storageIDs.Add(1) }
 // storage is handed out again by the next allocation of that size, still
 // in cache.
 func (t *Tensor) Release() {
-	if t.node != nil || t.requiresGrad {
+	// consumers counts the recorded nodes that took this tensor as an
+	// input. Such a node's backward closure holds a saved alias of the
+	// same storage, and saved() does not mark it shared, so the release
+	// would go through and the closure would read freed memory. The
+	// tensor's own node and grad flag say nothing about that: the im2col
+	// matrix of a first convolution layer has neither, and its product's
+	// backward needs it (B-009).
+	if t.node != nil || t.requiresGrad || t.consumers > 0 {
 		return
 	}
 	t.releaseStorage()
