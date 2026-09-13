@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"math/rand/v2"
+	"os"
 	"time"
 
 	"github.com/fiber/ai-data/shakespeare"
@@ -167,6 +168,8 @@ func main() {
 		gen    = flag.Int("gen", 400, "characters to generate at the end")
 		temp   = flag.Float64("temp", 0.8, "sampling temperature")
 		seed   = flag.Uint64("seed", 1, "random seed")
+		save   = flag.String("save", "", "write the trained parameters here")
+		load   = flag.String("load", "", "read parameters from here instead of training")
 	)
 	flag.Parse()
 
@@ -205,6 +208,21 @@ func main() {
 		return ids, targets
 	}
 
+	// Seven minutes is a lot to spend twice. -save keeps the parameters,
+	// -load brings them back; the architecture stays in code and only the
+	// numbers travel, which is why both sides must build the same model.
+	if *load != "" {
+		f, err := os.Open(*load)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := nn.LoadParams(f, m); err != nil {
+			log.Fatal(err)
+		}
+		f.Close()
+		fmt.Printf("loaded parameters from %s\n", *load)
+	}
+
 	opt := optim.NewAdamW(m.Params(), float32(*lr), 0.01)
 	start := time.Now()
 	for step := 1; step <= *steps; step++ {
@@ -228,8 +246,26 @@ func main() {
 		*steps, took.Seconds(), took.Seconds()*1000/float64(*steps),
 		float64(*steps**batch**ctx)/took.Seconds())
 
+	if *save != "" {
+		f, err := os.Create(*save)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := nn.SaveParams(f, m); err != nil {
+			log.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("saved parameters to %s\n", *save)
+	}
+
+	// Generation draws from its own stream, so a model that was loaded
+	// rather than trained produces the same text: the training loop has
+	// consumed a different number of draws from r by this point.
+	gr := rand.New(rand.NewPCG(*seed, 99))
 	genStart := time.Now()
-	out := generate(m, symbols, index, '\n', *gen, *ctx, float32(*temp), r)
+	out := generate(m, symbols, index, '\n', *gen, *ctx, float32(*temp), gr)
 	fmt.Printf("\nsample at temperature %.1f:\n%s\n", *temp, out)
 	fmt.Printf("\n%d characters in %.1fs — %.0f characters/s, re-running the whole prefix each time\n",
 		*gen, time.Since(genStart).Seconds(), float64(*gen)/time.Since(genStart).Seconds())

@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-13 T-067 — SaveParams should need only Params, so a model with its own forward can be saved (spec/done/T-067-saveparams-should-need-only-params-so-a-model-wi.md)
 - 2026-09-13 T-066 — Tutorial chapter 5: the perceptron and what one unit cannot do (spec/done/T-066-tutorial-chapter-5-the-perceptron-and-what-one-u.md)
 - 2026-09-13 T-061 — Benchmark sections must not inherit the allocator state of the section before them (spec/done/T-061-benchmark-sections-must-not-inherit-the-allocato.md)
 - 2026-09-12 T-065 — Expand every acronym on first use in the tutorial (spec/done/T-065-expand-every-acronym-on-first-use-in-the-tutoria.md)

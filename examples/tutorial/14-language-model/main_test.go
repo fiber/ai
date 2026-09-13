@@ -2,10 +2,13 @@ package main
 
 import (
 	"math/rand/v2"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/fiber/ai-data/shakespeare"
+	"github.com/fiber/ai/nn"
 	"github.com/fiber/ai/optim"
 	"github.com/fiber/ai/tensor"
 )
@@ -100,5 +103,49 @@ func TestVocabularyIsTheCorpusAlphabet(t *testing.T) {
 	}
 	if !strings.Contains(string(symbols), "\n") {
 		t.Error("the newline is not in the vocabulary, so the model cannot end a line")
+	}
+}
+
+// A model whose forward pass takes token ids is not an nn.Module, and
+// used not to be saveable at all. It must round-trip: the same text
+// comes out of a loaded model as out of the one that was trained.
+func TestSaveAndLoadRoundTrip(t *testing.T) {
+	text, err := shakespeare.Text()
+	if err != nil {
+		t.Fatal(err)
+	}
+	symbols, index := shakespeare.Vocabulary(text)
+
+	tensor.Seed(31)
+	trained := newModel(len(symbols), 64, 2, 2, 32)
+	before := generate(trained, symbols, index, '\n', 40, 32, 0.8, rand.New(rand.NewPCG(5, 0)))
+
+	path := filepath.Join(t.TempDir(), "params.bin")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nn.SaveParams(f, trained); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	// A freshly built model of the same architecture, different weights.
+	tensor.Seed(999)
+	loaded := newModel(len(symbols), 64, 2, 2, 32)
+	if same := generate(loaded, symbols, index, '\n', 40, 32, 0.8, rand.New(rand.NewPCG(5, 0))); same == before {
+		t.Fatal("an untrained model already generates the same text; the test proves nothing")
+	}
+	g, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nn.LoadParams(g, loaded); err != nil {
+		t.Fatal(err)
+	}
+	g.Close()
+
+	if after := generate(loaded, symbols, index, '\n', 40, 32, 0.8, rand.New(rand.NewPCG(5, 0))); after != before {
+		t.Errorf("loaded model generates different text:\n before %q\n after  %q", before, after)
 	}
 }

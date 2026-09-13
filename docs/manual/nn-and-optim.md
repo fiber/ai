@@ -170,3 +170,30 @@ func (r Residual) Params() []*tensor.Tensor                 { return r.Inner.Par
 
 Parameters are ordinary tensors created with `SetRequiresGrad(true)`;
 there is no registration step.
+
+## Saving parameters
+
+`nn.SaveParams(w, m)` writes a model's parameters in the order `Params()`
+returns them, and `nn.LoadParams(r, m)` reads them back into a model of
+the same shape. Gradients and optimiser state are not saved; neither is
+the architecture, which stays in code. Build the model the same way on
+both sides — the usual arrangement is one constructor called by the
+trainer and by whatever serves it.
+
+`LoadParams` checks the count and the shapes and returns an error if
+they disagree, so loading into a model that has changed fails loudly
+rather than producing a plausible-looking wrong answer.
+
+Both take a `Parameterised`, which is anything with a `Params()` method.
+Every `Module` qualifies, and so does a model whose forward pass takes
+something other than a single tensor — a decoder taking token ids and a
+batch layout, for instance. Saving never used `Forward`, so it does not
+ask for one.
+
+    f, _ := os.Create("model.bin")
+    nn.SaveParams(f, model)
+    f.Close()
+
+    served := buildModel()          // same architecture, fresh weights
+    g, _ := os.Open("model.bin")
+    nn.LoadParams(g, served)        // now the trained numbers

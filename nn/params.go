@@ -21,9 +21,17 @@ const (
 	paramsVersion = 1
 )
 
+// Parameterised is anything with parameters to save: every Module, and
+// also a model whose forward pass does not take a single tensor. A
+// decoder takes token ids and a batch layout, so it is not a Module,
+// and saving never needed one — only Params.
+type Parameterised interface {
+	Params() []*tensor.Tensor
+}
+
 // SaveParams writes the parameters of m in the order Params returns
 // them. Gradients and optimizer state are not saved.
-func SaveParams(w io.Writer, m Module) error {
+func SaveParams(w io.Writer, m Parameterised) error {
 	params := m.Params()
 	if _, err := io.WriteString(w, paramsMagic); err != nil {
 		return err
@@ -58,7 +66,7 @@ func SaveParams(w io.Writer, m Module) error {
 // have the same architecture: the same number of parameters with the
 // same shapes, in the same order. The tensors are updated in place, so
 // optimizers already holding them keep working.
-func LoadParams(r io.Reader, m Module) error {
+func LoadParams(r io.Reader, m Parameterised) error {
 	params := m.Params()
 	magic := make([]byte, 4)
 	if _, err := io.ReadFull(r, magic); err != nil {

@@ -220,6 +220,28 @@ the subject of
 not make generation 128× faster, and the reason why is the most useful
 thing in that chapter.
 
+## Keeping it
+
+Seven minutes is a lot to spend twice:
+
+```
+go run ./examples/tutorial/14-language-model -save shakespeare.bin
+go run ./examples/tutorial/14-language-model -load shakespeare.bin -steps 0
+```
+
+`nn.SaveParams` writes the parameters in the order `Params()` returns
+them — 3.19M numbers, 12 MB — and `nn.LoadParams` reads them back into a
+model built the same way. **Only the numbers are saved.** The
+architecture stays in code, which is why both commands construct the
+same `newModel` before one saves and the other loads; load into a
+different shape and you get an error rather than nonsense.
+
+Chapter 8 said this about a model in service, and it is the same
+mechanism here. What changed for this chapter is that the language model
+does not fit `nn.Module` — its forward pass takes token ids and a batch
+layout, not one tensor — and saving only ever needed `Params()`, so it
+now asks for no more than that.
+
 ## What to try
 
 Set `-layers 2` and `-layers 6` and compare validation loss against
