@@ -1,4 +1,4 @@
-# 12. Handwritten digits: the first real data
+# 13. Handwritten digits: the first real data
 
 Every chapter so far generated its own data. Spirals, sine waves,
 counters from a simulated day: convenient for teaching, because the
@@ -15,7 +15,7 @@ reports 89% on MNIST, something is broken, and you know it without
 reading the code.
 
 ```
-go run ./examples/tutorial/12-mnist
+go run ./examples/tutorial/13-mnist
 ```
 
 ## Where the data comes from
@@ -78,7 +78,7 @@ so a model that needs them has already cheated.
 
 ## The baseline
 
-The model is chapter 5's classifier, widened. Two coordinates became 784
+The model is chapter 6's classifier, widened. Two coordinates became 784
 pixels, three spiral arms became ten digits, and nothing else changed:
 
 ```go
@@ -109,7 +109,7 @@ small differences in this table as nothing at all.
 
 ## What convolution buys
 
-Chapter 8 slid filters along a time series. The same idea in two
+Chapter 9 slid filters along a time series. The same idea in two
 dimensions slides them across an image, and the argument for it is the
 same: a stroke is a stroke wherever it appears, so the thing that
 recognises it should not have to be learned again for every position.

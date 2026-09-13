@@ -112,5 +112,5 @@ would record the operations for a `Backward()` that never comes.
 - `MSELoss` for numbers, one loop for everything.
 - The loss floor is the noise. Do not chase it.
 
-Next: [5. The first classifier](05-classifier.md), where `nn` and
-`optim` take the boilerplate.
+Next: [5. One unit, and what it cannot do](05-perceptron.md), where one
+weighted sum meets the problem that stalled the field for a decade.

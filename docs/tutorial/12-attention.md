@@ -1,17 +1,17 @@
-# 11. Attention: choosing what to look at
+# 12. Attention: choosing what to look at
 
-Chapter 8's convolution treats every minute of the window the same way:
-the same filter, everywhere. Chapter 11 builds a layer that decides,
+Chapter 9's convolution treats every minute of the window the same way:
+the same filter, everywhere. This chapter builds a layer that decides,
 for each input, which minutes matter, and says so in numbers you can
 print. This is attention, the layer inside every transformer, in its
 smallest form: about twenty lines, written here rather than taken from
 `nn`, because the point is to see the weights.
 
 ```
-go run ./examples/tutorial/11-attention
+go run ./examples/tutorial/12-attention
 ```
 
-The task is chapter 8's: the number of aircraft in Dublin's zone half an
+The task is chapter 9's: the number of aircraft in Dublin's zone half an
 hour ahead, from the last two hours of eight airports. Each minute of
 the window becomes a *token* of ten numbers: the eight airports' counts
 and two numbers that say where in the window the minute sits, because
@@ -65,7 +65,7 @@ same.
 epoch  5  train 2.12  validation 2.18 aircraft
 epoch 20  train 1.89  validation 2.19 aircraft
 
-chapter 8 on the same task: persistence 3.02, flat MLP 2.52, 1-D CNN 2.63 aircraft
+chapter 9 on the same task: persistence 3.02, flat MLP 2.52, 1-D CNN 2.63 aircraft
 ```
 
 With 913 parameters, fewer than the convolution and seventy times
@@ -98,7 +98,7 @@ most recent minutes. Nobody told the model this; the data did. An
 aircraft that will be in Dublin's zone in thirty minutes was over
 Manchester, Amsterdam or Paris about ninety minutes before, which is
 the flight time, and the tokens from that part of the window carry the
-neighbours' counts. The convolution of chapter 8 could not express
+neighbours' counts. The convolution of chapter 9 could not express
 "look two hours back, not one"; a filter of width seven sees seven
 minutes. Attention expresses it with one query vector.
 

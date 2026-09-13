@@ -180,7 +180,7 @@ probability is under one in ten thousand for three minutes running. That
 gives a quiet airport with twenty movements an hour and a busy one with
 ninety the same false-alarm rate, which no fixed band does. Aircraft in
 the zone is a level, not a count: one forecaster with an expectation
-band per airport (the recipe of tutorial chapter 6) predicts it fifteen
+band per airport (the recipe of tutorial chapter 7) predicts it fifteen
 minutes ahead from the last 24 minutes, time of day and day of week; an
 alarm needs eight minutes outside three spreads. An autoencoder over the
 48-value vector of all airports' zone state (in zone, arrivals,
@@ -240,15 +240,15 @@ details; `-prep` rebuilds the files from the raw archives.
 
 ## MNIST: the benchmark everybody knows
 
-`examples/tutorial/12-mnist` trains a classifier on handwritten digits, the one
+`examples/tutorial/13-mnist` trains a classifier on handwritten digits, the one
 dataset in this field whose numbers a reader can check against their own
-experience. It is the program of [tutorial chapter 12](../tutorial/12-mnist.md)
+experience. It is the program of [tutorial chapter 13](../tutorial/13-mnist.md)
 and the only example that trains on data collected by somebody else.
 
 ```
-go run ./examples/tutorial/12-mnist                  # both models, five epochs
-go run ./examples/tutorial/12-mnist -model cnn -epochs 10
-go run ./examples/tutorial/12-mnist -limit 1000      # how each model copes with scarce data
+go run ./examples/tutorial/13-mnist                  # both models, five epochs
+go run ./examples/tutorial/13-mnist -model cnn -epochs 10
+go run ./examples/tutorial/13-mnist -limit 1000      # how each model copes with scarce data
 ```
 
 The data comes from `github.com/fiber/ai-data`, a separate module that
@@ -289,16 +289,16 @@ real data does and generated data never does.
 
 ## A language model you can train in seven minutes
 
-`examples/tutorial/13-language-model` builds the decoder architecture
+`examples/tutorial/14-language-model` builds the decoder architecture
 every current language model uses — pre-norm blocks, causal
 multi-head attention, rotary positions, a feed-forward part four times
 the model width — and trains it from scratch on 1.1 MB of Shakespeare
 from `github.com/fiber/ai-data`. It is [tutorial chapter
-13](../tutorial/13-language-model.md).
+13](../tutorial/14-language-model.md).
 
 ```
-go run ./examples/tutorial/13-language-model
-go run ./examples/tutorial/13-language-model -layers 6 -temp 0.4
+go run ./examples/tutorial/14-language-model
+go run ./examples/tutorial/14-language-model -layers 6 -temp 0.4
 ```
 
 Four blocks, width 256, four heads, context 128: 3.19M parameters. On an
@@ -308,8 +308,8 @@ against ln(65) = 4.17 for a model that has learned nothing. The output
 has speaker names, verse line breaks and English spelling; it has no
 meaning, which is what three million parameters buys.
 
-`examples/tutorial/14-kv-cache` is the same model generating with and
-without a key-value cache ([chapter 14](../tutorial/14-kv-cache.md)):
+`examples/tutorial/15-kv-cache` is the same model generating with and
+without a key-value cache ([chapter 15](../tutorial/15-kv-cache.md)):
 354 characters/s re-running the whole prefix against 1303 with the
 cache, and 3.3 MB of cache after 400 characters. The gap between that
 3.7x and the 128x less arithmetic the cache performs is per-operation

@@ -1,11 +1,11 @@
-# 7. A model in service
+# 8. A model in service
 
 A trained model is a set of numbers and the code that uses them. This
 chapter is about the part after training: keeping the numbers, loading
 them in a program that only predicts, and what a prediction costs.
 
 ```
-go run ./examples/tutorial/07-service
+go run ./examples/tutorial/08-service
 ```
 
 ## Saving and loading

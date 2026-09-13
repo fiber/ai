@@ -1,6 +1,6 @@
-# 8. Convolutions over time
+# 9. Convolutions over time
 
-Chapter 6 fed a model a window of numbers and let it learn. It never
+Chapter 7 fed a model a window of numbers and let it learn. It never
 told the model that the numbers were in order: that minute 17 and minute
 18 are neighbours, that a rise over the last ten minutes means the same
 thing whether it happens at the start of the window or at the end. A
@@ -8,7 +8,7 @@ convolution is the layer that knows. This chapter builds one over a
 counter series and ends where the airspace example begins.
 
 ```
-go run ./examples/tutorial/08-convolution
+go run ./examples/tutorial/09-convolution
 ```
 
 The data is what the airspace example ships: for eight European
@@ -23,7 +23,7 @@ each example: the last 120 minutes, predicting the count 30 minutes after the wi
 5611 examples train (2025-01-19 to 2025-01-22), 1440 validate (2025-01-23), 1440 are the storm day (2025-01-24)
 ```
 
-The split is by day, as chapter 6 said it must be for anything measured
+The split is by day, as chapter 7 said it must be for anything measured
 over time: four days to train, the fifth to validate, and the sixth kept
 back entirely. The sixth is 24 January 2025, the day Storm Éowyn closed
 Irish and Scottish airports.
@@ -42,9 +42,9 @@ Three aircraft of error on a series that peaks at twenty-four. Every
 model below has to beat that, or it has learned nothing worth its
 parameters.
 
-## A flat window, as in chapter 6
+## A flat window, as in chapter 7
 
-The first model is the chapter-6 MLP — a *multilayer perceptron*, the
+The first model is the chapter-7 MLP — a *multilayer perceptron*, the
 plain stack of linear layers and activations from chapters 5 and 6:
 120 inputs, one per minute,
 64 hidden units, one output.
@@ -171,7 +171,7 @@ That is not a failure of the forecast, it is the signal. A model trained
 on ordinary days, compared with what is actually happening, measures how
 unusual the day is; the size of its error is the alarm. The airspace
 example does exactly this, with the movement profile instead of a
-convolution, and chapter 7's service is where such a model lives. Where
+convolution, and chapter 8's service is where such a model lives. Where
 a forecaster earns its keep is not in being right on the storm day but
 in being wrong there by a margin nobody could ignore.
 
@@ -185,4 +185,4 @@ validation error together; the interesting models in this family are the
 ones that get better without getting bigger.
 
 The same idea in two dimensions, sliding filters across an image instead
-of along a series, is [chapter 12](12-mnist.md).
+of along a series, is [chapter 13](13-mnist.md).

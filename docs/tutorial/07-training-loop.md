@@ -1,13 +1,13 @@
-# 6. Anatomy of a training loop
+# 7. Anatomy of a training loop
 
-Chapters 4 and 5 trained on all the data at once and reported how well
+Chapters 4 to 6 trained on all the data at once and reported how well
 the model did on the very examples it had seen. Real training does
 neither. This chapter adds the three things every serious loop has:
 mini-batches, a validation set, and a way to notice when the model has
 stopped learning and started memorising.
 
 ```
-go run ./examples/tutorial/06-training-loop
+go run ./examples/tutorial/07-training-loop
 ```
 
 ## Mini-batches
@@ -113,7 +113,7 @@ when the model is used.
 The lesson is in the shape of the curves, not the final numbers: the
 training loss always falls; the validation loss falls, bottoms out, and
 rises. The epoch where it bottoms out is when to stop, and the model to
-keep is the one from that epoch (chapter 7 shows how to save it). This
+keep is the one from that epoch (chapter 8 shows how to save it). This
 is called early stopping and it is the most important regularisation
 there is.
 
@@ -131,4 +131,4 @@ there is.
   series.
 - Training loss down and validation loss up means stop.
 
-Next: [7. A model in service](07-service.md).
+Next: [8. A model in service](08-service.md).

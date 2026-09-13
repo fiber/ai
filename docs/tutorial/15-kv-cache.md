@@ -1,6 +1,6 @@
-# 14. The KV cache: not recomputing the past
+# 15. The KV cache: not recomputing the past
 
-Chapter 13 ended with a confession. To produce one character, the model
+Chapter 14 ended with a confession. To produce one character, the model
 ran the whole 128-character prefix through all four blocks and kept the
 last row. The other 127 rows were computed and discarded — and they were
 computed identically the step before.
@@ -10,7 +10,7 @@ result is much smaller than the arithmetic promises. The second part is
 the more useful.
 
 ```
-go run ./examples/tutorial/14-kv-cache
+go run ./examples/tutorial/15-kv-cache
 ```
 
 ## What can be reused
@@ -18,7 +18,7 @@ go run ./examples/tutorial/14-kv-cache
 In causal attention, position *i* attends only to positions ≤ *i*. So
 when a token is appended, nothing about the earlier tokens changes:
 their **keys** and **values** — the "what do I have" and "here is my
-content" vectors from chapter 11 — are exactly what they were. Only the
+content" vectors from chapter 12 — are exactly what they were. Only the
 new token contributes anything new.
 
 A **KV cache** (key–value cache) is therefore just: keep the keys and
@@ -33,7 +33,7 @@ out := attn.Step(oneToken, &c)   // projects only the new token
 `Step` projects the query, key and value of the new token, appends the
 key and value to the cache, and attends. No mask is needed: everything
 in the cache is in the past by construction, which is a second saving
-after the arithmetic — chapter 13's causal mask is a [128×128] matrix
+after the arithmetic — chapter 14's causal mask is a [128×128] matrix
 built and added on every step.
 
 ## Bounding it
@@ -51,7 +51,7 @@ places, so a query at position 400 attending to a key kept from position
 300 sees exactly the rotation it would in a window that began at 273. It
 would *not* be sound with a learned position table, where each token was
 told which slot it occupied and the survivors would suddenly be sitting
-in the wrong ones. The position scheme chosen in chapter 13 for one
+in the wrong ones. The position scheme chosen in chapter 14 for one
 reason turns out to decide something else entirely.
 
 One subtlety the cache has to get right: `Trim` drops rows but must not
@@ -111,7 +111,7 @@ At 0.77 ms per character over roughly forty operations, that is about
 19 µs each, for products that do a few hundred thousand
 multiply-accumulates. The arithmetic is nearly free; the framing is not.
 
-That is the same wall chapter 12's small products ran into and the same
+That is the same wall chapter 13's small products ran into and the same
 reason `SmallLimit` exists in the matrix-multiply driver. It is also why
 serving systems batch requests: sixteen sequences at once turn every
 matrix–vector product back into a matrix product and amortise every

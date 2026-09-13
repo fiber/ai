@@ -1,4 +1,4 @@
-# 5. The first classifier
+# 6. The first classifier
 
 Chapter 4 predicted a number. Most of what people call AI predicts a
 *choice*: spam or not, which of ten digits, which of three kinds of
@@ -7,7 +7,7 @@ interleaved spiral arms, and introduces the two packages that take the
 boilerplate out of the loop: `nn` for layers and `optim` for the update.
 
 ```
-go run ./examples/tutorial/05-classifier
+go run ./examples/tutorial/06-classifier
 ```
 
 ## The data
@@ -119,5 +119,5 @@ throwing away the most useful thing the model produces.
   to `3e-3`.
 - Training is still the same four lines.
 
-Next: [6. Anatomy of a training loop](06-training-loop.md): batches,
+Next: [7. Anatomy of a training loop](07-training-loop.md): batches,
 validation, and the one failure mode every model has.

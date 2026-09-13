@@ -1,4 +1,4 @@
-# 9. Embeddings: text as geometry
+# 10. Embeddings: text as geometry
 
 Everything so far took numbers in. Logs, tickets, alerts and
 documentation are text, and a model that only eats numbers cannot read
@@ -8,7 +8,7 @@ points. This chapter trains nothing. It loads a pretrained encoder,
 EmbeddingGemma, and looks at what its vectors do.
 
 ```
-go run ./examples/tutorial/09-embeddings
+go run ./examples/tutorial/10-embeddings
 ```
 
 The program needs the model's weights once, about 1.2 GB; the models
@@ -75,7 +75,7 @@ templates by embedding groups them by subject, which is usually what
 you want for a dashboard and never what you want for an alarm. And a
 search for "things going down" will return things coming up as well;
 if the difference matters, it has to be modelled on top, with a
-classifier as in chapter 5, trained on the vectors.
+classifier as in chapter 6, trained on the vectors.
 
 ## Search in plain words
 
@@ -117,5 +117,5 @@ thousand templates that `logtemplate` extracts from them takes seconds,
 once. That is the shape of every real system built on this: reduce
 first, embed what is left, store the vectors, and compare with the
 ruler. The `cluster` package does the comparing for thousands of
-vectors at once (`Similarities`), and chapter 10 is about a model that
+vectors at once (`Similarities`), and chapter 11 is about a model that
 does not need labels either.

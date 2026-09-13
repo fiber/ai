@@ -1,6 +1,6 @@
 # Tutorial: AI for Go developers
 
-Fourteen chapters for people who write Go and never learned NumPy or
+Fifteen chapters for people who write Go and never learned NumPy or
 PyTorch. Each chapter is a short text and a program you can run; the
 text quotes what the program prints. No mathematics beyond "a slope";
 the ideas arrive through the code.
@@ -11,27 +11,28 @@ the ideas arrive through the code.
 | 2 | [Broadcasting](02-broadcasting.md) | `go run ./examples/tutorial/02-broadcasting` |
 | 3 | [A gradient without formulas](03-gradient.md) | `go run ./examples/tutorial/03-gradient` |
 | 4 | [Linear regression by hand](04-regression.md) | `go run ./examples/tutorial/04-regression` |
-| 5 | [The first classifier](05-classifier.md) | `go run ./examples/tutorial/05-classifier` |
-| 6 | [Anatomy of a training loop](06-training-loop.md) | `go run ./examples/tutorial/06-training-loop` |
-| 7 | [A model in service](07-service.md) | `go run ./examples/tutorial/07-service` |
-| 8 | [Convolutions over time](08-convolution.md) | `go run ./examples/tutorial/08-convolution` |
-| 9 | [Embeddings: text as geometry](09-embeddings.md) | `go run ./examples/tutorial/09-embeddings` |
-| 10 | [The autoencoder: unusual by reconstruction](10-autoencoder.md) | `go run ./examples/tutorial/10-autoencoder` |
-| 11 | [Attention: choosing what to look at](11-attention.md) | `go run ./examples/tutorial/11-attention` |
-| 12 | [Handwritten digits: the first real data](12-mnist.md) | `go run ./examples/tutorial/12-mnist` |
-| 13 | [A language model, from nothing](13-language-model.md) | `go run ./examples/tutorial/13-language-model` |
-| 14 | [The KV cache: not recomputing the past](14-kv-cache.md) | `go run ./examples/tutorial/14-kv-cache` |
+| 5 | [One unit, and what it cannot do](05-perceptron.md) | `go run ./examples/tutorial/05-perceptron` |
+| 6 | [The first classifier](06-classifier.md) | `go run ./examples/tutorial/06-classifier` |
+| 7 | [Anatomy of a training loop](07-training-loop.md) | `go run ./examples/tutorial/07-training-loop` |
+| 8 | [A model in service](08-service.md) | `go run ./examples/tutorial/08-service` |
+| 9 | [Convolutions over time](09-convolution.md) | `go run ./examples/tutorial/09-convolution` |
+| 10 | [Embeddings: text as geometry](10-embeddings.md) | `go run ./examples/tutorial/10-embeddings` |
+| 11 | [The autoencoder: unusual by reconstruction](11-autoencoder.md) | `go run ./examples/tutorial/11-autoencoder` |
+| 12 | [Attention: choosing what to look at](12-attention.md) | `go run ./examples/tutorial/12-attention` |
+| 13 | [Handwritten digits: the first real data](13-mnist.md) | `go run ./examples/tutorial/13-mnist` |
+| 14 | [A language model, from nothing](14-language-model.md) | `go run ./examples/tutorial/14-language-model` |
+| 15 | [The KV cache: not recomputing the past](15-kv-cache.md) | `go run ./examples/tutorial/15-kv-cache` |
 
-Chapters 1 to 4 use only the `tensor` package; 5 to 14 add `nn` and
-`optim`, chapters 8 to 12 also `data` and `metrics`; chapter 9 uses the
+Chapters 1 to 5 use only the `tensor` package, or barely more; 6 to 15 add `nn` and
+`optim`, chapters 9 to 13 also `data` and `metrics`; chapter 10 uses the
 pretrained `models/gemma` and needs its weights once (see the models
-manual). Chapters 12 to 14 train on data collected by somebody else and
+manual). Chapters 13 to 15 train on data collected by somebody else and
 pull it from the separate `github.com/fiber/ai-data` module: handwritten
 digits, then 1.1 MB of Shakespeare.
 
-Most programs run in a few seconds on a laptop. Chapter 12 takes about
-half a minute for its convolutional model, chapter 13 about seven
-minutes to train a language model from scratch, and chapter 14 about a
+Most programs run in a few seconds on a laptop. Chapter 13 takes about
+half a minute for its convolutional model, chapter 14 about seven
+minutes to train a language model from scratch, and chapter 15 about a
 minute and a half. Start with
 [getting started](../manual/getting-started.md) if the module is not
 installed yet.

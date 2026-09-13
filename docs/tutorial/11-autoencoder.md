@@ -1,6 +1,6 @@
-# 10. The autoencoder: unusual by reconstruction
+# 11. The autoencoder: unusual by reconstruction
 
-Chapters 4 to 8 trained models to predict a target somebody had
+Chapters 4 to 9 trained models to predict a target somebody had
 written down. Most operational data has no target. Nobody labels the
 minutes of a day as normal or not; the only thing you have is a lot of
 ordinary days and the wish to notice when a day stops being ordinary.
@@ -8,7 +8,7 @@ The autoencoder is the model for that, and it needs no labels because
 its target is its own input.
 
 ```
-go run ./examples/tutorial/10-autoencoder
+go run ./examples/tutorial/11-autoencoder
 ```
 
 Per minute, for the eight airports of the airspace example, three
@@ -37,7 +37,7 @@ loss := tensor.MSELoss(dec.Forward(enc.Forward(xb)), xb)
 ```
 
 `GELU`, the *Gaussian error linear unit*, is the activation here rather
-than chapter 5's ReLU: it is a smoothed version of the same kink, and
+than chapter 6's ReLU: it is a smoothed version of the same kink, and
 smooth is worth a little on a network this small because every unit
 counts.
 
@@ -105,7 +105,7 @@ The storm morning is now half again as bad as the validation morning,
 hour after hour, and the afternoon, when the closed airports reopened
 into a backlog, is worse still. This is why the airspace example
 requires an anomaly to persist for several minutes before it alarms,
-and why chapter 7's service would report hours, not minutes.
+and why chapter 8's service would report hours, not minutes.
 
 ## Four days are not a threshold
 
