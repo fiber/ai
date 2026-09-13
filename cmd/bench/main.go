@@ -44,7 +44,16 @@ func timeIt(fn func()) float64 { return timeItWarm(fn, 1) }
 // cache packs on the second sighting and the timed calls should measure
 // the steady state.
 func timeItWarm(fn func(), warm int) float64 {
-	for i := 0; i < warm; i++ {
+	// Warm for a share of the measurement window rather than for a fixed
+	// number of calls. One call is enough on bare metal; on a virtualised
+	// host the first touches of a large result pay page faults that cost
+	// two to three times what they do natively, and the transient outlasts
+	// a single iteration. Measured on a six-vCPU AVX2 guest, the MLP's
+	// forward+backward case reported 10.49 ms against 7.07 ms for the same
+	// work plus an optimiser step — impossible, and entirely the cost of
+	// warming up inside the measurement (T-061).
+	warmUntil := time.Now().Add(*duration / 3)
+	for i := 0; i < warm || time.Now().Before(warmUntil); i++ {
 		fn()
 	}
 	iters := 0

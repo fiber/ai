@@ -1,7 +1,7 @@
 ---
 id: T-061
 title: Benchmark sections must not inherit the allocator state of the section before them
-status: open
+status: done
 scope:
   - cmd/bench/
   - benchmarks/
@@ -9,6 +9,7 @@ scope:
   - tensor/
 manual:
   - docs/manual/performance.md
+done: 2026-09-13
 created: 2026-09-12
 ---
 
@@ -101,3 +102,46 @@ Three false conclusions in one day — convolution 45 % low, the
 autoencoder 20 % low, and a 1.8x deficit that is really a 1.2x advantage
 — all came from one unexamined assumption: that a benchmark suite
 measures each case independently.
+There were two faults, not one, and the second was doing most of the
+damage.
+
+**Cross-section.** Fixed as designed, by running each section in its own
+process. On the M2 Pro convolution went from 184 GFLOPS inside the suite
+to 365, against 364 measured alone. On the AVX2 guest PyTorch's inflated
+MLP row fell from 41 K to 30 K, matching its 32 K alone.
+
+**Within-section.** The harness warmed each case with one call before
+timing it. One call is enough on bare metal; on a virtualised host the
+first touches of a large result pay page faults costing two to three
+times native, and the transient outlasts it. The tell was impossible:
+forward+backward reported 10.49 ms against 7.07 ms for the same work
+plus an optimiser step. Warming for a third of the measurement window
+fixes it, at about a third more runtime, and the ordering became
+coherent immediately (1.76 / 7.54 / 8.06 ms).
+
+Acceptance, honestly:
+
+- **Met on the M2 Pro.** In-suite and alone agree within one percent for
+  both convolution (365 against 364) and the MLP (215 K against 215 K),
+  with spreads of one to two percent over three runs.
+- **Met on the AVX2 guest for the MLP**, where the spread fell from
+  105 % to between 4 and 12 % and in-suite sits 8 % under alone, inside
+  that band.
+- **Not met on the AVX2 guest for convolution**, and not fixable by a
+  harness. That case allocates 345 MB per iteration and measures 62 to
+  79 GFLOPS in the suite against 20 to 87 alone — a four-fold swing
+  between identical runs, worse alone than in-suite. It is removed from
+  the guest's table rather than published with a plausible-looking
+  number.
+
+What this cost in credibility is worth recording. The MLP comparison on
+x86 was published as PyTorch 1.8× ahead, then claimed here as 1.2×
+behind from a standalone probe, and is in fact level with PyTorch about
+9 % ahead. Three answers, one workload; only the third had both sides
+measured the same way with a harness that was not lying. The "fusion
+gap" this file described for weeks did not exist.
+
+The implementation landed early, inside cf928e3 with the tutorial
+chapters, because `git add -A` swept it up while two specs were open.
+The code is unchanged since; this spec adds the warm-up fix, the
+re-measurement and the corrections.

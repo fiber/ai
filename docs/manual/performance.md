@@ -63,12 +63,12 @@ against PyTorch/Accelerate:
 
 | | fiber/ai NEON | fiber/ai AMX | PyTorch |
 |---|---:|---:|---:|
-| SGEMM 512², GFLOPS | 518 | 1 505 | **2 157** |
-| SGEMM 1024² | 542 | 2 118 | **2 688** |
-| SGEMM 2048² | 546 | **2 225** | 2 192 |
+| SGEMM 512², GFLOPS | 518 | 1 545 | **2 157** |
+| SGEMM 1024² | 542 | 2 140 | **2 688** |
+| SGEMM 2048² | 546 | **2 264** | 2 192 |
 | [256×768]·[768×3072] | 498 | 1 705 | **2 328** |
-| MLP training step, samples/s | 98 K | **178 K** | 117 K |
-| MLP inference | 349 K | **827 K** | 520 K |
+| MLP training step, samples/s | 98 K | **180 K** | 117 K |
+| MLP inference | 349 K | **843 K** | 520 K |
 
 SME, the documented matrix extension of the M4, was measured with the
 probe under `internal/kernel/smeprobe`: 1.06 TFLOPS on one thread and
