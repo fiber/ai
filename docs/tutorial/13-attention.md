@@ -1,4 +1,4 @@
-# 12. Attention: choosing what to look at
+# 13. Attention: choosing what to look at
 
 Chapter 9's convolution treats every minute of the window the same way:
 the same filter, everywhere. This chapter builds a layer that decides,
@@ -8,7 +8,7 @@ smallest form: about twenty lines, written here rather than taken from
 `nn`, because the point is to see the weights.
 
 ```
-go run ./examples/tutorial/12-attention
+go run ./examples/tutorial/13-attention
 ```
 
 The task is chapter 9's: the number of aircraft in Dublin's zone half an

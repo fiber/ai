@@ -1,4 +1,4 @@
-# 13. Handwritten digits: the first real data
+# 14. Handwritten digits: the first real data
 
 Every chapter so far generated its own data. Spirals, sine waves,
 counters from a simulated day: convenient for teaching, because the
@@ -15,7 +15,7 @@ reports 89% on MNIST, something is broken, and you know it without
 reading the code.
 
 ```
-go run ./examples/tutorial/13-mnist
+go run ./examples/tutorial/14-mnist
 ```
 
 ## Where the data comes from

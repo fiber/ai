@@ -240,15 +240,15 @@ details; `-prep` rebuilds the files from the raw archives.
 
 ## MNIST: the benchmark everybody knows
 
-`examples/tutorial/13-mnist` trains a classifier on handwritten digits, the one
+`examples/tutorial/14-mnist` trains a classifier on handwritten digits, the one
 dataset in this field whose numbers a reader can check against their own
-experience. It is the program of [tutorial chapter 13](../tutorial/13-mnist.md)
+experience. It is the program of [tutorial chapter 14](../tutorial/14-mnist.md)
 and the only example that trains on data collected by somebody else.
 
 ```
-go run ./examples/tutorial/13-mnist                  # both models, five epochs
-go run ./examples/tutorial/13-mnist -model cnn -epochs 10
-go run ./examples/tutorial/13-mnist -limit 1000      # how each model copes with scarce data
+go run ./examples/tutorial/14-mnist                  # both models, five epochs
+go run ./examples/tutorial/14-mnist -model cnn -epochs 10
+go run ./examples/tutorial/14-mnist -limit 1000      # how each model copes with scarce data
 ```
 
 The data comes from `github.com/fiber/ai-data`, a separate module that
@@ -287,18 +287,46 @@ set, not per pixel. Border pixels are zero in every image, so a per-pixel
 deviation is zero there and the division produces NaN — the kind of thing
 real data does and generated data never does.
 
+## metrics, and turning a score into a decision
+
+`metrics.Confusion(pred, truth, classes)` gives a matrix with
+`Accuracy`, `Precision(c)`, `Recall(c)` and `F1(c)` per class, plus
+`MAE` and `RMSE` for forecasts. [Tutorial chapter
+12](../tutorial/12-threshold.md) is about the step these are for: an
+anomaly model produces a number per minute and somebody has to decide
+at what value it means *wake someone up*.
+
+```
+go run ./examples/tutorial/12-threshold
+```
+
+Two things that chapter measures are worth repeating here, because they
+decide whether a monitoring system is used or muted.
+
+**Accuracy is the base rate when events are rare.** With the storm one
+day in six, a detector that never fires scores 50%; at one day in sixty
+it scores 98.3%. Report precision and recall, or report nothing.
+
+**Convert the false-positive rate into alarms per day across the whole
+fleet before believing a threshold.** On the airspace counters, a
+threshold above *every* hour in the training data still fires three
+times on a quiet day at one airport — twenty four alarms a day across
+the eight on that feed. The model detects the storm and is still
+unusable, and no better model fixes it: four days of ordinary weather do
+not contain the range of ordinary.
+
 ## A language model you can train in seven minutes
 
-`examples/tutorial/14-language-model` builds the decoder architecture
+`examples/tutorial/15-language-model` builds the decoder architecture
 every current language model uses — pre-norm blocks, causal
 multi-head attention, rotary positions, a feed-forward part four times
 the model width — and trains it from scratch on 1.1 MB of Shakespeare
 from `github.com/fiber/ai-data`. It is [tutorial chapter
-13](../tutorial/14-language-model.md).
+13](../tutorial/15-language-model.md).
 
 ```
-go run ./examples/tutorial/14-language-model
-go run ./examples/tutorial/14-language-model -layers 6 -temp 0.4
+go run ./examples/tutorial/15-language-model
+go run ./examples/tutorial/15-language-model -layers 6 -temp 0.4
 ```
 
 Four blocks, width 256, four heads, context 128: 3.19M parameters. On an
@@ -308,8 +336,8 @@ against ln(65) = 4.17 for a model that has learned nothing. The output
 has speaker names, verse line breaks and English spelling; it has no
 meaning, which is what three million parameters buys.
 
-`examples/tutorial/15-kv-cache` is the same model generating with and
-without a key-value cache ([chapter 15](../tutorial/15-kv-cache.md)):
+`examples/tutorial/16-kv-cache` is the same model generating with and
+without a key-value cache ([chapter 16](../tutorial/16-kv-cache.md)):
 354 characters/s re-running the whole prefix against 1303 with the
 cache, and 3.3 MB of cache after 400 characters. The gap between that
 3.7x and the 128x less arithmetic the cache performs is per-operation

@@ -1,4 +1,4 @@
-# 14. A language model, from nothing
+# 15. A language model, from nothing
 
 Every chapter so far has ended with a number: an accuracy, an error, a
 distance. This one ends with a machine that writes. The architecture is
@@ -7,7 +7,7 @@ of Shakespeare, and the whole thing is about two hundred lines and seven
 minutes of laptop time.
 
 ```
-go run ./examples/tutorial/14-language-model
+go run ./examples/tutorial/15-language-model
 ```
 
 ## The task
@@ -66,7 +66,7 @@ func (b *block) Forward(x *tensor.Tensor) *tensor.Tensor {
 
 Two sub-layers with two different jobs. **Attention mixes across
 positions**: every token looks at the tokens before it and pulls in what
-it needs (chapter 12). **The feed-forward part thinks about each position
+it needs (chapter 13). **The feed-forward part thinks about each position
 on its own**, widening to four times the model width and back — that is
 where most of the parameters live, and the current understanding is that
 it is where most of what the model knows is stored.
@@ -216,7 +216,7 @@ values.
 
 Storing them instead is a *KV cache* — a key-value cache — and it is
 the subject of
-[chapter 15](15-kv-cache.md). Skipping ahead: it removes about 128× the arithmetic and does
+[chapter 16](16-kv-cache.md). Skipping ahead: it removes about 128× the arithmetic and does
 not make generation 128× faster, and the reason why is the most useful
 thing in that chapter.
 
@@ -225,8 +225,8 @@ thing in that chapter.
 Seven minutes is a lot to spend twice:
 
 ```
-go run ./examples/tutorial/14-language-model -save shakespeare.bin
-go run ./examples/tutorial/14-language-model -load shakespeare.bin -steps 0
+go run ./examples/tutorial/15-language-model -save shakespeare.bin
+go run ./examples/tutorial/15-language-model -load shakespeare.bin -steps 0
 ```
 
 `nn.SaveParams` writes the parameters in the order `Params()` returns

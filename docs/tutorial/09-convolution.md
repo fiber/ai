@@ -185,4 +185,4 @@ validation error together; the interesting models in this family are the
 ones that get better without getting bigger.
 
 The same idea in two dimensions, sliding filters across an image instead
-of along a series, is [chapter 13](13-mnist.md).
+of along a series, is [chapter 14](14-mnist.md).

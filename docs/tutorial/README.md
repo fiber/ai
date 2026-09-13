@@ -1,6 +1,6 @@
 # Tutorial: AI for Go developers
 
-Fifteen chapters for people who write Go and never learned NumPy or
+Sixteen chapters for people who write Go and never learned NumPy or
 PyTorch. Each chapter is a short text and a program you can run; the
 text quotes what the program prints. No mathematics beyond "a slope";
 the ideas arrive through the code.
@@ -18,21 +18,22 @@ the ideas arrive through the code.
 | 9 | [Convolutions over time](09-convolution.md) | `go run ./examples/tutorial/09-convolution` |
 | 10 | [Embeddings: text as geometry](10-embeddings.md) | `go run ./examples/tutorial/10-embeddings` |
 | 11 | [The autoencoder: unusual by reconstruction](11-autoencoder.md) | `go run ./examples/tutorial/11-autoencoder` |
-| 12 | [Attention: choosing what to look at](12-attention.md) | `go run ./examples/tutorial/12-attention` |
-| 13 | [Handwritten digits: the first real data](13-mnist.md) | `go run ./examples/tutorial/13-mnist` |
-| 14 | [A language model, from nothing](14-language-model.md) | `go run ./examples/tutorial/14-language-model` |
-| 15 | [The KV cache: not recomputing the past](15-kv-cache.md) | `go run ./examples/tutorial/15-kv-cache` |
+| 12 | [A score is not a decision](12-threshold.md) | `go run ./examples/tutorial/12-threshold` |
+| 13 | [Attention: choosing what to look at](13-attention.md) | `go run ./examples/tutorial/13-attention` |
+| 14 | [Handwritten digits: the first real data](14-mnist.md) | `go run ./examples/tutorial/14-mnist` |
+| 15 | [A language model, from nothing](15-language-model.md) | `go run ./examples/tutorial/15-language-model` |
+| 16 | [The KV cache: not recomputing the past](16-kv-cache.md) | `go run ./examples/tutorial/16-kv-cache` |
 
-Chapters 1 to 5 use only the `tensor` package, or barely more; 6 to 15 add `nn` and
-`optim`, chapters 9 to 13 also `data` and `metrics`; chapter 10 uses the
+Chapters 1 to 5 use only the `tensor` package, or barely more; 6 to 16 add `nn` and
+`optim`, chapters 9 to 12 also `data` and `metrics`; chapter 10 uses the
 pretrained `models/gemma` and needs its weights once (see the models
-manual). Chapters 13 to 15 train on data collected by somebody else and
+manual). Chapters 14 to 16 train on data collected by somebody else and
 pull it from the separate `github.com/fiber/ai-data` module: handwritten
 digits, then 1.1 MB of Shakespeare.
 
-Most programs run in a few seconds on a laptop. Chapter 13 takes about
-half a minute for its convolutional model, chapter 14 about seven
-minutes to train a language model from scratch, and chapter 15 about a
+Most programs run in a few seconds on a laptop. Chapter 14 takes about
+half a minute for its convolutional model, chapter 15 about seven
+minutes to train a language model from scratch, and chapter 16 about a
 minute and a half. Start with
 [getting started](../manual/getting-started.md) if the module is not
 installed yet.
