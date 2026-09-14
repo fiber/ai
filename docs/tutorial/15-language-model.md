@@ -51,6 +51,10 @@ piece, so the model needs more layers and more context to reach the same
 understanding — which is exactly the trade real models make in the other
 direction once they have billions of tokens to learn from.
 
+[Chapter 17](17-tokenization.md) makes the trade measurable: it trains a
+small subword vocabulary on this corpus, retrains this model on it, and
+compares the two on bits per character.
+
 ## The block
 
 A transformer is one block repeated. Ours:

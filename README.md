@@ -18,7 +18,7 @@ github.com/fiber/ai
 ├── cmd/bench/         throughput benchmarks (Markdown output)
 ├── cmd/gate/          development-process gate (specs, lists, manual)
 ├── docs/manual/       the user manual
-├── docs/tutorial/     sixteen chapters for Go developers new to the field
+├── docs/tutorial/     seventeen chapters for Go developers new to the field
 ├── data/, metrics/    data preparation and evaluation for applications
 ├── logtemplate/       syslog lines to templates, a million lines a second
 ├── cluster/           k-means and nearest-centre search over embeddings
@@ -32,8 +32,8 @@ github.com/fiber/ai
 ```
 
 The [tutorial](docs/tutorial/README.md) teaches the field from the code
-up in sixteen runnable chapters, for Go developers who never learned NumPy
-or PyTorch. The last one trains on MNIST and compares the result with
+up in seventeen runnable chapters, for Go developers who never learned NumPy
+or PyTorch. Chapter 14 trains on MNIST and compares the result with
 PyTorch on the same machine. The [manual](docs/manual/README.md) covers the API in depth;
 [PROCESS.md](PROCESS.md) describes how changes are made.
 

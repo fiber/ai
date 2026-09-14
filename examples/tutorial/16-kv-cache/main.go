@@ -1,4 +1,4 @@
-// Tutorial chapter 14: the same decoder as chapter 13, generating with
+// Tutorial chapter 16: the same decoder as chapter 15, generating with
 // and without a KV cache, so the difference can be measured rather than
 // asserted.
 package main
@@ -117,7 +117,7 @@ func sample(logits []float32, temp float32, r *rand.Rand) int {
 	return len(p) - 1
 }
 
-// generateWhole is chapter 13's loop: the entire prefix goes through the
+// generateWhole is chapter 15's loop: the entire prefix goes through the
 // model for every character produced.
 func generateWhole(m *model, symbols []byte, start, n, ctx int, temp float32, r *rand.Rand) string {
 	ids, out := []int{start}, make([]byte, 0, n)

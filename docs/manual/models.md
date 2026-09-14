@@ -133,7 +133,11 @@ this package yet.
 
 The pieces it is built from are general and documented elsewhere:
 `safetensors` reads the weight files (see the package documentation),
-`tokenizer` is the byte-level BPE tokenizer, and the new tensor operations
+`tokenizer` is the byte-level BPE tokenizer (*byte-pair encoding*: a
+vocabulary grown by repeatedly merging the most frequent adjacent pair of
+symbols, with every byte kept as a fallback so no input is unencodable;
+[tutorial chapter 17](../tutorial/17-tokenization.md) trains one from
+scratch and measures what it buys), and the new tensor operations
 (`RoPE`, `WindowMask`, `AttentionScaled` for grouped-query attention, and
 `Recycle` for reusing off-heap buffers during inference) are in the
 [tensors page](tensors.md).

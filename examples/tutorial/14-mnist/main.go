@@ -1,4 +1,4 @@
-// Tutorial chapter 12: handwritten digits — the first example in this
+// Tutorial chapter 14: handwritten digits — the first example in this
 // tutorial that trains on data somebody else collected.
 package main
 

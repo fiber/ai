@@ -92,7 +92,7 @@ func TestMLPLearns(t *testing.T) {
 	}
 }
 
-// The convolutional stack is the reason chapter 12 exists; check that the
+// The convolutional stack is the reason chapter 14 exists; check that the
 // shapes line up all the way from flat rows to ten scores, so a change in
 // Conv2D or MaxPool2D shows up here and not in a reader's terminal.
 func TestCNNShapes(t *testing.T) {

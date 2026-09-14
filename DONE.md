@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-14 T-069 — Tutorial chapter 17: tokens — byte-pair encoding, trained and measured (spec/done/T-069-tutorial-chapter-17-tokens-byte-pair-encoding-tr.md)
 - 2026-09-13 T-068 — Tutorial chapter 12: a score is not a decision — choosing a threshold (spec/done/T-068-tutorial-chapter-12-a-score-is-not-a-decision-ch.md)
 - 2026-09-13 T-067 — SaveParams should need only Params, so a model with its own forward can be saved (spec/done/T-067-saveparams-should-need-only-params-so-a-model-wi.md)
 - 2026-09-13 T-066 — Tutorial chapter 5: the perceptron and what one unit cannot do (spec/done/T-066-tutorial-chapter-5-the-perceptron-and-what-one-u.md)

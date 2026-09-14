@@ -1,4 +1,4 @@
-// Tutorial chapter 11: attention — a layer that chooses what to look at,
+// Tutorial chapter 13: attention — a layer that chooses what to look at,
 // written by hand so that its choices can be read.
 package main
 

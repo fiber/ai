@@ -1,4 +1,4 @@
-// Tutorial chapter 13: a character-level language model — the decoder
+// Tutorial chapter 15: a character-level language model — the decoder
 // architecture every current model is built from, trained from scratch
 // on 1.1 MB of Shakespeare and then sampled from.
 package main
@@ -135,7 +135,7 @@ func sample(logits []float32, temp float32, r *rand.Rand) int {
 // generate continues from a one-character prompt, feeding each new
 // symbol back in. Every step re-runs the whole prefix, because nothing
 // keeps the keys and values of the earlier tokens — that is what a
-// KV cache is for, and it is chapter 14.
+// KV cache is for, and it is chapter 16.
 func generate(m *model, symbols []byte, index [256]int, start byte, n, ctx int, temp float32, r *rand.Rand) string {
 	ids := []int{index[start]}
 	out := make([]byte, 0, n)
