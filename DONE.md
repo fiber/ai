@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-14 T-071 — Tutorial: chapter 8 no longer ends it; Next links through chapter 18 (spec/done/T-071-tutorial-chapter-8-no-longer-ends-it-next-links.md)
 - 2026-09-14 T-070 — Tutorial chapter 18: a text classifier on frozen embeddings (spec/done/T-070-tutorial-chapter-18-a-text-classifier-on-frozen.md)
 - 2026-09-14 T-069 — Tutorial chapter 17: tokens — byte-pair encoding, trained and measured (spec/done/T-069-tutorial-chapter-17-tokens-byte-pair-encoding-tr.md)
 - 2026-09-13 T-068 — Tutorial chapter 12: a score is not a decision — choosing a threshold (spec/done/T-068-tutorial-chapter-12-a-score-is-not-a-decision-ch.md)

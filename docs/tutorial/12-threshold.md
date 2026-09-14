@@ -150,3 +150,5 @@ And take the quiet day out of training entirely, then check whether its
 worst hour still exceeds the training maximum. If it does, that is your
 answer about how much data a threshold needs, measured rather than
 argued.
+
+Next: [13. Attention: choosing what to look at](13-attention.md).

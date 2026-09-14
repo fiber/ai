@@ -261,3 +261,5 @@ smaller model is usually the slower starter.
 Finally, change the filter counts from 16 and 32 to 8 and 16 and compare
 accuracy against training time. The curve is flatter than you would
 guess, which is the same point the parameter counts already made.
+
+Next: [15. A language model, from nothing](15-language-model.md).

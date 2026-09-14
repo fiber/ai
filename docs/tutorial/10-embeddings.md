@@ -119,3 +119,5 @@ first, embed what is left, store the vectors, and compare with the
 ruler. The `cluster` package does the comparing for thousands of
 vectors at once (`Similarities`), and chapter 11 is about a model that
 does not need labels either.
+
+Next: [11. The autoencoder: unusual by reconstruction](11-autoencoder.md).

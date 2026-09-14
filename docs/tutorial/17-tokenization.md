@@ -213,3 +213,5 @@ column at 512: ` VINCENTIO` is a character's name that appears often
 enough to earn a merge — a vocabulary learned on one corpus carries that
 corpus with it, which is what the Gemma line above was measuring in the
 other direction.
+
+Next: [18. A text classifier on frozen embeddings](18-text-classifier.md).

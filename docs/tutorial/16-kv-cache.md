@@ -147,3 +147,5 @@ memory and no more, so it cannot maintain a scene, a speaker or an
 argument beyond it. Everything the field has built since — longer
 contexts, better positions, retrieval — is an answer to what you are
 looking at.
+
+Next: [17. Tokens: what a model actually reads](17-tokenization.md).

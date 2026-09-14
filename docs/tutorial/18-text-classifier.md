@@ -225,3 +225,8 @@ what the embedding head already had. Then write two shapes of your own
 in a wording deliberately unlike the others, and see which classifier
 notices. And add `application` as a sixth category with the foreign
 shapes: the confidence table becomes uninteresting, which is the point.
+
+That is the end of the tutorial. The [manual](../manual/README.md)
+covers the API in full, and its [applications
+page](../manual/applications.md) collects what these chapters measured
+in one place.

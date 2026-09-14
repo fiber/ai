@@ -114,3 +114,5 @@ model looks somewhere else when the traffic pattern differs. Replace
 the single learned query by the last token's key (so the most recent
 minute asks the question) and compare. Then read `nn/attention.go`,
 which is this chapter with heads and a mask.
+
+Next: [14. Handwritten digits: the first real data](14-mnist.md).

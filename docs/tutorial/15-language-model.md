@@ -259,3 +259,5 @@ Finally, `-ctx 64` against `-ctx 256`. Attention costs the square of the
 context, so the longer one is much slower per step; ask whether the loss
 justifies it. That question, at a scale four orders of magnitude larger,
 is most of what current model design is about.
+
+Next: [16. The KV cache: not recomputing the past](16-kv-cache.md).

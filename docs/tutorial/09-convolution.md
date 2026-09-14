@@ -186,3 +186,5 @@ ones that get better without getting bigger.
 
 The same idea in two dimensions, sliding filters across an image instead
 of along a series, is [chapter 14](14-mnist.md).
+
+Next: [10. Embeddings: text as geometry](10-embeddings.md).

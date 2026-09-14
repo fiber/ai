@@ -127,3 +127,5 @@ in opposite directions: too narrow and ordinary minutes reconstruct
 badly, too wide and the storm does too well. And run the chapter with
 `-data` pointing at counters of your own; the program needs only the
 columns it names.
+
+Next: [12. A score is not a decision](12-threshold.md).

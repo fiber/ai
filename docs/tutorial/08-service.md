@@ -92,6 +92,10 @@ for a millisecond and answered together, do it.
   `Release` on results you have read.
 - Batch when you can; measure with the real input size.
 
-That is the end of the tutorial. The [application packages](../manual/applications.md)
-show these pieces on log and counter data, and the
-[manual](../manual/README.md) covers the API in full.
+That is the whole path: a tensor, a gradient, a trained model, and a
+process that serves it. The remaining chapters take the same tools to
+problems that are not toys — counters that predict, logs as vectors,
+days that are not ordinary, digits, and a language model from nothing
+— and each adds one idea to what you have now.
+
+Next: [9. Convolutions over time](09-convolution.md).
