@@ -1,6 +1,6 @@
 # Tutorial: AI for Go developers
 
-Seventeen chapters for people who write Go and never learned NumPy or
+Eighteen chapters for people who write Go and never learned NumPy or
 PyTorch. Each chapter is a short text and a program you can run; the
 text quotes what the program prints. No mathematics beyond "a slope";
 the ideas arrive through the code.
@@ -24,18 +24,19 @@ the ideas arrive through the code.
 | 15 | [A language model, from nothing](15-language-model.md) | `go run ./examples/tutorial/15-language-model` |
 | 16 | [The KV cache: not recomputing the past](16-kv-cache.md) | `go run ./examples/tutorial/16-kv-cache` |
 | 17 | [Tokens: what a model actually reads](17-tokenization.md) | `go run ./examples/tutorial/17-tokenization` |
+| 18 | [A text classifier on frozen embeddings](18-text-classifier.md) | `go run ./examples/tutorial/18-text-classifier` |
 
-Chapters 1 to 5 use only the `tensor` package, or barely more; 6 to 17 add `nn` and
-`optim`, chapters 9 to 12 also `data` and `metrics`; chapter 10 uses the
-pretrained `models/gemma` and needs its weights once (see the models
-manual). Chapters 14 to 17 train on data collected by somebody else and
+Chapters 1 to 5 use only the `tensor` package, or barely more; 6 to 18 add `nn` and
+`optim`, chapters 9 to 12 also `data` and `metrics`; chapters 10 and 18
+use the pretrained `models/gemma` and need its weights once (see the
+models manual). Chapters 14 to 17 train on data collected by somebody else and
 pull it from the separate `github.com/fiber/ai-data` module: handwritten
 digits, then 1.1 MB of Shakespeare.
 
 Most programs run in a few seconds on a laptop. Chapter 14 takes about
 half a minute for its convolutional model, chapter 15 about seven
 minutes to train a language model from scratch, chapter 16 about a
-minute and a half, and chapter 17 about eight minutes for two training
-runs. Start with
+minute and a half, chapter 17 about eight minutes for two training
+runs, and chapter 18 fifteen seconds once the weights are present. Start with
 [getting started](../manual/getting-started.md) if the module is not
 installed yet.

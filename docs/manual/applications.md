@@ -346,3 +346,38 @@ small-product path in the matrix-multiply driver exists to address.
 
 `nn.KVCache` and `MultiHeadAttention.Step` are the library side; see
 [nn-and-optim.md](nn-and-optim.md).
+
+## Routing text: a head on frozen embeddings
+
+The pattern for text in a service is not to train a language model and
+not to fine-tune the encoder. `gemma.Embed` turns every line into a
+768-vector once; a `nn.NewLinear(768, k)` trained on the vectors with
+cross-entropy and AdamW turns the vector into a decision. [Tutorial
+chapter 18](../tutorial/18-text-classifier.md) builds it for routing
+syslog lines to five teams and measures it against a bag of words.
+
+```
+go run ./examples/tutorial/18-text-classifier
+```
+
+Three results from that chapter carry over to any deployment of the
+pattern.
+
+**Test on wordings the head never saw.** Split by shape or template,
+never by line: on fresh lines of known wordings both classifiers score
+100 %, on held-out wordings the bag of words falls to 52 % and the
+embedding head holds at 94.5 %. Nearest centroid over the same vectors,
+with no training at all, is two points behind the head.
+
+**Embedding is the cost, the head is free.** 190 lines a second through
+the encoder on a laptop (see the [models page](models.md) for batching
+and threads); the head is 3 845 numbers and retrains from scratch in a
+tenth of a second, so it can be retrained every time a label is
+corrected while the vectors stay.
+
+**A classifier has no "none of the above".** Lines from a category the
+head was never trained on still get a team. A threshold on the softmax
+maximum catches them, at a price paid on exactly the lines the head was
+built for: at 0.90 it sends 57 % of correctly classifiable held-out
+wordings to a person. Labelled examples of the foreign kind, as a sixth
+class, are the better fix.

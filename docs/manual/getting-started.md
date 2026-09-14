@@ -1,7 +1,7 @@
 # Getting started
 
 New to the field? The [tutorial](../tutorial/README.md) explains tensors,
-gradients and training from the code up, in seventeen runnable chapters.
+gradients and training from the code up, in eighteen runnable chapters.
 This page covers installing the module and running the examples.
 
 ## Requirements
