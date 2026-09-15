@@ -381,3 +381,37 @@ maximum catches them, at a price paid on exactly the lines the head was
 built for: at 0.90 it sends 57 % of correctly classifiable held-out
 wordings to a person. Labelled examples of the foreign kind, as a sixth
 class, are the better fix.
+
+## Forecasting with an interval
+
+A point forecast carries no measure of its own uncertainty. Training
+one output per quantile with `tensor.PinballLoss` gives a band instead
+of a number, and [tutorial chapter 19](../tutorial/19-intervals.md)
+builds one on the airspace counters: a 1-D convolutional encoder,
+`nn.GlobalAvgPool1D` in place of `Flatten`, and three outputs for the
+10th, 50th and 90th percentile.
+
+```
+go run ./examples/tutorial/19-intervals
+```
+
+**Check coverage, not error.** A band is a claim about how often it
+contains the truth, and the claim is cheap to test: on the validation
+day it held 77.8 % of the targets against a nominal 80 %, and the band
+was 7.4 aircraft wide on a series peaking at 24.
+
+**Calibration is learned from the training days.** On the storm day the
+same band held only 52.3 % — and it was not wider, just wrong. Per hour
+it is worse than the average suggests: 14–15 aircraft wide and 18 %
+correct during the morning closure, 2–3 aircraft wide and 2 % correct in
+the evening, when the input looked ordinary and the airport was working
+through a backlog. Narrow and wrong is the combination to fear.
+
+**Quantile outputs can cross**, because they are independent columns of
+one layer: 11 of 2 880 rows here. Sort them, or predict a median and
+non-negative widths.
+
+**Train the loss you are judged by.** The median output's mean absolute
+error beat chapter 9's MSE-trained point forecast on both days (2.23
+against 2.63; 3.27 against 3.66). MSE fits the mean; MAE's optimum is
+the median.

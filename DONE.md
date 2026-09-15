@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-15 T-075 — Tutorial chapter 19: a forecast with an interval, and the early stopping that gets it (spec/done/T-075-tutorial-chapter-19-a-forecast-with-an-interval.md)
 - 2026-09-15 T-074 — Tutorial chapter 7: what the optimiser does, SGD before Adam (spec/done/T-074-tutorial-chapter-7-what-the-optimiser-does-sgd-b.md)
 - 2026-09-15 T-073 — safetensors: writing named tensors, for export a Python reader can open (spec/done/T-073-safetensors-writing-named-tensors-for-export-a-p.md)
 - 2026-09-15 T-072 — Quantile forecasting gaps: pinball loss, global 1-D pooling, parameter snapshots (spec/done/T-072-quantile-forecasting-gaps-pinball-loss-global-1.md)
