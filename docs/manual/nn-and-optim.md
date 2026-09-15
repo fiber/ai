@@ -138,6 +138,14 @@ adamw := optim.NewAdamW(params, 1e-3, 1e-2)
 parameters without one) and `ZeroGrad()` clears them. Updates run under
 `NoGrad` internally.
 
+Reach for `NewAdamW(params, 1e-3, 1e-2)` unless you have a reason not to:
+it needs no knowledge of how the gradients are scaled across the model,
+which is what makes it the default everywhere. `NewSGD` with
+`Momentum = 0.9` is the alternative worth trying when a problem is small
+or well conditioned, where it often converges in fewer epochs — see
+[tutorial chapter 7](../tutorial/07-training-loop.md), which measures
+both on the same model.
+
 ## A complete training loop
 
 ```go
