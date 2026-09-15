@@ -210,6 +210,19 @@ func (t *Tensor) values() []float32 {
 	return t.Contiguous().data
 }
 
+// CopyTo copies the elements into dst in row-major order and returns the
+// number copied. dst must hold at least Size() elements. Unlike Float32s
+// it allocates nothing for a contiguous tensor and does not pin the
+// tensor's storage, which is what makes it usable in a loop.
+func (t *Tensor) CopyTo(dst []float32) int {
+	if len(dst) < t.size {
+		fail("CopyTo", "destination holds %d elements, tensor has %d", len(dst), t.size)
+	}
+	n := copy(dst, t.values())
+	runtime.KeepAlive(t)
+	return n
+}
+
 // Float32s always returns a fresh copy of the elements in row-major order.
 func (t *Tensor) Float32s() []float32 {
 	out := append([]float32(nil), t.values()...)

@@ -90,7 +90,13 @@ Under `NoGrad`, or when neither input needs a gradient, `RMSNorm` runs a fused o
 layers over [batch, channels, height, width] and [batch, channels,
 length]; `Stride` and `Pad` are fields (defaults 1 and k/2, which keeps
 the size for odd k). `nn.NewMaxPool2D(k)` halves the spatial size,
-`nn.Flatten{}` leads into `Linear`. Convolutions run as one matrix
+`nn.Flatten{}` leads into `Linear`. `nn.GlobalAvgPool1D{}` and
+`nn.GlobalMaxPool1D{}` collapse the length of a
+[batch, channels, length] tensor to [batch, channels], which is the
+usual end of a 1-D encoder: unlike `Flatten` they do not tie the model
+to one input length, so the same trained model accepts a longer
+sequence. The average asks how much of a pattern there is, the maximum
+whether it occurred at all. Convolutions run as one matrix
 product per image over an im2col layout, so they use the GEMM path;
 `examples/nn/conv` trains a small CNN to 97 % on generated shape images
 in under a second.
@@ -100,6 +106,14 @@ in under a second.
 All in package `tensor`:
 
 - `MSELoss(pred, target)` — mean squared error.
+- `PinballLoss(pred, target, quantiles...)` — the quantile loss, for a
+  forecast that carries an interval instead of a single number.
+  Predictions are [..., Q] with one value per quantile, targets are the
+  same shape without the last dimension; the loss of an element is
+  `max(q·d, (q−1)·d)` with `d = target − pred`, averaged over
+  everything, so minimising it puts each prediction at its quantile of
+  the target's distribution. With the single quantile 0.5 it is half
+  the mean absolute error.
 - `CrossEntropyWeighted(logits, targets, weights)` — cross-entropy with one
   weight per class, normalised by the batch's total target weight; for
   uneven classes.
@@ -197,3 +211,27 @@ ask for one.
     served := buildModel()          // same architecture, fresh weights
     g, _ := os.Open("model.bin")
     nn.LoadParams(g, served)        // now the trained numbers
+
+## Keeping the best model: snapshots
+
+Early stopping needs the parameters from the epoch where the validation
+loss bottomed out, not the ones training ended with, and going through
+a file for that is wasteful. `nn.NewSnapshot(m)` allocates an in-memory
+copy and captures it; `Capture` overwrites it into the same buffers, so
+what it allocates does not grow with the model and it can be called
+every epoch; `Restore` copies back into the existing tensors, so an
+optimiser already holding them keeps working and training can continue.
+
+    best, bestLoss := nn.NewSnapshot(model), math.Inf(1)
+    for epoch := range epochs {
+        trainOneEpoch(model, opt)
+        if l := validate(model); l < bestLoss {
+            bestLoss = l
+            best.Capture(model)
+        }
+    }
+    best.Restore(model)             // the model from the best epoch
+
+Gradients and optimiser state are not part of a snapshot: restoring
+does not rewind Adam's moments. `Capture` and `Restore` check the
+parameter count and shapes and return an error on a mismatch.

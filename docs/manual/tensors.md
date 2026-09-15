@@ -84,6 +84,10 @@ x.Max(0, 2)      // [3]
 x.Argmax(1)      // []int of length 2*4, index of the max along dim 1
 ```
 
+`Float32s` returns a fresh copy of the elements; `CopyTo(dst)` fills a
+slice you already have and allocates nothing for a contiguous tensor,
+which is what a loop reading weights every epoch wants.
+
 ## Matrix products
 
 `MatMul` follows NumPy: 2-D × 2-D is the matrix product; a 1-D operand is

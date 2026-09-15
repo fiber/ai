@@ -115,3 +115,85 @@ func LoadParams(r io.Reader, m Parameterised) error {
 	}
 	return nil
 }
+
+// Snapshot is an in-memory copy of a model's parameters, for the loop
+// that keeps the best model rather than the last one. Early stopping
+// needs exactly this: capture whenever the validation loss improves,
+// restore at the end.
+//
+//	best := nn.NewSnapshot(model)
+//	for epoch := range epochs {
+//	    train(model)
+//	    if l := validate(model); l < bestLoss {
+//	        bestLoss = l
+//	        best.Capture(model)
+//	    }
+//	}
+//	best.Restore(model)
+//
+// Gradients and optimiser state are not part of a snapshot: restoring
+// does not rewind Adam's moments, and training on after a restore
+// continues with the optimiser state the discarded epochs produced.
+type Snapshot struct {
+	shapes [][]int
+	data   [][]float32
+}
+
+// NewSnapshot allocates a snapshot of m and captures it.
+func NewSnapshot(m Parameterised) *Snapshot {
+	params := m.Params()
+	s := &Snapshot{shapes: make([][]int, len(params)), data: make([][]float32, len(params))}
+	for i, p := range params {
+		s.shapes[i] = p.Shape()
+		s.data[i] = make([]float32, p.Size())
+	}
+	// The shapes were just read from m, so this cannot fail.
+	_ = s.Capture(m)
+	return s
+}
+
+// Capture overwrites the snapshot with m's current parameters, copying
+// into the buffers it already holds, so what it allocates does not grow
+// with the model and it is cheap enough to call every epoch.
+func (s *Snapshot) Capture(m Parameterised) error {
+	params, err := s.check(m)
+	if err != nil {
+		return err
+	}
+	for i, p := range params {
+		p.CopyTo(s.data[i])
+	}
+	return nil
+}
+
+// Restore copies the snapshot back into m's parameters in place, so an
+// optimiser already holding them keeps working.
+func (s *Snapshot) Restore(m Parameterised) error {
+	params, err := s.check(m)
+	if err != nil {
+		return err
+	}
+	for i, p := range params {
+		src := tensor.FromSlice(s.data[i], s.shapes[i]...)
+		tensor.NoGrad(func() { p.CopyFrom(src) })
+	}
+	return nil
+}
+
+func (s *Snapshot) check(m Parameterised) ([]*tensor.Tensor, error) {
+	params := m.Params()
+	if len(params) != len(s.shapes) {
+		return nil, fmt.Errorf("nn: snapshot holds %d parameters, model has %d", len(s.shapes), len(params))
+	}
+	for i, p := range params {
+		got, want := p.Shape(), s.shapes[i]
+		same := len(got) == len(want)
+		for j := range got {
+			same = same && got[j] == want[j]
+		}
+		if !same {
+			return nil, fmt.Errorf("nn: parameter %d has shape %v in the model, %v in the snapshot", i, got, want)
+		}
+	}
+	return params, nil
+}

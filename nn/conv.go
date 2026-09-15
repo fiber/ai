@@ -68,3 +68,31 @@ func (p MaxPool2D) Forward(x *tensor.Tensor) *tensor.Tensor {
 	return tensor.MaxPool2D(x, p.K, p.Stride)
 }
 func (MaxPool2D) Params() []*tensor.Tensor { return nil }
+
+// GlobalAvgPool1D averages over the length of [batch, channels, length],
+// giving [batch, channels]: the usual end of a 1-D convolutional encoder,
+// where Flatten would tie the model to one input length.
+type GlobalAvgPool1D struct{}
+
+func (GlobalAvgPool1D) Forward(x *tensor.Tensor) *tensor.Tensor {
+	return globalPool1D("GlobalAvgPool1D", x, (*tensor.Tensor).Mean)
+}
+func (GlobalAvgPool1D) Params() []*tensor.Tensor { return nil }
+
+// GlobalMaxPool1D takes the maximum over the length of
+// [batch, channels, length], giving [batch, channels]. Where the average
+// asks how much of a pattern there is overall, the maximum asks whether
+// it occurred at all.
+type GlobalMaxPool1D struct{}
+
+func (GlobalMaxPool1D) Forward(x *tensor.Tensor) *tensor.Tensor {
+	return globalPool1D("GlobalMaxPool1D", x, (*tensor.Tensor).Max)
+}
+func (GlobalMaxPool1D) Params() []*tensor.Tensor { return nil }
+
+func globalPool1D(op string, x *tensor.Tensor, reduce func(*tensor.Tensor, ...int) *tensor.Tensor) *tensor.Tensor {
+	if len(x.Shape()) != 3 {
+		panic("nn: " + op + " expects [batch, channels, length] inputs")
+	}
+	return reduce(x, 2)
+}

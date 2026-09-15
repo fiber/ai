@@ -324,3 +324,87 @@ func LayerNorm(x, gamma, beta *Tensor, eps float32) *Tensor {
 
 // rowScratch returns an n-float scratch buffer for row-wise kernels.
 func rowScratch(n int) []float32 { return make([]float32, n) }
+
+// PinballLoss returns the mean pinball (quantile) loss, the loss that
+// makes a model predict a quantile of the target's distribution rather
+// than its mean. pred holds one prediction per quantile in its last
+// dimension, [..., len(quantiles)], and target has pred's shape without
+// that dimension: a multi-horizon forecast of shape [batch, horizon, Q]
+// scores against [batch, horizon], and a single quantile is [rows, 1]
+// against [rows].
+//
+// The loss of one element is max(q·d, (q−1)·d) with d = target − pred,
+// which charges an under-prediction q and an over-prediction 1−q, so the
+// minimiser is the q-th quantile. The result is the mean over all
+// elements, comparable across different numbers of quantiles. With the
+// single quantile 0.5 it is half the mean absolute error.
+func PinballLoss(pred, target *Tensor, quantiles ...float32) *Tensor {
+	const op = "PinballLoss"
+	if len(quantiles) == 0 {
+		fail(op, "no quantiles given")
+	}
+	for _, q := range quantiles {
+		if !(q > 0 && q < 1) {
+			fail(op, "quantile %v is not in (0, 1)", q)
+		}
+	}
+	if len(pred.shape) < 2 {
+		fail(op, "expected predictions of shape [..., quantiles], got %v", pred.shape)
+	}
+	nq := len(quantiles)
+	if pred.shape[len(pred.shape)-1] != nq {
+		fail(op, "predictions have %d values in the last dimension, got %d quantiles",
+			pred.shape[len(pred.shape)-1], nq)
+	}
+	want := pred.shape[:len(pred.shape)-1]
+	if !target.shape.Equal(want) {
+		fail(op, "targets have shape %v, want %v (the predictions without their last dimension)",
+			target.shape, Shape(want))
+	}
+
+	p, tg := pred.Contiguous(), target.Contiguous()
+	n := tg.size // elements being predicted, nq predictions each
+	if n == 0 {
+		fail(op, "empty tensors")
+	}
+	// coef holds the subgradient ∂loss/∂pred of every element before the
+	// 1/(n·nq) scale: −q where the target is above the prediction, 1−q
+	// below it. The forward needs the same case distinction, so it is
+	// computed once and kept for the backward, as MSELoss keeps its
+	// difference.
+	coef := newTensorUninit(p.shape)
+	losses := make([]float64, n)
+	forRows(p.size, nq, func(lo, hi int) {
+		for r := lo; r < hi; r++ {
+			y := tg.data[r]
+			row, c := p.data[r*nq:(r+1)*nq], coef.data[r*nq:(r+1)*nq]
+			var sum float64
+			for j, q := range quantiles {
+				d := y - row[j]
+				if d >= 0 {
+					sum += float64(q * d)
+					c[j] = -q
+				} else {
+					sum += float64((q - 1) * d)
+					c[j] = 1 - q
+				}
+			}
+			losses[r] = sum
+		}
+	})
+	runtime.KeepAlive(p)
+	runtime.KeepAlive(tg)
+	var total float64
+	for _, l := range losses {
+		total += l
+	}
+	out := Scalar(float32(total / float64(n*nq)))
+	runtime.KeepAlive(coef)
+	return record(out, op, []*Tensor{p, tg}, func(gy *Tensor) {
+		g := coef.MulScalar(gy.data[0] / float32(n*nq))
+		p.accumGrad(g)
+		if tg.requiresGrad {
+			tg.accumGrad(g.Neg().Sum(len(p.shape) - 1))
+		}
+	})
+}
