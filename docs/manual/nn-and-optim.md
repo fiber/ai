@@ -212,6 +212,30 @@ ask for one.
     g, _ := os.Open("model.bin")
     nn.LoadParams(g, served)        // now the trained numbers
 
+## Exporting safetensors
+
+`nn.SaveParams` writes our own format: positional, unnamed, and only
+useful to a Go program that builds the same architecture. When the
+weights have to be readable somewhere else — from Python, by a
+colleague on another stack, or by a person looking at a checkpoint in
+six months — write safetensors instead, which is the format the Hugging
+Face ecosystem reads:
+
+    err := safetensors.Save("model.safetensors", map[string]*tensor.Tensor{
+        "encoder.weight": enc.W,
+        "encoder.bias":   enc.B,
+    }, map[string]string{"format": "pt"})
+
+The names are yours to choose and are what the other side looks up;
+`safetensors.Write(w, ...)` writes the same bytes to any `io.Writer`.
+Everything is stored as F32, tensors are written in sorted name order
+and the header's keys are sorted too, so saving the same model twice
+gives byte-identical files and a checksum means something. Views are
+materialised in row-major order, so a transposed tensor saves as what
+it looks like. Reading back is `safetensors.Open` and `File.Tensor`,
+which also read the F16, BF16 and F64 files other frameworks produce —
+writing is F32 only.
+
 ## Keeping the best model: snapshots
 
 Early stopping needs the parameters from the epoch where the validation

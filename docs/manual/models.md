@@ -132,7 +132,9 @@ bf16 or int8 weight storage, and text-generating decoder models are not in
 this package yet.
 
 The pieces it is built from are general and documented elsewhere:
-`safetensors` reads the weight files (see the package documentation),
+`safetensors` reads and writes the weight files (see the package
+documentation and *Exporting safetensors* in the
+[nn and optim page](nn-and-optim.md)),
 `tokenizer` is the byte-level BPE tokenizer (*byte-pair encoding*: a
 vocabulary grown by repeatedly merging the most frequent adjacent pair of
 symbols, with every byte kept as a fallback so no input is unencodable;

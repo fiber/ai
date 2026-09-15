@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-09-15 T-073 — safetensors: writing named tensors, for export a Python reader can open (spec/done/T-073-safetensors-writing-named-tensors-for-export-a-p.md)
 - 2026-09-15 T-072 — Quantile forecasting gaps: pinball loss, global 1-D pooling, parameter snapshots (spec/done/T-072-quantile-forecasting-gaps-pinball-loss-global-1.md)
 - 2026-09-14 T-071 — Tutorial: chapter 8 no longer ends it; Next links through chapter 18 (spec/done/T-071-tutorial-chapter-8-no-longer-ends-it-next-links.md)
 - 2026-09-14 T-070 — Tutorial chapter 18: a text classifier on frozen embeddings (spec/done/T-070-tutorial-chapter-18-a-text-classifier-on-frozen.md)
