@@ -213,7 +213,7 @@ func parseSpec(rel string, content []byte) (Spec, error) {
 		}
 	}
 	if performanceScope(s.Scope) && !hasPythonBaseline(body) {
-		errs = append(errs, "performance spec without a Python baseline: the Acceptance section must name the NumPy/PyTorch figure and target, or state 'no performance impact' (PROCESS.md rule 7)")
+		errs = append(errs, "performance spec without a Python baseline: the Acceptance section must name the NumPy/PyTorch figure and target, or state 'no performance impact' (PROCESS.md rule 8)")
 	}
 	if len(errs) > 0 {
 		return s, fmt.Errorf("%s: %s", rel, strings.Join(errs, "; "))
@@ -996,7 +996,7 @@ func runNew(root string, bug bool, scope, manual, title string) error {
 	}
 	fmt.Printf("created %s and added to %s\n", rel, list)
 	if performanceScope(strings.Split(scope, ",")) {
-		fmt.Println("performance-relevant scope: the Acceptance section must name the NumPy/PyTorch baseline and target (PROCESS.md rule 7)")
+		fmt.Println("performance-relevant scope: the Acceptance section must name the NumPy/PyTorch baseline and target, or state 'no performance impact' (PROCESS.md rule 8)")
 	}
 	return nil
 }

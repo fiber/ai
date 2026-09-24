@@ -36,7 +36,7 @@ followed by `## Goal`, `## Design`, `## Acceptance` and optionally
 `## Notes`. Write it before touching code; keep it honest while coding; it
 is the record of what was decided and why.
 
-**Beat Python (rule 7).** When the scope touches `internal/`, `tensor/`,
+**Beat Python (rule 8).** When the scope touches `internal/`, `tensor/`,
 `nn/` or `optim/`, the Acceptance section must name the NumPy/PyTorch
 figure for the same workload and the target relative to it — or state
 "no performance impact". The gate rejects the spec otherwise, and `gate

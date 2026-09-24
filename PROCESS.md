@@ -40,6 +40,10 @@ IDs are `T-nnn` for work items and `B-nnn` for bugs and are never reused.
    changes). Completing a spec without touching those pages fails the
    gate, as does a manual page that is not linked from
    `docs/manual/README.md`.
+8. **Beat Python.** A spec whose scope touches `internal/`, `tensor/`,
+   `nn/` or `optim/` names, in its Acceptance section, the NumPy/PyTorch
+   figure for the same workload and the target relative to it — or
+   states "no performance impact". The gate rejects it otherwise.
 
 ## Workflow
 
