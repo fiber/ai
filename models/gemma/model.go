@@ -14,12 +14,19 @@ import (
 )
 
 // layer holds one transformer block's parameters, already transposed for
-// x·W and with the RMSNorm (1+w) offset folded in.
+// x·W and, for Gemma 3, with the RMSNorm (1+w) offset folded in.
 type layer struct {
 	inputNorm, postAttnNorm, preFFNNorm, postFFNNorm *tensor.Tensor
 	qNorm, kNorm                                     *tensor.Tensor
 	wq, wk, wv, wo                                   *tensor.Tensor
 	wgate, wup, wdown                                *tensor.Tensor
+
+	// EmbeddingGemma 2 only: the per-layer-embedding block (gate and
+	// projection, [in, out]; the norm after it), the value norm's unit
+	// weight, and the scalar every layer's output is multiplied by.
+	pleGate, pleProj, plePostNorm *tensor.Tensor
+	vNorm                         *tensor.Tensor
+	scalar                        float32
 }
 
 // dense is a bias-free linear layer of the sentence-transformers head.
@@ -35,6 +42,12 @@ type Model struct {
 	embed  *tensor.Tensor // [vocab, hidden], also released with the model
 	layers []layer
 	norm   *tensor.Tensor // final RMSNorm
+
+	// EmbeddingGemma 2 only: the per-layer-embedding projection
+	// [hidden, layers·ple] and its norm, and the projection from the
+	// hidden size to the embedding dimension, [hidden, embedding].
+	pleProj, pleNorm *tensor.Tensor
+	embProj          *tensor.Tensor
 
 	poolMean    bool
 	includeProm bool
@@ -78,9 +91,15 @@ func Load(dir string, opts ...Option) (*Model, error) {
 	if m.maxTokens == 0 || m.maxTokens > 2048 {
 		m.maxTokens = 2048
 	}
+	if cfg.Variant == 2 {
+		// Queries and keys are RMS-normalised and the reference scales the
+		// scores by 1. The context is the model card's 8192 tokens.
+		m.scale = 1
+		m.maxTokens = min(cfg.MaxPositionEmbeddings, 8192)
+	}
 
 	get := func(name string) (*tensor.Tensor, error) {
-		for _, n := range []string{name, "model." + name} {
+		for _, n := range []string{name, "model." + name, "language_model." + name} {
 			if _, ok := f.Info(n); ok {
 				return f.Tensor(n)
 			}
@@ -95,11 +114,16 @@ func Load(dir string, opts ...Option) (*Model, error) {
 		}
 		return w.Transpose(0, 1).Contiguous(), nil
 	}
-	// norm loads an RMSNorm weight with Gemma's (1 + w) offset folded in.
+	// norm loads an RMSNorm weight with Gemma 3's (1 + w) offset folded
+	// in. EmbeddingGemma 2 multiplies by the weight itself; loading it
+	// with the offset would be silently wrong, not an error.
 	norm := func(name string) (*tensor.Tensor, error) {
 		w, err := get(name)
 		if err != nil {
 			return nil, err
+		}
+		if cfg.Variant == 2 {
+			return w, nil
 		}
 		return w.AddScalar(1), nil
 	}
@@ -129,14 +153,44 @@ func Load(dir string, opts ...Option) (*Model, error) {
 			{&m.layers[i].wup, transpose, p + "mlp.up_proj.weight"},
 			{&m.layers[i].wdown, transpose, p + "mlp.down_proj.weight"},
 		}
+		if cfg.Variant == 2 {
+			set = append(set, []struct {
+				dst **tensor.Tensor
+				fn  func(string) (*tensor.Tensor, error)
+				key string
+			}{
+				{&m.layers[i].pleGate, transpose, p + "ple_block.per_layer_input_gate.weight"},
+				{&m.layers[i].pleProj, transpose, p + "ple_block.per_layer_projection.weight"},
+				{&m.layers[i].plePostNorm, norm, p + "ple_block.post_per_layer_input_norm.weight"},
+			}...)
+		}
 		for _, s := range set {
 			if *s.dst, err = s.fn(s.key); err != nil {
 				return nil, err
 			}
 		}
+		if cfg.Variant == 2 {
+			sc, err := get(p + "layer_scalar")
+			if err != nil {
+				return nil, err
+			}
+			m.layers[i].scalar = sc.Float32s()[0]
+			m.layers[i].vNorm = tensor.Ones(cfg.headDim(i)) // v_norm has no weight
+		}
 	}
 	if m.norm, err = norm("norm.weight"); err != nil {
 		return nil, err
+	}
+	if cfg.Variant == 2 {
+		if m.pleProj, err = transpose("ple.per_layer_model_projection.weight"); err != nil {
+			return nil, err
+		}
+		if m.pleNorm, err = norm("ple.per_layer_projection_norm.weight"); err != nil {
+			return nil, err
+		}
+		if m.embProj, err = transpose("embedding_projection.weight"); err != nil {
+			return nil, err
+		}
 	}
 	// Fold the pre-norms into the weights they feed: RMSNorm(x)·W equals
 	// (x/rms(x))·(diag(g)·W), so the encoder scales rows of the product
@@ -180,6 +234,23 @@ func (m *Model) loadHead(dir string) error {
 	}
 	for _, mod := range modules {
 		switch {
+		case mod.Type == "sentence_transformers.sentence_transformer.modules.pooling.Pooling":
+			// The sentence-transformers 6 module, with a different config
+			// schema from the older one below.
+			var pc struct {
+				Mode          string `json:"pooling_mode"`
+				IncludePrompt bool   `json:"include_prompt"`
+			}
+			if err := readJSON(filepath.Join(dir, mod.Path, "config.json"), &pc); err != nil {
+				return err
+			}
+			if pc.Mode != "mean" {
+				return fmt.Errorf("gemma: pooling mode %q not supported, only mean", pc.Mode)
+			}
+			m.poolMean, m.includeProm = true, pc.IncludePrompt
+		case mod.Type == "sentence_transformers.base.modules.normalize.Normalize":
+			m.l2 = true
+		case mod.Type == "sentence_transformers.base.modules.transformer.Transformer":
 		case mod.Type == "sentence_transformers.models.Pooling":
 			var pc struct {
 				Mean          bool `json:"pooling_mode_mean_tokens"`
@@ -252,6 +323,9 @@ func (m *Model) Tokenizer() *tokenizer.Tokenizer { return m.tok }
 // Dim returns the embedding dimension the model produces before any
 // Matryoshka truncation.
 func (m *Model) Dim() int {
+	if m.embProj != nil {
+		return m.embProj.Shape()[1]
+	}
 	if len(m.dense) > 0 {
 		return m.dense[len(m.dense)-1].outFeatures()
 	}
@@ -304,10 +378,13 @@ func (m *Model) Close() {
 	release(m.embed)
 	release(m.norm)
 	for _, l := range m.layers {
-		for _, t := range []*tensor.Tensor{l.inputNorm, l.postAttnNorm, l.preFFNNorm, l.postFFNNorm, l.qNorm, l.kNorm, l.wq, l.wk, l.wv, l.wo, l.wgate, l.wup, l.wdown} {
+		for _, t := range []*tensor.Tensor{l.inputNorm, l.postAttnNorm, l.preFFNNorm, l.postFFNNorm, l.qNorm, l.kNorm, l.wq, l.wk, l.wv, l.wo, l.wgate, l.wup, l.wdown, l.pleGate, l.pleProj, l.plePostNorm, l.vNorm} {
 			release(t)
 		}
 	}
+	release(m.pleProj)
+	release(m.pleNorm)
+	release(m.embProj)
 	for _, d := range m.dense {
 		release(d.w)
 	}
