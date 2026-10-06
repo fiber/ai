@@ -22,7 +22,8 @@ huggingface-cli download google/embeddinggemma-2 --local-dir embeddinggemma-2
 EmbeddingGemma 2 is published under Apache 2.0 and is not gated. Its
 directory has no Dense modules — the projection to 768 dimensions is part
 of the model — and its single `model.safetensors` (1.5 GB in bf16) also
-holds the vision and audio towers, which this package does not load.
+holds the vision and audio towers; the vision tower is loaded on the
+first image, the audio tower not at all.
 
 The directory holds everything the loader needs: `config.json`,
 `tokenizer.json`, the weight `*.safetensors`, and the sentence-transformers
@@ -134,8 +135,8 @@ fills the cores.
 
 `google/embeddinggemma-2` (October 2026) maps text, images, audio and
 video into one 768-dimensional space. `models/gemma` runs its **text
-path**: a 270 M-parameter encoder, 24 layers at width 512, whose vectors
-are the same ones the multimodal model produces for text. Usage is the
+and image paths**: a 270 M-parameter text encoder, 24 layers at width
+512, and the vision tower that feeds it (see *Images* below). Usage is the
 same as above, with the same prompt names and Matryoshka sizes 512, 256
 and 128:
 
@@ -190,11 +191,58 @@ layer instead of seven, each at the narrower width. On 421-token
 documents the ratio is the same (9.2 against 13.6 documents per
 second). The text weights take about 1.1 GB in float32.
 
-**Not supported:** the vision and audio towers, and therefore image,
-audio and video input. The API takes text only, and text that contains
-one of the model's image, audio or video placeholder tokens is refused
-with an error rather than embedded as ordinary text, which would produce
-a vector that looks valid and means something else.
+### Images
+
+Images go into the same space as text:
+
+```go
+vecs, err := m.EmbedImages([]image.Image{photo, diagram})
+
+// Text and images in one input, one vector for the whole item:
+vecs, err = m.EmbedInputs([]gemma.Input{{
+    Text:   "Rack 4, top: <|image|> rear view: <|image|>",
+    Images: []image.Image{front, rear},
+}})
+```
+
+Each `<|image|>` in the text is filled by the next image; a placeholder
+without an image, or an image without a placeholder, is an error.
+`Prompt` and `Dim` work as for text. The vision tower (170 M parameters,
+about 680 MB in float32) is read from the checkpoint on the first image,
+so a program that only embeds text never loads it.
+
+Inside, an image is resized, keeping its aspect ratio, to the largest
+size that is a multiple of 48 pixels and fits 2520 patches of 16×16; a
+16-layer encoder with axial 2-D rotary positions runs over the patches;
+3×3 blocks are averaged into at most 280 soft tokens; and those take the
+place of the placeholder in the text sequence, between begin- and
+end-of-image markers. The text tower then runs over the whole sequence.
+
+**Accuracy.** Against the reference on eight images — square, landscape,
+portrait, a 1200×900 grayscale image, a 40×30 image enlarged thirty
+times, a 1000×120 strip, an image with an alpha channel and a photo —
+cosine 1.000000 mean and 0.999997 minimum; a text-and-image input and
+an image under a prompt match at 1.000000. The resize is Pillow's
+bicubic filter, ported exactly: it reproduces Pillow's output bit for
+bit, which is also what PyTorch computes on x86. On Apple Silicon
+PyTorch's own resize differs from Pillow by one or two levels in up to
+1 % of the values when enlarging, which is the 0.999997.
+
+Use any `image.Image`; register decoders with blank imports
+(`image/png`, `image/jpeg`). Go's JPEG decoder rounds differently from
+libjpeg, which the Python stack uses: the same photo decoded both ways
+embeds at cosine 0.99978.
+
+**Cost.** About 0.9 s per image on the M2 Pro, against 1.06 s for
+PyTorch on 8 threads with batches of 8 and 1.27 s one image at a time.
+The vision tower does roughly 490 billion multiply-adds per image at the
+default 280 soft tokens; the text tower's share is small.
+
+**Not supported:** the audio tower, and video. The model reads video as
+frames sampled once a second through the same vision tower, so frames
+you decode yourself can be passed as images, but there is no video
+input as such. Text containing the audio or video placeholder is refused
+with an error.
 
 ## What is loaded, and what is not
 

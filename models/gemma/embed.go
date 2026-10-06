@@ -87,7 +87,10 @@ func (m *Model) Embed(texts []string, opts ...EmbedOption) ([][]float32, error) 
 func (m *Model) checkTextOnly(seq []int) error {
 	for _, id := range seq {
 		if name, ok := m.cfg.MultimodalTokens[id]; ok {
-			return fmt.Errorf("gemma: input contains the %s placeholder token; EmbeddingGemma 2 image, audio and video input are not supported, only text", name)
+			if id == m.cfg.ImageToken && m.cfg.Vision != nil {
+				return fmt.Errorf("gemma: input contains the image placeholder token; pass images with EmbedInputs")
+			}
+			return fmt.Errorf("gemma: input contains the %s placeholder token; EmbeddingGemma 2 audio and video input are not supported", name)
 		}
 	}
 	return nil
@@ -242,6 +245,17 @@ func (m *Model) encode(flat, lengths []int, B, T int) *tensor.Tensor {
 // residual block per layer that mixes in that layer's slice of the
 // per-layer embeddings, and a stored scalar on every layer's output.
 func (m *Model) encode2(flat, lengths []int, B, T int) *tensor.Tensor {
+	hidden := m.cfg.HiddenSize
+	emb := m.embed.Rows(flat) // root [B*T, hidden]
+	x := emb.Reshape(B, T, hidden).MulScalar(float32(math.Sqrt(float64(hidden))))
+	rec(emb)
+	return m.encode2From(x, lengths, B, T)
+}
+
+// encode2From runs the text tower from input embeddings [B, T, hidden]:
+// scaled token embeddings, or for multimodal input those with soft tokens
+// in the placeholders' rows. It consumes x.
+func (m *Model) encode2From(x *tensor.Tensor, lengths []int, B, T int) *tensor.Tensor {
 	cfg := m.cfg
 	H, hidden := cfg.NumAttentionHeads, cfg.HiddenSize
 	L, P := cfg.NumHiddenLayers, cfg.HiddenSizePerLayerInput
@@ -257,9 +271,6 @@ func (m *Model) encode2(flat, lengths []int, B, T int) *tensor.Tensor {
 	}
 
 	eps := float32(cfg.RMSNormEps)
-	emb := m.embed.Rows(flat) // root [B*T, hidden]
-	x := emb.Reshape(B, T, hidden).MulScalar(float32(math.Sqrt(float64(hidden))))
-	rec(emb)
 
 	// Per-layer embeddings, once per pass: the scaled token embeddings
 	// projected to one P-vector per layer per token, scaled by hidden^-½

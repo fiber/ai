@@ -3,7 +3,8 @@
 // directory and turns text into sentence embeddings, with no Python and
 // no external service. Two architectures are supported, chosen from the
 // checkpoint's config.json: EmbeddingGemma-300m and other Gemma 3 text
-// encoders, and the text tower of EmbeddingGemma 2.
+// encoders, and EmbeddingGemma 2, whose images (EmbedImages, EmbedInputs)
+// land in the same space as its text.
 package gemma
 
 import (
@@ -45,6 +46,55 @@ type Config struct {
 	// MultimodalTokens maps the image, audio and video placeholder token
 	// ids, and their begin/end markers, to a name for error messages.
 	MultimodalTokens map[int]string `json:"-"`
+	// Image, BOI and EOI are the image placeholder and its begin and end
+	// markers; Vision is the vision tower's configuration, nil when the
+	// checkpoint has none.
+	ImageToken, BOIToken, EOIToken int           `json:"-"`
+	Vision                         *VisionConfig `json:"-"`
+}
+
+// VisionConfig holds the EmbeddingGemma 2 vision tower's hyper-parameters
+// (a Gemma 4 vision encoder).
+type VisionConfig struct {
+	HiddenSize            int     `json:"hidden_size"`
+	IntermediateSize      int     `json:"intermediate_size"`
+	NumHiddenLayers       int     `json:"num_hidden_layers"`
+	NumAttentionHeads     int     `json:"num_attention_heads"`
+	NumKeyValueHeads      int     `json:"num_key_value_heads"`
+	HeadDim               int     `json:"head_dim"`
+	PatchSize             int     `json:"patch_size"`
+	PoolingKernelSize     int     `json:"pooling_kernel_size"`
+	PositionEmbeddingSize int     `json:"position_embedding_size"`
+	DefaultOutputLength   int     `json:"default_output_length"`
+	RMSNormEps            float64 `json:"rms_norm_eps"`
+	HiddenActivation      string  `json:"hidden_activation"`
+	UseClippedLinears     bool    `json:"use_clipped_linears"`
+	Standardize           bool    `json:"standardize"`
+	RopeParameters        struct {
+		RopeTheta float64 `json:"rope_theta"`
+		RopeType  string  `json:"rope_type"`
+	} `json:"rope_parameters"`
+}
+
+// validate refuses vision configurations this package does not run.
+func (v *VisionConfig) validate() error {
+	switch {
+	case v.HiddenSize == 0 || v.NumHiddenLayers == 0 || v.PatchSize == 0 || v.PoolingKernelSize == 0:
+		return fmt.Errorf("gemma: vision_config is incomplete")
+	case v.NumAttentionHeads != v.NumKeyValueHeads:
+		return fmt.Errorf("gemma: vision tower with grouped-query attention not supported")
+	case v.HeadDim%4 != 0:
+		return fmt.Errorf("gemma: vision head_dim %d must be a multiple of 4 for axial RoPE", v.HeadDim)
+	case v.RopeParameters.RopeType != "axial":
+		return fmt.Errorf("gemma: vision rope_type %q not supported, only axial", v.RopeParameters.RopeType)
+	case v.UseClippedLinears:
+		return fmt.Errorf("gemma: vision tower with clipped linears not supported")
+	case v.Standardize:
+		return fmt.Errorf("gemma: vision tower with output standardisation not supported")
+	case v.HiddenActivation != "gelu_pytorch_tanh":
+		return fmt.Errorf("gemma: vision activation %q not supported", v.HiddenActivation)
+	}
+	return nil
 }
 
 // LayerOverride is EmbeddingGemma 2's per-layer attention geometry: the
@@ -80,6 +130,7 @@ func LoadConfig(dir string) (Config, error) {
 		EOI        *int            `json:"eoi_token_id"`
 		BOA        *int            `json:"boa_token_id"`
 		EOA        *int            `json:"eoa_token_index"`
+		Vision     *VisionConfig   `json:"vision_config"`
 	}
 	if err := json.Unmarshal(b, &top); err != nil {
 		return c, fmt.Errorf("gemma: config.json: %w", err)
@@ -99,6 +150,13 @@ func LoadConfig(dir string) (Config, error) {
 			if t.id != nil {
 				c.MultimodalTokens[*t.id] = t.name
 			}
+		}
+		if top.Image != nil && top.BOI != nil && top.EOI != nil && top.Vision != nil {
+			if err := top.Vision.validate(); err != nil {
+				return c, err
+			}
+			c.ImageToken, c.BOIToken, c.EOIToken = *top.Image, *top.BOI, *top.EOI
+			c.Vision = top.Vision
 		}
 		return c, c.fillVariant2()
 	}

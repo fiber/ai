@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"github.com/fiber/ai/safetensors"
 	"github.com/fiber/ai/tensor"
@@ -49,6 +50,12 @@ type Model struct {
 	pleProj, pleNorm *tensor.Tensor
 	embProj          *tensor.Tensor
 
+	// The vision tower, loaded on the first image (see loadVision).
+	dir        string
+	visionOnce sync.Once
+	vision     *visionTower
+	visionErr  error
+
 	poolMean    bool
 	includeProm bool
 	dense       []dense
@@ -79,6 +86,7 @@ func Load(dir string, opts ...Option) (*Model, error) {
 	defer f.Close()
 
 	m := &Model{
+		dir:         dir,
 		cfg:         cfg,
 		tok:         tok,
 		poolMean:    true,
@@ -385,6 +393,9 @@ func (m *Model) Close() {
 	release(m.pleProj)
 	release(m.pleNorm)
 	release(m.embProj)
+	if m.vision != nil {
+		m.vision.release(release)
+	}
 	for _, d := range m.dense {
 		release(d.w)
 	}
