@@ -8,12 +8,14 @@ import (
 	"github.com/fiber/ai/tensor"
 )
 
-// Input is one item for EmbedInputs: text that may contain <|image|>
-// placeholders, and the images that fill them, in order. The result is
-// one embedding for the whole item, text and images together.
+// Input is one item for EmbedInputs: text that may contain <|image|> and
+// <|audio|> placeholders, and the images and audio clips that fill them,
+// in order. Audio is 16 kHz mono samples in [−1, 1]. The result is one
+// embedding for the whole item.
 type Input struct {
 	Text   string
 	Images []image.Image
+	Audio  [][]float32
 }
 
 // EmbedImages embeds each image on its own, one vector per image, in the
@@ -27,8 +29,22 @@ func (m *Model) EmbedImages(images []image.Image, opts ...EmbedOption) ([][]floa
 	return m.EmbedInputs(in, opts...)
 }
 
-// imagePlaceholder is how text marks the position of an image.
-const imagePlaceholder = "<|image|>"
+// EmbedAudio embeds each clip of 16 kHz mono samples on its own, one
+// vector per clip. Clips longer than 30 s are truncated, as the reference
+// does. It loads the audio tower on first use.
+func (m *Model) EmbedAudio(clips [][]float32, opts ...EmbedOption) ([][]float32, error) {
+	in := make([]Input, len(clips))
+	for i, c := range clips {
+		in[i] = Input{Text: audioPlaceholder, Audio: [][]float32{c}}
+	}
+	return m.EmbedInputs(in, opts...)
+}
+
+// imagePlaceholder and audioPlaceholder mark where an image or a clip goes.
+const (
+	imagePlaceholder = "<|image|>"
+	audioPlaceholder = "<|audio|>"
+)
 
 // EmbedInputs embeds items that mix text and images. Each <|image|> in an
 // item's text is replaced by the next image's soft tokens between the
@@ -50,12 +66,18 @@ func (m *Model) EmbedInputs(inputs []Input, opts ...EmbedOption) ([][]float32, e
 		}
 		dim = o.dim
 	}
-	needVision := false
+	needVision, needAudio := false, false
 	for _, in := range inputs {
 		needVision = needVision || len(in.Images) > 0
+		needAudio = needAudio || len(in.Audio) > 0
 	}
 	if needVision {
 		if err := m.loadVision(); err != nil {
+			return nil, err
+		}
+	}
+	if needAudio {
+		if err := m.loadAudio(); err != nil {
 			return nil, err
 		}
 	}
@@ -70,7 +92,7 @@ func (m *Model) EmbedInputs(inputs []Input, opts ...EmbedOption) ([][]float32, e
 		}
 	}()
 	for i, in := range inputs {
-		seq, err := m.inputEmbeddings(prefix+in.Text, in.Images)
+		seq, err := m.inputEmbeddings(prefix+in.Text, in.Images, in.Audio)
 		if err != nil {
 			return nil, fmt.Errorf("input %d: %w", i, err)
 		}
@@ -105,65 +127,102 @@ func (m *Model) EmbedInputs(inputs []Input, opts ...EmbedOption) ([][]float32, e
 }
 
 // inputEmbeddings tokenises text, checks its placeholders against the
-// images, runs the images through the vision tower and assembles the
+// images and clips, runs those through their towers and assembles the
 // input embeddings [length, hidden].
-func (m *Model) inputEmbeddings(text string, images []image.Image) (*tensor.Tensor, error) {
+func (m *Model) inputEmbeddings(text string, images []image.Image, audio [][]float32) (*tensor.Tensor, error) {
 	cfg := m.cfg
 	ids := m.tok.Encode(text)
-	nImages := 0
+	nImages, nAudio := 0, 0
 	for _, id := range ids {
 		if name, ok := cfg.MultimodalTokens[id]; ok {
-			if id == cfg.ImageToken && cfg.Vision != nil {
+			switch {
+			case id == cfg.ImageToken && cfg.Vision != nil:
 				nImages++
-				continue
+			case id == cfg.AudioToken && cfg.Audio != nil:
+				nAudio++
+			default:
+				return nil, fmt.Errorf("gemma: input contains the %s placeholder token; EmbeddingGemma 2 video input is not supported", name)
 			}
-			return nil, fmt.Errorf("gemma: input contains the %s placeholder token; EmbeddingGemma 2 audio and video input are not supported", name)
 		}
 	}
 	if nImages != len(images) {
 		return nil, fmt.Errorf("gemma: %d %s placeholders in the text for %d images", nImages, imagePlaceholder, len(images))
 	}
+	if nAudio != len(audio) {
+		return nil, fmt.Errorf("gemma: %d %s placeholders in the text for %d audio clips", nAudio, audioPlaceholder, len(audio))
+	}
 
-	soft := make([]*tensor.Tensor, len(images))
+	// Soft tokens per placeholder, in the order the placeholders appear.
+	soft := make([]*tensor.Tensor, 0, len(images)+len(audio))
 	defer func() {
 		for _, s := range soft {
 			rec(s)
 		}
 	}()
 	total := len(ids)
-	for i, img := range images {
-		p, err := m.vision.preprocess(img)
-		if err != nil {
-			return nil, fmt.Errorf("image %d: %w", i, err)
-		}
+	nextImage, nextAudio := 0, 0
+	for _, id := range ids {
 		var st *tensor.Tensor
-		tensor.NoGrad(func() { st = m.vision.encode(p) })
-		soft[i] = st
+		switch {
+		case id == cfg.ImageToken && nImages > 0:
+			p, err := m.vision.preprocess(images[nextImage])
+			if err != nil {
+				return nil, fmt.Errorf("image %d: %w", nextImage, err)
+			}
+			tensor.NoGrad(func() { st = m.vision.encode(p) })
+			nextImage++
+		case id == cfg.AudioToken && nAudio > 0:
+			tensor.NoGrad(func() { st = m.audio.encode(audio[nextAudio]) })
+			if st == nil {
+				return nil, fmt.Errorf("audio clip %d is too short to give a single frame", nextAudio)
+			}
+			nextAudio++
+		default:
+			continue
+		}
+		soft = append(soft, st)
 		total += st.Dim(0) + 1 // the placeholder becomes begin, n soft tokens, end
 	}
 	if total > m.maxTokens {
 		return nil, fmt.Errorf("gemma: input is %d tokens with its images, more than the %d the model takes", total, m.maxTokens)
 	}
 
+	// The text tokens, the placeholders' begin and end markers included,
+	// are looked up in one Rows call (Data would pin the whole table).
 	hidden := cfg.HiddenSize
+	var textIDs []int
+	for _, id := range ids {
+		switch {
+		case id == cfg.ImageToken && nImages > 0:
+			textIDs = append(textIDs, cfg.BOIToken, cfg.EOIToken)
+		case id == cfg.AudioToken && nAudio > 0:
+			textIDs = append(textIDs, cfg.BOAToken, cfg.EOAToken)
+		default:
+			textIDs = append(textIDs, id)
+		}
+	}
+	te := m.embed.Rows(textIDs)
+	emb := te.Float32s()
+	rec(te)
 	scale := float32(math.Sqrt(float64(hidden)))
-	embed := m.embed.Data()
 	rows := make([]float32, 0, total*hidden)
-	token := func(id int) {
-		for _, v := range embed[id*hidden : (id+1)*hidden] {
+	nextText := 0
+	token := func() {
+		for _, v := range emb[nextText*hidden : (nextText+1)*hidden] {
 			rows = append(rows, v*scale)
 		}
+		nextText++
 	}
 	next := 0
 	for _, id := range ids {
-		if id != cfg.ImageToken {
-			token(id)
+		if (id == cfg.ImageToken && nImages > 0) || (id == cfg.AudioToken && nAudio > 0) {
+			token() // begin marker
+			rows = append(rows, soft[next].Float32s()...)
+			token() // end marker
+			next++
 			continue
 		}
-		token(cfg.BOIToken)
-		rows = append(rows, soft[next].Float32s()...)
-		token(cfg.EOIToken)
-		next++
+		token()
 	}
 	return tensor.New(rows, total, hidden), nil
 }

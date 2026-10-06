@@ -2,6 +2,7 @@
 
 Finished work items and fixed bugs, newest first.
 
+- 2026-10-06 T-079 — EmbeddingGemma 2 audio input: mel frontend and conformer tower (spec/done/T-079-embeddinggemma-2-audio-input-mel-frontend-and-co.md)
 - 2026-10-06 T-078 — EmbeddingGemma 2 image input: vision tower and image preprocessing (spec/done/T-078-embeddinggemma-2-image-input-vision-tower-and-im.md)
 - 2026-10-06 T-077 — EmbeddingGemma 2 text encoder in models/gemma (spec/done/T-077-embeddinggemma-2-text-encoder-in-models-gemma.md)
 - 2026-09-24 T-076 — Gate cites the beat-Python rule as PROCESS.md rule 7, which is the manual rule (spec/done/T-076-gate-cites-the-beat-python-rule-as-process-md-ru.md)

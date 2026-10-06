@@ -55,6 +55,9 @@ type Model struct {
 	visionOnce sync.Once
 	vision     *visionTower
 	visionErr  error
+	audioOnce  sync.Once
+	audio      *audioTower
+	audioErr   error
 
 	poolMean    bool
 	includeProm bool
@@ -395,6 +398,9 @@ func (m *Model) Close() {
 	release(m.embProj)
 	if m.vision != nil {
 		m.vision.release(release)
+	}
+	if m.audio != nil {
+		m.audio.release(release)
 	}
 	for _, d := range m.dense {
 		release(d.w)

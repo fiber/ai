@@ -22,8 +22,7 @@ huggingface-cli download google/embeddinggemma-2 --local-dir embeddinggemma-2
 EmbeddingGemma 2 is published under Apache 2.0 and is not gated. Its
 directory has no Dense modules — the projection to 768 dimensions is part
 of the model — and its single `model.safetensors` (1.5 GB in bf16) also
-holds the vision and audio towers; the vision tower is loaded on the
-first image, the audio tower not at all.
+holds the vision and audio towers, each loaded on its first use.
 
 The directory holds everything the loader needs: `config.json`,
 `tokenizer.json`, the weight `*.safetensors`, and the sentence-transformers
@@ -134,9 +133,10 @@ fills the cores.
 ## EmbeddingGemma 2
 
 `google/embeddinggemma-2` (October 2026) maps text, images, audio and
-video into one 768-dimensional space. `models/gemma` runs its **text
-and image paths**: a 270 M-parameter text encoder, 24 layers at width
-512, and the vision tower that feeds it (see *Images* below). Usage is the
+video into one 768-dimensional space. `models/gemma` runs its **text,
+image and audio paths**: a 270 M-parameter text encoder, 24 layers at
+width 512, and the vision and audio towers that feed it (see *Images*
+and *Audio* below). Usage is the
 same as above, with the same prompt names and Matryoshka sizes 512, 256
 and 128:
 
@@ -238,11 +238,52 @@ PyTorch on 8 threads with batches of 8 and 1.27 s one image at a time.
 The vision tower does roughly 490 billion multiply-adds per image at the
 default 280 soft tokens; the text tower's share is small.
 
-**Not supported:** the audio tower, and video. The model reads video as
-frames sampled once a second through the same vision tower, so frames
-you decode yourself can be passed as images, but there is no video
-input as such. Text containing the audio or video placeholder is refused
-with an error.
+### Audio
+
+Speech and other sound go into the same space:
+
+```go
+f, _ := os.Open("call.wav")
+samples, rate, err := gemma.ReadWAV(f) // 16-bit PCM, channels averaged
+// rate must be 16000: EmbedAudio does not resample.
+vecs, err := m.EmbedAudio([][]float32{samples})
+
+vecs, err = m.EmbedInputs([]gemma.Input{{
+    Text:  "Voicemail from the NOC: <|audio|>",
+    Audio: [][]float32{samples},
+}})
+```
+
+Input is 16 kHz mono in [−1, 1]; clips longer than 30 s are cut at 30 s,
+as the reference does. The audio tower (300 M parameters, about 1.2 GB
+in float32) loads on the first clip.
+
+Inside: 128-bin log-mel frames every 10 ms (20 ms Hann window, 512-point
+FFT, HTK mel scale up to 8 kHz); two strided convolutions reduce them to
+25 frames per second; twelve conformer layers follow — two half-weighted
+feed-forward blocks, local self-attention over the current and the
+eleven previous frames with a relative position term and a soft cap,
+and a causal depthwise convolution — and the frames, projected into the
+text width, replace the placeholder between begin- and end-of-audio
+markers. Every projection in the tower clamps its input and output to
+bounds stored in the checkpoint.
+
+**Accuracy.** Against the reference on public-domain speech (3 s and
+20 s of a LibriVox recording, and 40 s cut to 30), a tone, noise,
+near-silence and a 50 ms clip: cosine 1.000000 mean and minimum; a
+text-and-audio input matches at 1.000000. The log-mel features agree
+with the reference's to within 4·10⁻⁴ on a log scale that reaches 7 —
+the reference's FFT runs in single precision, this one in double — and
+frame counts and padding masks are identical.
+
+**Cost.** On the M2 Pro a 20 s clip takes 0.67 s (30× real time) and a
+3 s clip 0.18 s, against 1.20 s and 0.85 s for PyTorch on 8 threads.
+
+**Not supported:** video. The model reads video as frames sampled once
+a second through the vision tower, so frames you decode yourself can be
+passed as images, but there is no video input as such, and text with
+the video placeholder is refused with an error. Audio at other sample
+rates must be converted first.
 
 ## What is loaded, and what is not
 

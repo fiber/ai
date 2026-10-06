@@ -87,10 +87,10 @@ func (m *Model) Embed(texts []string, opts ...EmbedOption) ([][]float32, error) 
 func (m *Model) checkTextOnly(seq []int) error {
 	for _, id := range seq {
 		if name, ok := m.cfg.MultimodalTokens[id]; ok {
-			if id == m.cfg.ImageToken && m.cfg.Vision != nil {
-				return fmt.Errorf("gemma: input contains the image placeholder token; pass images with EmbedInputs")
+			if (id == m.cfg.ImageToken && m.cfg.Vision != nil) || (id == m.cfg.AudioToken && m.cfg.Audio != nil) {
+				return fmt.Errorf("gemma: input contains the %s placeholder token; pass the %s with EmbedInputs", name, name)
 			}
-			return fmt.Errorf("gemma: input contains the %s placeholder token; EmbeddingGemma 2 audio and video input are not supported", name)
+			return fmt.Errorf("gemma: input contains the %s placeholder token; EmbeddingGemma 2 video input is not supported", name)
 		}
 	}
 	return nil

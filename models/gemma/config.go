@@ -3,8 +3,8 @@
 // directory and turns text into sentence embeddings, with no Python and
 // no external service. Two architectures are supported, chosen from the
 // checkpoint's config.json: EmbeddingGemma-300m and other Gemma 3 text
-// encoders, and EmbeddingGemma 2, whose images (EmbedImages, EmbedInputs)
-// land in the same space as its text.
+// encoders, and EmbeddingGemma 2, whose images and audio (EmbedImages,
+// EmbedAudio, EmbedInputs) land in the same space as its text.
 package gemma
 
 import (
@@ -51,6 +51,45 @@ type Config struct {
 	// checkpoint has none.
 	ImageToken, BOIToken, EOIToken int           `json:"-"`
 	Vision                         *VisionConfig `json:"-"`
+	// AudioToken, BOAToken and EOAToken are the audio placeholder and its
+	// markers; Audio is the audio tower's configuration, nil when absent.
+	AudioToken, BOAToken, EOAToken int          `json:"-"`
+	Audio                          *AudioConfig `json:"-"`
+}
+
+// AudioConfig holds the EmbeddingGemma 2 audio tower's hyper-parameters
+// (a Gemma 4 conformer).
+type AudioConfig struct {
+	HiddenSize              int     `json:"hidden_size"`
+	NumHiddenLayers         int     `json:"num_hidden_layers"`
+	NumAttentionHeads       int     `json:"num_attention_heads"`
+	AttentionChunkSize      int     `json:"attention_chunk_size"`
+	AttentionContextLeft    int     `json:"attention_context_left"`
+	AttentionContextRight   int     `json:"attention_context_right"`
+	AttentionLogitCap       float64 `json:"attention_logit_cap"`
+	ConvKernelSize          int     `json:"conv_kernel_size"`
+	OutputProjDims          int     `json:"output_proj_dims"`
+	ResidualWeight          float64 `json:"residual_weight"`
+	RMSNormEps              float64 `json:"rms_norm_eps"`
+	HiddenAct               string  `json:"hidden_act"`
+	UseClippedLinears       bool    `json:"use_clipped_linears"`
+	SubsamplingConvChannels []int   `json:"subsampling_conv_channels"`
+}
+
+func (a *AudioConfig) validate() error {
+	switch {
+	case a.HiddenSize == 0 || a.NumHiddenLayers == 0 || a.NumAttentionHeads == 0:
+		return fmt.Errorf("gemma: audio_config is incomplete")
+	case a.HiddenSize%a.NumAttentionHeads != 0:
+		return fmt.Errorf("gemma: audio width %d not divisible by %d heads", a.HiddenSize, a.NumAttentionHeads)
+	case a.HiddenAct != "silu":
+		return fmt.Errorf("gemma: audio activation %q not supported", a.HiddenAct)
+	case a.AttentionContextRight != 0:
+		return fmt.Errorf("gemma: audio attention with right context not supported")
+	case len(a.SubsamplingConvChannels) != 2:
+		return fmt.Errorf("gemma: audio subsampling with %d convolutions not supported", len(a.SubsamplingConvChannels))
+	}
+	return nil
 }
 
 // VisionConfig holds the EmbeddingGemma 2 vision tower's hyper-parameters
@@ -131,6 +170,7 @@ func LoadConfig(dir string) (Config, error) {
 		BOA        *int            `json:"boa_token_id"`
 		EOA        *int            `json:"eoa_token_index"`
 		Vision     *VisionConfig   `json:"vision_config"`
+		AudioCfg   *AudioConfig    `json:"audio_config"`
 	}
 	if err := json.Unmarshal(b, &top); err != nil {
 		return c, fmt.Errorf("gemma: config.json: %w", err)
@@ -157,6 +197,13 @@ func LoadConfig(dir string) (Config, error) {
 			}
 			c.ImageToken, c.BOIToken, c.EOIToken = *top.Image, *top.BOI, *top.EOI
 			c.Vision = top.Vision
+		}
+		if top.Audio != nil && top.BOA != nil && top.EOA != nil && top.AudioCfg != nil {
+			if err := top.AudioCfg.validate(); err != nil {
+				return c, err
+			}
+			c.AudioToken, c.BOAToken, c.EOAToken = *top.Audio, *top.BOA, *top.EOA
+			c.Audio = top.AudioCfg
 		}
 		return c, c.fillVariant2()
 	}
